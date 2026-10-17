@@ -10,6 +10,7 @@
 //! error, meaning any other error; 3 partial failure (some records failed,
 //! and they're listed in the manifest or the verify report).
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -246,7 +247,13 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     };
     let records = Records::new(&cache);
     let result = match cmd {
-        Cmd::List(a) => list::run(&records, a.index, a.archive.as_deref(), a.kind),
+        Cmd::List(a) => list::run(
+            &records,
+            a.index,
+            a.archive.as_deref(),
+            a.kind,
+            &mut std::io::stdout().lock(),
+        ),
         Cmd::Dump(a) => dump::run(&records, &a.into()),
         Cmd::Decode(a) => {
             let args = DumpArgs {
@@ -266,10 +273,10 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
             .meta(a.kind, a.id)
             .map_err(anyhow::Error::from)
             .and_then(|m| {
-                println!("{}", serde_json::to_string_pretty(&m)?);
+                writeln!(std::io::stdout(), "{}", serde_json::to_string_pretty(&m)?)?;
                 Ok(Outcome::Ok)
             }),
-        Cmd::Verify => verify::run(&cache),
+        Cmd::Verify => verify::run(&cache, &mut std::io::stdout().lock()),
         // Returned early above.
         #[cfg(feature = "explorer")]
         Cmd::Explorer { .. } => unreachable!(),
@@ -277,6 +284,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     match result {
         Ok(Outcome::Ok) => ExitCode::SUCCESS,
         Ok(Outcome::Partial) => ExitCode::from(3),
+        Err(e) if super::broken_pipe(&e) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
             // A bad selection is a usage error; anything else is 2.

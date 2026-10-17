@@ -12,6 +12,18 @@ pub mod cache;
 mod convert;
 pub mod pack;
 
+/// Whether `e` comes from writing to a stdout nobody's reading any more,
+/// as in `rs2ool cache list | head`. That's not a failure: the reader got
+/// what it wanted, so the command stops quietly and exits 0, like any other
+/// Unix tool. Rust ignores SIGPIPE, so without this the write would just
+/// error (or, through `println!`, panic).
+pub fn broken_pipe(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
 #[cfg(feature = "explorer")]
 pub use explorer::ExplorerArgs;
 

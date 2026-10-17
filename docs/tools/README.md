@@ -63,6 +63,8 @@ The tools only read the cache. They write to the output directory you name and n
 
 A partial failure still writes everything that worked. Scripts that only care about "did anything go wrong" can treat any non-zero code as failure; scripts that convert many records usually want to accept 3 and read the manifest.
 
+If whatever's reading the output stops early, as with `rs2ool cache list | head`, the command stops writing and exits 0, the same as other Unix tools.
+
 ## Logging
 
 Command-line runs log through `tracing` to standard error. Only errors show by default; set `RUST_LOG` (for example `RUST_LOG=warn`) to see more, such as the unknown opcodes decoders skip. The explorer sets up its own logging.

@@ -2,6 +2,8 @@
 //! inflate every file, decode every archive, and compare indices 1–4 with
 //! the versionlist.
 
+use std::io::Write;
+
 use rayon::prelude::*;
 use rs2cache::{Archive, Cache, CacheError, SectorFault, compress, versionlist};
 
@@ -58,14 +60,17 @@ fn ids(list: &[u32]) -> String {
     }
 }
 
-/// Runs the check and prints the report to stdout.
+/// Runs the check and writes the report to `out`.
 ///
 /// Returns [`Outcome::Partial`] when any file is damaged. Files that only
 /// differ from the versionlist aren't damage and don't change the outcome.
-pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
+pub fn run(cache: &Cache, out: &mut impl Write) -> anyhow::Result<Outcome> {
     let versions = cache.versionlist().ok();
     let mut damaged = 0usize;
-    println!("index\tpresent\tabsent\ttruncated\tbad-sector\tinflate-failed\tmodified");
+    writeln!(
+        out,
+        "index\tpresent\tabsent\ttruncated\tbad-sector\tinflate-failed\tmodified"
+    )?;
     let mut details = Vec::new();
     for index in 0..cache.index_count() {
         let n = cache.file_count(index)? as u32;
@@ -99,7 +104,8 @@ pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
             of(Status::InflateFailed),
         );
         let modified: Vec<u32> = results.iter().filter(|r| r.2).map(|r| r.0).collect();
-        println!(
+        writeln!(
+            out,
             "{index}\t{}\t{}\t{}\t{}\t{}\t{}",
             of(Status::Present).len(),
             of(Status::Absent).len(),
@@ -107,7 +113,7 @@ pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
             bad.len(),
             inflate.len(),
             modified.len()
-        );
+        )?;
         damaged += truncated.len() + bad.len() + inflate.len();
         for (what, list) in [
             ("truncated", &truncated),
@@ -126,16 +132,16 @@ pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
         }
     }
     for d in &details {
-        println!("{d}");
+        writeln!(out, "{d}")?;
     }
     if versions.is_none() {
-        println!("versionlist unreadable: modified files not checked");
+        writeln!(out, "versionlist unreadable: modified files not checked")?;
     }
     if damaged > 0 {
-        println!("{damaged} damaged files");
+        writeln!(out, "{damaged} damaged files")?;
         Ok(Outcome::Partial)
     } else {
-        println!("no damaged files");
+        writeln!(out, "no damaged files")?;
         Ok(Outcome::Ok)
     }
 }
