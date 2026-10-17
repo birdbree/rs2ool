@@ -48,3 +48,7 @@ cargo test --workspace
 ```
 
 Unit tests build their inputs synthetically. Tests that need real data read `RS2_CACHE` and skip when it isn't set. See [Testing](docs/development/testing.md).
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
