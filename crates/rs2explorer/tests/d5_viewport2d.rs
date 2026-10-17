@@ -5,13 +5,13 @@
 use std::path::PathBuf;
 
 use bevy_egui::egui;
+use rs2cache::types::record::RecordType;
 use rs2explorer::renderable::Renderable;
 use rs2explorer::selection::{Sel, load};
 use rs2explorer::sources::{Source, open_cache};
 use rs2explorer::viewport2d::{
     GLYPH_GRID, TEXTURE_OPTIONS, UiKind, glyph_sheet, image_rect, sheet_image,
 };
-use rs2intermediate::record::RecordType;
 
 fn cache() -> Option<Source> {
     let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {

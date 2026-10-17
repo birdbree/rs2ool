@@ -5,11 +5,11 @@
 
 use std::path::PathBuf;
 
+use rs2cache::types::record::{Record, RecordType};
 use rs2explorer::playback::{CYCLE_MS, Clock, Posed, posed, sequences, timing};
 use rs2explorer::renderable::Renderable;
 use rs2explorer::selection::{Sel, load};
 use rs2explorer::sources::{Source, open_cache, open_pack};
-use rs2intermediate::record::{Record, RecordType};
 use rs2pack::Kind;
 
 #[test]

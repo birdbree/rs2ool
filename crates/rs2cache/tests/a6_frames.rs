@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use rs2cache::anim::{self, FrameIndex};
 use rs2cache::archive;
 use rs2cache::config::{self, npc::Npc, seq::Seq};
-use rs2intermediate::anim::kind;
+use rs2cache::types::anim::kind;
 
 #[test]
 fn every_pack_decodes_exactly() {

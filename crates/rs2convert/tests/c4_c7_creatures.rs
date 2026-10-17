@@ -156,7 +156,7 @@ fn player_kit_parts_and_stance() {
     let index = cache.frame_index().unwrap();
     let (parts, body) = pipeline::player_kit(&records, &index).unwrap();
     let idk = records
-        .ids(rs2intermediate::record::RecordType::Idk)
+        .ids(rs2cache::types::record::RecordType::Idk)
         .unwrap();
     assert_eq!(parts.len(), idk.len(), "one kit part per idk entry");
     assert!(parts.iter().all(|(p, _)| p.slot < 7 && p.body_type < 2));

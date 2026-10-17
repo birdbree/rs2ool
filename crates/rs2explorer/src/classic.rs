@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 use rs2render::{Framebuffer, LitModel, Textures, light};
 
 use crate::map_view::{ClassicScene, RegionScene};

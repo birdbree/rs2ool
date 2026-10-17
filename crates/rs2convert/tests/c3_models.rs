@@ -6,9 +6,9 @@ mod common;
 
 use rayon::prelude::*;
 use rs2cache::Records;
+use rs2cache::types::record::{Record, RecordType};
 use rs2convert::model::convert;
 use rs2convert::palette::{Palette, corpus};
-use rs2intermediate::record::{Record, RecordType};
 use rs2pack::records::model::PackModel;
 use rs2pack::{Kind, PackReader, PackWriter};
 

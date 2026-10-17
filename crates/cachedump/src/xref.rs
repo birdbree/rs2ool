@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rayon::prelude::*;
 use rs2cache::Records;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 use serde::{Deserialize, Serialize};
 
 use crate::groups;

@@ -1,6 +1,6 @@
 //! `varp.dat`: player variables.
 
-use rs2intermediate::config::VarpDef;
+use crate::types::config::VarpDef;
 
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};

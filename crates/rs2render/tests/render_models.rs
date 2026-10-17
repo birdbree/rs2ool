@@ -6,8 +6,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
-use rs2intermediate::record::{Record, RecordType};
 use rs2render::light::{NPC, OBJECT};
 use rs2render::{Camera, Framebuffer, Textures, light, render};
 

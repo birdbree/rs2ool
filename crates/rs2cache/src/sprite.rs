@@ -11,7 +11,7 @@
 //! records run until the next entry's block in `index.dat` (or its end), and
 //! the decoder checks that the pixel bytes are used exactly.
 
-use rs2intermediate::sprite::{Font, Sprite, SpriteSheet};
+use crate::types::sprite::{Font, Sprite, SpriteSheet};
 use thiserror::Error;
 
 use crate::archive::{Archive, Entry};

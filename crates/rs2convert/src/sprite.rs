@@ -4,9 +4,9 @@
 //! `s << 8 | i`; font `f` glyph `g` is `GLYPH_BASE | f << 8 | g` and its
 //! metrics `METRICS_BASE | f`.
 
+use rs2cache::types::record::{Record, RecordType};
+use rs2cache::types::sprite::SpriteSheet;
 use rs2cache::{Records, archive};
-use rs2intermediate::record::{Record, RecordType};
-use rs2intermediate::sprite::SpriteSheet;
 use rs2pack::records::sprite::{FontMetrics, SpriteRecord};
 use rs2pack::{Kind, PackWriter};
 

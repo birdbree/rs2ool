@@ -6,7 +6,7 @@
 //! hasVertexLabels u8, xLen u16, yLen u16, zLen u16, faceIndexLen u16`.
 //! Sections run from offset 0 in the order [`Layout::compute`] gives.
 
-use rs2intermediate::model::Model;
+use crate::types::model::Model;
 use thiserror::Error;
 
 use crate::io::{Cursor, IoError};
@@ -259,7 +259,7 @@ pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
 pub(crate) mod synth {
     //! Encode models for tests.
 
-    use rs2intermediate::model::Model;
+    use crate::types::model::Model;
 
     fn signed_smart(out: &mut Vec<u8>, v: i32) {
         if (-64..64).contains(&v) {

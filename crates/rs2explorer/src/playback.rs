@@ -291,7 +291,7 @@ fn apply(
     pose_side(right.renderable.as_ref(), &shown.compare);
     classic.pose = main.and_then(|(r, p)| match (r.model(), p) {
         (Some(m), Posed::Cache(v)) => {
-            let model = rs2intermediate::model::Model {
+            let model = rs2cache::types::model::Model {
                 vertices: v.clone(),
                 ..m.clone()
             };

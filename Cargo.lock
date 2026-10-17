@@ -2251,7 +2251,6 @@ dependencies = [
  "indicatif",
  "rayon",
  "rs2cache",
- "rs2intermediate",
  "serde",
  "serde_json",
  "tracing",
@@ -5393,7 +5392,7 @@ dependencies = [
  "insta",
  "memmap2",
  "proptest",
- "rs2intermediate",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tracing",
@@ -5408,7 +5407,6 @@ dependencies = [
  "image",
  "rs2cache",
  "rs2convert",
- "rs2intermediate",
  "rs2pack",
  "serde",
  "serde_json",
@@ -5424,7 +5422,6 @@ dependencies = [
  "glam 0.29.3",
  "rayon",
  "rs2cache",
- "rs2intermediate",
  "rs2pack",
  "serde",
  "serde_json",
@@ -5445,18 +5442,10 @@ dependencies = [
  "rfd",
  "rs2cache",
  "rs2convert",
- "rs2intermediate",
  "rs2pack",
  "rs2render",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "rs2intermediate"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -5477,7 +5466,6 @@ version = "0.1.0"
 dependencies = [
  "rs2cache",
  "rs2convert",
- "rs2intermediate",
  "rs2pack",
 ]
 

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use rayon::prelude::*;
 use rs2cache::Records;
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
 use rs2pack::palette::{hsl_to_rgb, kmeans, nearest, rgb_distance, split};
 use rs2pack::records::material::{self, Material, mode};
 use rs2pack::{Kind, PackWriter};

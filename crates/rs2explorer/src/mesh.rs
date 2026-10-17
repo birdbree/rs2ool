@@ -3,7 +3,7 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
-use rs2intermediate::model::Model;
+use rs2cache::types::model::Model;
 use rs2pack::palette::{hsl_to_rgb, split};
 use rs2pack::records::model::PackModel;
 

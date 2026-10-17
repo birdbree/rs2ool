@@ -4,8 +4,8 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
-use rs2intermediate::config::{FloDef, LocDef};
-use rs2intermediate::map::{Location, Plane, REGION_SIZE, Region};
+use rs2cache::types::config::{FloDef, LocDef};
+use rs2cache::types::map::{Location, Plane, REGION_SIZE, Region};
 use rs2pack::palette::split;
 
 /// World units per tile.
@@ -127,8 +127,8 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2cache::Records;
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
 
 use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData, Sel, Selected};

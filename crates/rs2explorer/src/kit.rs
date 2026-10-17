@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy_egui::egui;
 use rs2cache::Records;
+use rs2cache::types::model::Model;
 use rs2convert::creature::{self, Creature};
 use rs2convert::pipeline::{self, KitPart};
-use rs2intermediate::model::Model;
 
 use crate::renderable::Renderable;
 use crate::selection::{Loaded, Sel, Selected};

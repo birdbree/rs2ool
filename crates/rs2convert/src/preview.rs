@@ -4,9 +4,9 @@
 //! parts merged; spot animations recoloured and scaled.
 
 use rs2cache::Records;
-use rs2intermediate::config::Recolour;
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::config::Recolour;
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
 
 use crate::ConvertError;
 use crate::creature::{merge, recolour};
@@ -82,7 +82,7 @@ pub fn model_for(records: &Records, record: &Record) -> Result<Option<Model>, Co
 /// untyped models) the merged models when the type is 10 or 11.
 pub fn location_model(
     records: &Records,
-    def: &rs2intermediate::config::LocDef,
+    def: &rs2cache::types::config::LocDef,
     kind: u8,
 ) -> Result<Option<Model>, ConvertError> {
     let untyped = def.models.iter().all(|m| m.kind.is_none());

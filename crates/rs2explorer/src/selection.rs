@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use rs2intermediate::record::{Meta, Record, RecordType};
+use rs2cache::types::record::{Meta, Record, RecordType};
 
 use crate::renderable::{Renderable, States, load_renderable, load_states};
 use crate::sources::{Source, Sources, detach};

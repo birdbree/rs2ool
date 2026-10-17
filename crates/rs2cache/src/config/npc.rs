@@ -1,6 +1,6 @@
 //! `npc.dat`.
 
-use rs2intermediate::config::NpcDef;
+use crate::types::config::NpcDef;
 
 use super::{ConfigType, action, morph, opcodes, recolours};
 use crate::io::{Cursor, IoError};

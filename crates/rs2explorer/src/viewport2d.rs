@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2cache::Records;
-use rs2intermediate::interface::{Content, Interface, SpriteRef};
-use rs2intermediate::record::{Record, RecordType};
-use rs2intermediate::sprite::{Font, SpriteSheet};
+use rs2cache::types::interface::{Content, Interface, SpriteRef};
+use rs2cache::types::record::{Record, RecordType};
+use rs2cache::types::sprite::{Font, SpriteSheet};
 
 use crate::renderable::Renderable;
 use crate::selection::Loaded;
@@ -727,7 +727,7 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rs2intermediate::sprite::Sprite;
+    use rs2cache::types::sprite::Sprite;
 
     #[test]
     fn zoomed_images_cover_whole_physical_pixels() {

@@ -1,7 +1,7 @@
 //! Model conversion: 317 model → `models` record.
 
 use glam::DVec3;
-use rs2intermediate::model::Model;
+use rs2cache::types::model::Model;
 use rs2pack::records::model::PackModel;
 
 use crate::palette::{Palette, is_textured};

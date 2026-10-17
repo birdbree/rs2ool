@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Context;
-use rs2intermediate::record::{Meta, Source};
+use rs2cache::types::record::{Meta, Source};
 use serde::Serialize;
 
 /// One written file.

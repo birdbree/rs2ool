@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use rs2intermediate::anim::{BaseTransform, Frame, FramePack, FrameTransform, kind};
+use crate::types::anim::{BaseTransform, Frame, FramePack, FrameTransform, kind};
 use thiserror::Error;
 
 use crate::io::{Cursor, IoError};

@@ -4,9 +4,9 @@
 mod common;
 
 use rs2cache::Records;
+use rs2cache::types::record::RecordType;
 use rs2convert::palette::Palette;
 use rs2convert::{floor, material_id};
-use rs2intermediate::record::RecordType;
 use rs2pack::PackReader;
 use rs2pack::records::material::{Material, flags, mode};
 use rs2pack::records::strings;

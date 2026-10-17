@@ -5,7 +5,7 @@
 //! `parent u16, id u16`. The common header and type-specific blocks follow
 //! the 317 client's `RSInterface.unpack`.
 
-use rs2intermediate::interface::{Child, Condition, Content, Interface, SpriteRef, TextStyle};
+use crate::types::interface::{Child, Condition, Content, Interface, SpriteRef, TextStyle};
 use thiserror::Error;
 
 use crate::io::{Cursor, IoError};

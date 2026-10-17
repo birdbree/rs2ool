@@ -8,7 +8,6 @@ publish.workspace = true
 
 [dependencies]
 rs2cache.workspace = true
-rs2intermediate.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 crc32fast.workspace = true

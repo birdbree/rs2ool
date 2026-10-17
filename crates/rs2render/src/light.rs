@@ -2,7 +2,7 @@
 //! colour from the face normal; smooth faces sum the unit face normals at
 //! each vertex and light each corner; textured faces get a 0–127 shade.
 
-use rs2intermediate::model::Model;
+use rs2cache::types::model::Model;
 
 /// Ambient, contrast and the light direction (cache coordinates).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

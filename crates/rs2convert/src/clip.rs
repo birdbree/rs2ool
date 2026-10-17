@@ -16,7 +16,7 @@
 use std::f64::consts::TAU;
 
 use glam::{DAffine3, DMat3, DVec3};
-use rs2intermediate::anim::{Frame, FramePack, kind};
+use rs2cache::types::anim::{Frame, FramePack, kind};
 use rs2pack::records::anim::{Clip, Key, NO_LOOP};
 
 use crate::ConvertError;
@@ -161,19 +161,19 @@ pub fn bone_transforms(
 fn apply_with_origin(
     verts: &mut [[i32; 3]],
     groups: &Groups,
-    base: &[rs2intermediate::anim::BaseTransform],
+    base: &[rs2cache::types::anim::BaseTransform],
     f: &Frame,
     origin: [i32; 3],
 ) {
     // Prepend a synthetic origin op on an empty label set, which sets the
     // origin to exactly its offset.
     let mut base = base.to_vec();
-    base.push(rs2intermediate::anim::BaseTransform {
+    base.push(rs2cache::types::anim::BaseTransform {
         kind: kind::ORIGIN,
         labels: Vec::new(),
     });
     let o = (base.len() - 1) as u8;
-    let mut transforms = vec![rs2intermediate::anim::FrameTransform {
+    let mut transforms = vec![rs2cache::types::anim::FrameTransform {
         transform: o,
         dx: origin[0],
         dy: origin[1],

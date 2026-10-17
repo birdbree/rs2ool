@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
+use rs2cache::types::record::RecordType;
 use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Source, Sources};
 use rs2explorer::viewport3d::Compare;
@@ -15,7 +16,6 @@ use rs2explorer::{
     actions, classic, jobs, kit, map_view, playback, selection, sources, tree, ui, viewport2d,
     viewport3d,
 };
-use rs2intermediate::record::RecordType;
 
 /// `rs2explorer [cache-dir] [--pack file]... [--select type:id|kit] [--compare]
 /// [--classic]`: open a cache (default `RS2_CACHE`) and any packs at

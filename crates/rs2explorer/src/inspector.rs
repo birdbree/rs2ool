@@ -95,7 +95,7 @@ pub fn sections(data: &LoadedData) -> (Rows, Rows) {
 pub fn raw_bytes(data: &LoadedData) -> Option<&[u8]> {
     match data {
         LoadedData::Record { record, .. } => match &**record {
-            rs2intermediate::record::Record::Midi(b) => Some(b),
+            rs2cache::types::record::Record::Midi(b) => Some(b),
             _ => None,
         },
         LoadedData::Pack { bytes, .. } => Some(bytes),
@@ -153,10 +153,10 @@ mod tests {
 /// The record type a field of `of` refers to, by its flattened key (array
 /// indices removed), if it is a reference.
 pub fn link_type(
-    of: rs2intermediate::record::RecordType,
+    of: rs2cache::types::record::RecordType,
     key: &str,
-) -> Option<rs2intermediate::record::RecordType> {
-    use rs2intermediate::record::RecordType as T;
+) -> Option<rs2cache::types::record::RecordType> {
+    use rs2cache::types::record::RecordType as T;
     let mut k = String::with_capacity(key.len());
     let mut skip = false;
     for c in key.chars() {
@@ -212,7 +212,7 @@ pub fn link_ids(value: &str) -> Vec<u32> {
 #[cfg(test)]
 mod link_tests {
     use super::*;
-    use rs2intermediate::record::RecordType as T;
+    use rs2cache::types::record::RecordType as T;
 
     #[test]
     fn references_resolve() {

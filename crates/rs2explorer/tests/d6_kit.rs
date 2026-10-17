@@ -4,10 +4,10 @@
 
 use std::path::PathBuf;
 
+use rs2cache::types::record::{Record, RecordType};
 use rs2explorer::kit::{SLOT_KIT, load_base};
 use rs2explorer::renderable::Renderable;
 use rs2explorer::sources::{Source, open_cache};
-use rs2intermediate::record::{Record, RecordType};
 
 fn faces(r: &Renderable) -> usize {
     r.model().map_or(0, |m| m.faces.len())

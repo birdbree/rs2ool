@@ -5,11 +5,11 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use rs2cache::types::record::RecordType;
 use rs2explorer::inspector;
 use rs2explorer::selection::{self, Loaded, Sel, Selected};
 use rs2explorer::sources::{self, Kind, Sources};
 use rs2explorer::tree::{self, ListKey, Lists};
-use rs2intermediate::record::RecordType;
 
 fn pump(app: &mut App, done: impl Fn(&World) -> bool) {
     for _ in 0..200_000 {

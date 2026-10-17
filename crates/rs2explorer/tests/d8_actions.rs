@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use rs2cache::types::record::RecordType;
 use rs2explorer::actions::{ConvertTarget, convert, decoded, dump};
 use rs2explorer::sources::{Kind, Source, open_cache};
-use rs2intermediate::record::RecordType;
 
 /// Every file under `dir`, by path relative to it.
 fn tree(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {

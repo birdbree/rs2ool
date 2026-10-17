@@ -7,11 +7,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-rs2intermediate.workspace = true
+rs2cache.workspace = true
 rs2pack.workspace = true
 
 [dev-dependencies]
-rs2cache.workspace = true
 rs2convert.workspace = true
 
 [lints]

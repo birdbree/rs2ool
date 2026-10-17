@@ -6,12 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
+use rs2cache::types::sprite::{Font, SpriteSheet};
 use rs2convert::creature::{self, Creature};
 use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
-use rs2intermediate::sprite::{Font, SpriteSheet};
 use rs2pack::records::anim::Clip;
 use rs2pack::records::material::{PALETTE_ID, decode_palette};
 use rs2pack::records::model::PackModel;

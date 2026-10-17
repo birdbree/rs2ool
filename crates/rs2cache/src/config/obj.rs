@@ -1,6 +1,6 @@
 //! `obj.dat`: items.
 
-use rs2intermediate::config::{ObjDef, StackVariant};
+use crate::types::config::{ObjDef, StackVariant};
 
 use super::{ConfigType, action, opcodes, recolours};
 use crate::io::{Cursor, IoError};

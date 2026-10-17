@@ -1,6 +1,6 @@
 //! `flo.dat`: floor (underlay and overlay) types.
 
-use rs2intermediate::config::FloDef;
+use crate::types::config::FloDef;
 
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};

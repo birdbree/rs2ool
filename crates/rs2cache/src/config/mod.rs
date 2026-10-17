@@ -20,7 +20,7 @@ pub mod spotanim;
 pub mod varbit;
 pub mod varp;
 
-use rs2intermediate::config::{Morph, Recolour};
+use crate::types::config::{Morph, Recolour};
 use thiserror::Error;
 
 use crate::archive::{self, Archive};

@@ -12,8 +12,8 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy_egui::egui;
 use cachedump::{DumpArgs, IdArgs, OutArgs, SourceArgs};
 use rs2cache::Records;
+use rs2cache::types::record::RecordType;
 use rs2convert::run;
-use rs2intermediate::record::RecordType;
 use serde::{Deserialize, Serialize};
 
 use crate::jobs::{Done, Jobs};

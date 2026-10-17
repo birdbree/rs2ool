@@ -6,7 +6,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use rs2intermediate::record::RecordType;
+use rs2cache::types::record::RecordType;
 
 use crate::actions::{Actions, Settings, actions_menu};
 use crate::classic::{ClassicView, RenderMode};

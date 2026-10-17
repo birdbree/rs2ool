@@ -1,6 +1,6 @@
 //! `seq.dat`: animation sequences.
 
-use rs2intermediate::config::{SeqDef, SeqFrame};
+use crate::types::config::{SeqDef, SeqFrame};
 
 use super::{ConfigType, opcodes, opt_u16};
 use crate::io::{Cursor, IoError};

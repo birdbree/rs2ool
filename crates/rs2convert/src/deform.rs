@@ -5,8 +5,8 @@
 
 use std::sync::OnceLock;
 
-use rs2intermediate::anim::{BaseTransform, Frame, kind};
-use rs2intermediate::model::Model;
+use rs2cache::types::anim::{BaseTransform, Frame, kind};
+use rs2cache::types::model::Model;
 
 /// The client's 2048-entry sine and cosine tables (16.16 fixed point).
 fn tables() -> &'static ([i32; 2048], [i32; 2048]) {
@@ -173,7 +173,7 @@ pub fn apply_scale(vertices: &mut [[i32; 3]], scale: [i32; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rs2intermediate::anim::FrameTransform;
+    use rs2cache::types::anim::FrameTransform;
 
     #[test]
     fn tables_match_the_client_at_key_angles() {

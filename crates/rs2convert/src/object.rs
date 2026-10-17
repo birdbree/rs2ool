@@ -6,9 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rayon::prelude::*;
 use rs2cache::Records;
-use rs2intermediate::config::LocDef;
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::config::LocDef;
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
 use rs2pack::records::object::{
     self, KitRecord, ObjectRecord, State, Transition, collision, kit_kind, layer, placement,
 };

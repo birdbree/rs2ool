@@ -7,8 +7,8 @@ mod common;
 
 use std::collections::BTreeMap;
 
+use rs2cache::types::interface::Content;
 use rs2cache::{archive, interface, sprite};
-use rs2intermediate::interface::Content;
 
 #[test]
 fn media_and_title_sprites() {

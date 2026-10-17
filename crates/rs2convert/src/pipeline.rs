@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use rs2cache::Records;
 use rs2cache::anim::FrameIndex;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 use rs2pack::records::anim::Clip;
 use rs2pack::records::model::PackModel;
 use rs2pack::records::rig::Rig;
@@ -168,9 +168,9 @@ pub struct KitPart {
 pub fn player_kit(
     records: &Records,
     index: &FrameIndex,
-) -> Result<(Vec<(KitPart, rs2intermediate::model::Model)>, Creature), ConvertError> {
+) -> Result<(Vec<(KitPart, rs2cache::types::model::Model)>, Creature), ConvertError> {
     let mut parts = Vec::new();
-    let mut default: BTreeMap<u8, rs2intermediate::model::Model> = BTreeMap::new();
+    let mut default: BTreeMap<u8, rs2cache::types::model::Model> = BTreeMap::new();
     for id in records.ids(RecordType::Idk)? {
         let Record::Idk(d) = records.decode(RecordType::Idk, id)? else {
             unreachable!()

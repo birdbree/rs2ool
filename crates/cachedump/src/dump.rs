@@ -6,10 +6,10 @@ use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use rs2cache::record::{entry_file, index_file, is_absent, summarize};
+use rs2cache::types::interface::Content;
+use rs2cache::types::record::{Meta, Record, RecordType, Source, TypeSummary};
+use rs2cache::types::sprite::Font;
 use rs2cache::{EntryName, Records, archive, compress, sprite};
-use rs2intermediate::interface::Content;
-use rs2intermediate::record::{Meta, Record, RecordType, Source, TypeSummary};
-use rs2intermediate::sprite::Font;
 use serde_json::Value;
 
 use crate::output::{MetaMode, Output, Provenance};
@@ -232,7 +232,7 @@ fn dump_one(ctx: &Ctx, t: RecordType, id: u32) -> anyhow::Result<Option<String>>
     match &record {
         Record::Texture(s) => {
             let full = s.untrimmed(0).context("texture has no sprite")?;
-            let sheet = rs2intermediate::sprite::SpriteSheet {
+            let sheet = rs2cache::types::sprite::SpriteSheet {
                 sprites: vec![full],
                 ..s.clone()
             };
@@ -326,7 +326,7 @@ fn write_interface_tree(ctx: &Ctx, ids: &[u32]) -> anyhow::Result<()> {
         }
     }
     fn node(
-        all: &BTreeMap<u16, rs2intermediate::interface::Interface>,
+        all: &BTreeMap<u16, rs2cache::types::interface::Interface>,
         id: u16,
         depth: usize,
     ) -> Value {

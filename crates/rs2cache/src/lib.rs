@@ -1,6 +1,6 @@
 //! Reader for the RuneScape 2 revision-317 cache: sector chains, jag
-//! archives, and every record decoder. Everything decoded is returned as an
-//! `rs2intermediate` struct.
+//! archives, and every record decoder. Everything decoded is returned as a
+//! plain `serde` struct from [`types`].
 
 pub mod anim;
 pub mod archive;
@@ -13,6 +13,7 @@ pub mod map;
 pub mod model;
 pub mod record;
 pub mod sprite;
+pub mod types;
 pub mod versionlist;
 
 pub use archive::{Archive, ArchiveError, EntryName};
@@ -56,7 +57,7 @@ pub enum Error {
     Interface(interface::InterfaceError),
     #[error("there is no {kind} {id}")]
     NoRecord {
-        kind: rs2intermediate::record::RecordType,
+        kind: crate::types::record::RecordType,
         id: u32,
     },
 }
@@ -70,12 +71,12 @@ impl Cache {
     }
 
     /// Read and decode model `id` from index 1.
-    pub fn model(&self, id: u32) -> Result<rs2intermediate::model::Model, Error> {
+    pub fn model(&self, id: u32) -> Result<crate::types::model::Model, Error> {
         model::decode(&self.read(1, id)?).map_err(|source| Error::Model { id, source })
     }
 
     /// Read and decode frame pack `id` from index 2.
-    pub fn frame_pack(&self, id: u32) -> Result<rs2intermediate::anim::FramePack, Error> {
+    pub fn frame_pack(&self, id: u32) -> Result<crate::types::anim::FramePack, Error> {
         anim::decode(&self.read(2, id)?).map_err(|source| Error::Anim { id, source })
     }
 
@@ -94,7 +95,7 @@ impl Cache {
     }
 
     /// The versionlist tables (versions, CRCs, model/anim/midi indices).
-    pub fn versionlist(&self) -> Result<rs2intermediate::versionlist::VersionList, Error> {
+    pub fn versionlist(&self) -> Result<crate::types::versionlist::VersionList, Error> {
         let v = self.archive(archive::VERSIONLIST)?;
         versionlist::decode(&v).map_err(|e| Error::Archive {
             archive: archive::VERSIONLIST,
@@ -118,10 +119,7 @@ impl Cache {
     }
 
     /// Decode the region a `map_index` entry names.
-    pub fn region_for(
-        &self,
-        e: &map::MapIndexEntry,
-    ) -> Result<rs2intermediate::map::Region, Error> {
+    pub fn region_for(&self, e: &map::MapIndexEntry) -> Result<crate::types::map::Region, Error> {
         let tiles = self.read(4, e.tile_file.into())?;
         let locs = self.read(4, e.location_file.into())?;
         map::decode(e, &tiles, &locs).map_err(|source| Error::Map {
@@ -132,7 +130,7 @@ impl Cache {
     }
 
     /// Decode region `(x, y)`.
-    pub fn region(&self, x: u8, y: u8) -> Result<rs2intermediate::map::Region, Error> {
+    pub fn region(&self, x: u8, y: u8) -> Result<crate::types::map::Region, Error> {
         let id = u16::from(x) << 8 | u16::from(y);
         let e = self
             .map_index()?

@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use rs2cache::Records;
-use rs2intermediate::config::SeqDef;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::config::SeqDef;
+use rs2cache::types::record::{Record, RecordType};
 
 use crate::select::usage;
 

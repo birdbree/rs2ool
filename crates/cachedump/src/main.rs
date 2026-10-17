@@ -8,8 +8,8 @@ use std::process::ExitCode;
 
 use cachedump::{DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, select, verify};
 use clap::{Args, Parser, Subcommand};
+use rs2cache::types::record::RecordType;
 use rs2cache::{Cache, Records};
-use rs2intermediate::record::RecordType;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

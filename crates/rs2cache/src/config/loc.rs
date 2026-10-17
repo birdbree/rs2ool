@@ -1,6 +1,6 @@
 //! `loc.dat`: world objects.
 
-use rs2intermediate::config::{LocDef, LocModel};
+use crate::types::config::{LocDef, LocModel};
 
 use super::{ConfigType, action, morph, opcodes, opt_u16, recolours};
 use crate::io::{Cursor, IoError};
@@ -139,7 +139,7 @@ impl ConfigType for Loc {
 mod tests {
     use super::*;
     use crate::config::synth::Ops;
-    use rs2intermediate::config::Recolour;
+    use crate::types::config::Recolour;
 
     #[test]
     fn every_opcode() {

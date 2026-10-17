@@ -1,6 +1,6 @@
 //! `spotanim.dat`: graphic effects.
 
-use rs2intermediate::config::SpotAnimDef;
+use crate::types::config::SpotAnimDef;
 
 use super::{ConfigType, opcodes, paired_recolours};
 use crate::io::{Cursor, IoError};

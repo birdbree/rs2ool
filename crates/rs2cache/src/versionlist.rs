@@ -6,7 +6,7 @@
 //! over the bytes before it. `model_index` and `midi_index` are a byte per
 //! file; `anim_index` a `u16` per global frame id.
 
-use rs2intermediate::versionlist::{FileTable, VersionList};
+use crate::types::versionlist::{FileTable, VersionList};
 
 use crate::archive::Archive;
 use crate::io::{Cursor, IoError};

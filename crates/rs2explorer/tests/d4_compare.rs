@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use rs2cache::types::record::RecordType;
 use rs2explorer::mesh;
 use rs2explorer::renderable::{Renderable, find_match};
 use rs2explorer::selection::{CompareSelected, Sel, Selected, load};
 use rs2explorer::sources::{Source, Sources, open_cache, open_pack};
 use rs2explorer::ui::ViewportRect;
 use rs2explorer::viewport3d::{self, Compare, ComparePane, OrbitCamera, renderable_parts};
-use rs2intermediate::record::RecordType;
 use rs2pack::Kind;
 
 /// The union of a renderable's raw-shaded part bounds.

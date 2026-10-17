@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
+use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
-use rs2intermediate::record::{Record, RecordType};
 use rs2pack::{Kind, PackWriter};
 
 use crate::palette::{Palette, PaletteError, corpus};

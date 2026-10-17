@@ -1,6 +1,6 @@
 //! `idk.dat`: identity-kit parts (player body parts).
 
-use rs2intermediate::config::IdkDef;
+use crate::types::config::IdkDef;
 
 use super::{ConfigType, opcodes, paired_recolours};
 use crate::io::{Cursor, IoError};
@@ -55,7 +55,7 @@ impl ConfigType for Idk {
 mod tests {
     use super::*;
     use crate::config::synth::Ops;
-    use rs2intermediate::config::Recolour;
+    use crate::types::config::Recolour;
 
     #[test]
     fn every_opcode() {

@@ -8,14 +8,14 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::anim::FramePack;
-use crate::config::{
+use crate::types::anim::FramePack;
+use crate::types::config::{
     FloDef, IdkDef, LocDef, NpcDef, ObjDef, SeqDef, SpotAnimDef, VarbitDef, VarpDef,
 };
-use crate::interface::Interface;
-use crate::map::Region;
-use crate::model::Model;
-use crate::sprite::{Font, SpriteSheet};
+use crate::types::interface::Interface;
+use crate::types::map::Region;
+use crate::types::model::Model;
+use crate::types::sprite::{Font, SpriteSheet};
 
 macro_rules! record_types {
     ($($variant:ident => $name:literal),* $(,)?) => {

@@ -4,8 +4,8 @@
 
 mod common;
 
+use rs2cache::types::record::{Meta, RecordType, TypeSummary};
 use rs2cache::{decode_any, ids, meta};
-use rs2intermediate::record::{Meta, RecordType, TypeSummary};
 
 #[test]
 fn every_type_decodes_and_summarises() {

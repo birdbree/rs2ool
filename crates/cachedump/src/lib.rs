@@ -12,7 +12,7 @@ pub mod xref;
 
 use std::path::PathBuf;
 
-use rs2intermediate::record::RecordType;
+use rs2cache::types::record::RecordType;
 
 /// Which ids to take: one, an inclusive range, or all.
 #[derive(Debug, Clone, Default)]

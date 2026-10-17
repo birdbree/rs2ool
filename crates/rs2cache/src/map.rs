@@ -9,7 +9,7 @@
 //! positions `plane << 12 | x << 6 | y`, then an attribute byte
 //! `type << 2 | rotation`.
 
-use rs2intermediate::map::{Location, Plane, REGION_SIZE, Region};
+use crate::types::map::{Location, Plane, REGION_SIZE, Region};
 use thiserror::Error;
 
 use crate::io::{Cursor, IoError};

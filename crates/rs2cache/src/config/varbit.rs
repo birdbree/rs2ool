@@ -1,6 +1,6 @@
 //! `varbit.dat`: bit ranges of player variables.
 
-use rs2intermediate::config::VarbitDef;
+use crate::types::config::VarbitDef;
 
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};

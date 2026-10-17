@@ -4,10 +4,10 @@
 
 mod common;
 
+use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
 use rs2convert::sprite;
 use rs2convert::texture::{TextureAtlas, images};
-use rs2intermediate::record::{Record, RecordType};
 use rs2pack::PackReader;
 use rs2pack::records::sprite::{FontMetrics, SpriteRecord};
 use rs2pack::records::texture::{ATLAS_BASE, Atlas, TextureRect};

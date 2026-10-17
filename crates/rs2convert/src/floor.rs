@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use rs2cache::Records;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 use rs2pack::records::material::{Material, flags, mode};
 use rs2pack::records::strings;
 use rs2pack::{Kind, PackWriter};

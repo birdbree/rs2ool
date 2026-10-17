@@ -2,7 +2,7 @@
 //! packing, plus a texture-mode material per texture.
 
 use rs2cache::Records;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 use rs2pack::records::material::{Material, mode};
 use rs2pack::records::texture::{ATLAS_BASE, Atlas, TextureRect, flags};
 use rs2pack::{Kind, PackWriter};
@@ -30,7 +30,7 @@ pub fn images(records: &Records) -> Result<Vec<TextureImage>, ConvertError> {
         let full = sheet
             .untrimmed(0)
             .ok_or_else(|| ConvertError::Invalid(format!("texture {id} has no sprite")))?;
-        let padded = rs2intermediate::sprite::SpriteSheet {
+        let padded = rs2cache::types::sprite::SpriteSheet {
             sprites: vec![full],
             ..sheet
         };

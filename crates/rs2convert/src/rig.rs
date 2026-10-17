@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use glam::DVec3;
-use rs2intermediate::anim::kind;
+use rs2cache::types::anim::kind;
 use rs2pack::records::rig::{Bone, NO_PARENT, Rig, UNBOUND};
 use serde::Serialize;
 

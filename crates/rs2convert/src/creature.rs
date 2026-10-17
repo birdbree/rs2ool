@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rs2cache::Records;
 use rs2cache::anim::FrameIndex;
-use rs2intermediate::anim::{Frame, FramePack};
-use rs2intermediate::config::{Recolour, SeqDef};
-use rs2intermediate::model::Model;
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::anim::{Frame, FramePack};
+use rs2cache::types::config::{Recolour, SeqDef};
+use rs2cache::types::model::Model;
+use rs2cache::types::record::{Record, RecordType};
 
 use crate::ConvertError;
 

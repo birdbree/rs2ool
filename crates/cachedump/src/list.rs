@@ -1,7 +1,7 @@
 //! `cachedump list`.
 
+use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
-use rs2intermediate::record::{Record, RecordType};
 
 use crate::Outcome;
 use crate::select::usage;

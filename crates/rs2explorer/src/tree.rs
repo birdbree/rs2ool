@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use rs2intermediate::record::{Record, RecordType};
+use rs2cache::types::record::{Record, RecordType};
 
 use crate::sources::Source;
 

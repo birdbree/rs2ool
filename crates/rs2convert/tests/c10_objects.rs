@@ -6,9 +6,9 @@
 mod common;
 
 use rs2cache::Records;
+use rs2cache::types::record::{Record, RecordType};
 use rs2convert::object;
 use rs2convert::palette::Palette;
-use rs2intermediate::record::{Record, RecordType};
 use rs2pack::PackReader;
 use rs2pack::records::object::{KitRecord, ObjectRecord, layer};
 

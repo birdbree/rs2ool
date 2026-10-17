@@ -13,9 +13,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use rs2intermediate::interface::{Content, Interface};
-use rs2intermediate::record::{FileMeta, Meta, Record, RecordType, Source, TypeSummary};
-use rs2intermediate::sprite::SpriteSheet;
+use crate::types::interface::{Content, Interface};
+use crate::types::record::{FileMeta, Meta, Record, RecordType, Source, TypeSummary};
+use crate::types::sprite::SpriteSheet;
 
 use crate::archive::{self, Archive, Entry, EntryName};
 use crate::config::{
