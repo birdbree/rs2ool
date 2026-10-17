@@ -78,7 +78,7 @@ Recolour pairs are kept as palette-index pairs, not applied to the geometry. Bot
 
 A definition that has at least one model on the wall layer (types 0–3 and 9) also gets a `kits` record with the same id:
 
-- `materialId`: `2000 + definition id` (truncated to 16 bits). No conversion writes a material with that id.
+- `materialId`: 0, the palette material. The kit's models already carry their own palette indices and texture slots, so that's the material their faces use.
 - `kind`: 0 (wall).
 - entries: for each wall-layer model and each rotation 0–3, the key `type << 2 | rotation`, all four pointing at that model's record.
 

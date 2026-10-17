@@ -79,6 +79,8 @@ fn every_object_converts() {
             )
             .unwrap();
             assert!(!k.variants.is_empty());
+            // A material that exists: the palette material `pack materials` writes.
+            assert_eq!(k.material, rs2convert::material_id::PALETTE);
         }
     }
     eprintln!(

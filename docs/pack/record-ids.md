@@ -43,7 +43,7 @@ A `materials` record's id is its material id, except for the palette:
 
 Material ids are `u16`. A model face names its material through a `u8` slot, so only materials below 256 (the palette material and the texture materials) can appear on model faces. Floor materials are referred to by id from the `floors` table below.
 
-Wall kits use material id `2000 + loc` for location definition `loc`. That id appears only in [kit records](kits.md); no `materials` record is written for it.
+[Kit records](kits.md) name material 0, the palette material, since their models' faces carry their own colours.
 
 ## textures
 

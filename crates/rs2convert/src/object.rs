@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! model record   OBJECT_MODEL | loc << 4 | index    (index < 16)
-//! kit material   KIT_MATERIAL + loc
+//! kit material   material_id::PALETTE (faces carry their own colours)
 //! kit variant    key = type << 2 | rotation (0–3), one per wall model
 //! strings        STRINGS_DOMAIN << 8 | locale       (locale 0)
 //! ```
@@ -24,12 +24,10 @@ use rs2cache::types::record::{Record, RecordType};
 
 use crate::creature::merge;
 use crate::palette::Palette;
-use crate::{ConvertError, model};
+use crate::{ConvertError, material_id, model};
 
 /// Base of the object model record ids: `OBJECT_MODEL | loc << 4 | index`.
 pub const OBJECT_MODEL: u32 = 0x4000_0000;
-/// Wall kits use synthetic material `KIT_MATERIAL + loc`.
-pub const KIT_MATERIAL: u16 = 2000;
 /// String-table domain for objects (records `domain << 8 | locale`).
 pub const STRINGS_DOMAIN: u32 = 2;
 
@@ -294,8 +292,11 @@ pub fn convert(
             })
             .collect();
         if !walls.is_empty() {
+            // The wall models' faces already carry their palette indices
+            // and texture slots, so the kit's material is the shared
+            // palette material that every untextured face uses.
             let kit = KitRecord {
-                material: KIT_MATERIAL + id as u16,
+                material: material_id::PALETTE,
                 kind: kit_kind::WALL,
                 variants: walls,
             };

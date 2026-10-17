@@ -30,7 +30,7 @@ The decoder rejects a record that ends early or has bytes left over, and checks 
 `rs2ool pack objects` writes only wall kits. For each location definition it converts that has at least one wall-layer model (location types 0–3 and 9, see [Objects](objects.md#layers)):
 
 - The record id is the location id.
-- `materialId` is `2000 + loc`. No `materials` record carries that id ([Record ids](record-ids.md#materials)).
+- `materialId` is 0, the palette material ([Record ids](record-ids.md#materials)). The wall models' faces already carry their own palette indices and texture slots, so that's the material they use.
 - `kind` is 0 (`WALL`).
 - Each wall-layer model contributes four entries, one per rotation `r` from 0 to 3, all naming the same model record:
 
