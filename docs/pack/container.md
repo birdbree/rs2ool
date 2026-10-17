@@ -59,9 +59,9 @@ With codec 1, each record is compressed on its own as one zstd frame at level 9,
 
 ## Name
 
-A pack is named by the lowercase hex SHA-256 (64 characters) of the index bytes followed by the blob bytes. The header and manifest aren't hashed.
+A pack is named by the lowercase hex SHA-256 (64 characters) of the whole file: header, manifest, index and blob. Running `sha256sum` on a pack prints its name.
 
-So two packs whose records are identical but whose manifests differ, say in `source_cache_crc`, get the same name. If that matters to you, read the manifest, not the file name.
+The manifest is hashed on purpose. Its `extra` tables carry data a client needs (the floor and kit-part tables), so two packs with the same records but different extras are different packs and mustn't share a file name. The same goes for `source_cache_crc`: converting a changed cache gives a new name even when every record comes out the same, so packs made from different caches never share a name. The unit test `name_covers_the_whole_file` in `pack.rs` pins this.
 
 Packs are written as `<dir>/<kind>/<hash>.pack`, where `<kind>` is the kind name, creating directories as needed. `rs2ool pack inspect <file>` prints a pack's hash, manifest and index.
 
@@ -75,7 +75,7 @@ Opening a pack checks, in order:
 4. The codec byte is 0 or 1.
 5. The manifest and the index fit in the file, and the manifest parses as JSON with the fields above.
 
-The reader then recomputes the SHA-256 name from the index and blob and makes it available. It doesn't compare it with the file name, and it doesn't check that the header's kind, codec and record count agree with the manifest's, or that the index is sorted (the writer always makes them agree and sorts it). Reading one record by id finds it in the index by binary search, then checks:
+The reader then recomputes the SHA-256 name from the file's bytes and makes it available. It doesn't compare it with the file name, and it doesn't check that the header's kind, codec and record count agree with the manifest's, or that the index is sorted (the writer always makes them agree and sorts it). Reading one record by id finds it in the index by binary search, then checks:
 
 1. `offset + length` lies within the blob.
 2. The stored bytes decompress, using the codec named in the manifest.

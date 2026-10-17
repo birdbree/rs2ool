@@ -213,7 +213,7 @@ id	offset	length	crc
 
 | Column | Meaning |
 | --- | --- |
-| `hash` | the SHA-256 of the pack's index and blob, recomputed when the pack is opened |
+| `hash` | the SHA-256 of the whole pack file, recomputed when the pack is opened |
 | `manifest` | the manifest JSON on one line |
 | `id` | the record id, decimal |
 | `offset`, `length` | where the record sits in the blob and how long it is |

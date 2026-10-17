@@ -10,7 +10,7 @@ The general rules are on [Conventions](../development/conventions.md). The conta
 
 `PackWriter` keeps its records in a `BTreeMap` keyed by id. The index and blob are always written in ascending id order, whatever order records were inserted in. Inserting the same id twice keeps the last record. The manifest's `extra` tables are a `BTreeMap` too, and the JSON maps inside them have sorted keys.
 
-The pack name is the hex SHA-256 of the index and blob, and records are compressed with zstd at a fixed level (9), so equal records give an equal name.
+The pack name is the hex SHA-256 of the whole file, and records are compressed with zstd at a fixed level (9), so equal records and an equal manifest give an equal name.
 
 ## Ordered collections, no clock
 
@@ -32,7 +32,7 @@ The explorer's convert action ([`explorer/actions.rs`](../../src/explorer/action
 
 | Test | Checks |
 | --- | --- |
-| [`tests/c_determinism.rs`](../../tests/c_determinism.rs) | runs `rs2ool pack npc --id 1 --with-anims`, `pack materials` and `pack textures` twice each into fresh directories, and compares the sorted lists of pack paths. The names are content hashes, so equal lists mean equal index and blob bytes. |
+| [`tests/c_determinism.rs`](../../tests/c_determinism.rs) | runs `rs2ool pack npc --id 1 --with-anims`, `pack materials` and `pack textures` twice each into fresh directories, and compares the sorted lists of pack paths. The names are hashes of the whole file, so equal lists mean byte-identical packs. |
 | [`tests/d8_actions.rs`](../../tests/d8_actions.rs) | converts one NPC through the explorer's action and through the `rs2ool` binary, then requires the same pack paths, identical pack bytes and the same set of output files |
 | `baking_is_deterministic_and_order_independent` in [`contentpack/src/pack.rs`](../../crates/contentpack/src/pack.rs) | the same records and extras, inserted in a different order, bake to the same bytes and name |
 | `kmeans_is_deterministic_and_separates_clusters` in [`contentpack/src/palette.rs`](../../crates/contentpack/src/palette.rs) | two k-means runs on the same points return identical centres |
