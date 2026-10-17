@@ -5,6 +5,7 @@
 pub mod archive;
 pub mod cache;
 pub mod compress;
+pub mod config;
 pub mod io;
 
 pub use archive::{Archive, ArchiveError, EntryName};
@@ -28,6 +29,8 @@ pub enum Error {
     Archive { archive: u8, source: ArchiveError },
     #[error("archive {archive} has no entry {entry}")]
     MissingEntry { archive: u8, entry: EntryName },
+    #[error(transparent)]
+    Config(#[from] config::ConfigError),
 }
 
 impl Cache {
@@ -42,6 +45,13 @@ impl Cache {
     pub fn archive(&self, archive: u8) -> Result<Archive, Error> {
         let raw = self.read_raw(0, archive.into())?;
         Archive::decode(&raw, Some(archive)).map_err(|source| Error::Archive { archive, source })
+    }
+}
+
+impl Cache {
+    /// Decode every definition of a config type.
+    pub fn config<T: config::ConfigType>(&self) -> Result<Vec<T::Def>, Error> {
+        Ok(config::decode_all::<T>(&self.archive(archive::CONFIG)?)?)
     }
 }
 
