@@ -509,12 +509,44 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
     })
 }
 
+/// egui's largest texture side.
+const MAX_TEXTURE: usize = 2048;
+
+/// Upload the world image as tiles no larger than egui allows.
+fn tiles(ctx: &egui::Context, img: &WorldImage) -> Vec<(egui::TextureHandle, egui::Vec2)> {
+    let mut out = Vec::new();
+    for ty in (0..img.height).step_by(MAX_TEXTURE) {
+        for tx in (0..img.width).step_by(MAX_TEXTURE) {
+            let (w, h) = (
+                MAX_TEXTURE.min(img.width - tx),
+                MAX_TEXTURE.min(img.height - ty),
+            );
+            let mut rgba = Vec::with_capacity(w * h * 4);
+            for y in ty..ty + h {
+                rgba.extend_from_slice(
+                    &img.rgba[(y * img.width + tx) * 4..(y * img.width + tx + w) * 4],
+                );
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
+            let t = ctx.load_texture(
+                format!("world-{tx}-{ty}"),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            out.push((t, egui::vec2(tx as f32, ty as f32)));
+        }
+    }
+    out
+}
+
 #[derive(Resource, Default)]
 pub struct WorldMap {
     pub open: bool,
     image: Option<Arc<WorldImage>>,
     pending: Option<Task<Result<WorldImage, String>>>,
-    texture: Option<egui::TextureHandle>,
+    /// The image cut into tiles within egui's 2048-pixel texture limit,
+    /// with each tile's offset in the image.
+    tiles: Vec<(egui::TextureHandle, egui::Vec2)>,
     error: Option<String>,
 }
 
@@ -566,23 +598,23 @@ fn world_window(
                 });
                 return;
             };
-            let tex = world
-                .texture
-                .get_or_insert_with(|| {
-                    ctx.load_texture(
-                        "world",
-                        egui::ColorImage::from_rgba_unmultiplied(
-                            [img.width, img.height],
-                            &img.rgba,
-                        ),
-                        egui::TextureOptions::NEAREST,
-                    )
-                })
-                .clone();
+            if world.tiles.is_empty() {
+                world.tiles = tiles(&ctx, &img);
+            }
+            let tiles = world.tiles.clone();
             ui.label("Click a region to open it.");
             egui::ScrollArea::both().show(ui, |ui| {
                 let size = egui::vec2(img.width as f32, img.height as f32);
-                let resp = ui.add(egui::Image::new((tex.id(), size)).sense(egui::Sense::click()));
+                let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+                for (tex, offset) in &tiles {
+                    let r = egui::Rect::from_min_size(rect.min + *offset, tex.size_vec2());
+                    ui.painter().image(
+                        tex.id(),
+                        r,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
                 // Outline the region on screen.
                 if let Some(id) = scene.region {
                     let (rx, ry) = (
@@ -641,6 +673,30 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn world_tiles_stay_within_the_texture_limit() {
+        let ctx = egui::Context::default();
+        let img = WorldImage {
+            width: 2112,
+            height: 7808,
+            rgba: vec![0; 2112 * 7808 * 4],
+            origin: (0, 0),
+            regions: BTreeSet::new(),
+        };
+        let tiles = tiles(&ctx, &img);
+        assert_eq!(tiles.len(), 2 * 4);
+        let area: f32 = tiles
+            .iter()
+            .map(|(t, _)| t.size_vec2().x * t.size_vec2().y)
+            .sum();
+        assert_eq!(area, 2112.0 * 7808.0);
+        assert!(
+            tiles
+                .iter()
+                .all(|(t, _)| t.size()[0] <= MAX_TEXTURE && t.size()[1] <= MAX_TEXTURE)
+        );
+    }
 
     #[test]
     fn neighbours() {
