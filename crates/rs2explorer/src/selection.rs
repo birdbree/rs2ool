@@ -21,7 +21,13 @@ pub enum Sel {
     PackRecord(u32),
     /// A file in a dump directory, relative to it.
     DumpFile(PathBuf),
+    /// A cache's player kit (see [`crate::kit`]).
+    PlayerKit,
 }
+
+/// The systems that decode selections; the kit's runs after them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoadSet;
 
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
 pub struct Selected {
@@ -67,6 +73,8 @@ pub enum LoadedData {
         json: Option<serde_json::Value>,
         bytes: Vec<u8>,
     },
+    /// Something with no record of its own, described by rows.
+    Note { rows: Vec<(String, String)> },
 }
 
 type LoadTask = Task<Result<(LoadedData, Option<Renderable>, Option<States>), String>>;
@@ -198,6 +206,19 @@ fn decode(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
                 bytes,
             })
         }
+        (Source::Cache { .. }, Sel::PlayerKit) => Ok(LoadedData::Note {
+            rows: vec![
+                ("kind".into(), "player kit".into()),
+                (
+                    "built from".into(),
+                    "identity-kit parts and item equipment models".into(),
+                ),
+                (
+                    "sequences".into(),
+                    format!("{:?}", rs2convert::pipeline::PLAYER_SEQUENCES),
+                ),
+            ],
+        }),
         _ => Err("selection does not belong to this source".into()),
     }
 }
@@ -277,6 +298,7 @@ pub fn plugin(app: &mut App) {
             (
                 (start::<Selected>, poll::<Selected>).chain(),
                 (start::<CompareSelected>, poll::<CompareSelected>).chain(),
-            ),
+            )
+                .in_set(LoadSet),
         );
 }

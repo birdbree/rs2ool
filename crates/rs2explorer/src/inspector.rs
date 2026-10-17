@@ -87,6 +87,7 @@ pub fn sections(data: &LoadedData) -> (Rows, Rows) {
             ],
             json.as_ref().map(|j| rows(j, 24)).unwrap_or_default(),
         ),
+        LoadedData::Note { rows } => (rows.clone(), Vec::new()),
     }
 }
 

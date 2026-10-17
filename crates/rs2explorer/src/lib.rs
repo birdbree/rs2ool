@@ -3,6 +3,7 @@
 pub mod classic;
 pub mod inspector;
 pub mod jobs;
+pub mod kit;
 pub mod map_view;
 pub mod mesh;
 pub mod playback;

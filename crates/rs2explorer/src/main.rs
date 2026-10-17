@@ -12,11 +12,11 @@ use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Source, Sources};
 use rs2explorer::viewport3d::Compare;
 use rs2explorer::{
-    classic, jobs, map_view, playback, selection, sources, tree, ui, viewport2d, viewport3d,
+    classic, jobs, kit, map_view, playback, selection, sources, tree, ui, viewport2d, viewport3d,
 };
 use rs2intermediate::record::RecordType;
 
-/// `rs2explorer [cache-dir] [--pack file]... [--select type:id] [--compare]
+/// `rs2explorer [cache-dir] [--pack file]... [--select type:id|kit] [--compare]
 /// [--classic]`: open a cache (default `RS2_CACHE`) and any packs at
 /// startup, optionally select a record in the cache, and with `--compare`
 /// show its other version (original or converted) beside it.
@@ -24,7 +24,7 @@ use rs2intermediate::record::RecordType;
 struct Startup {
     cache: Option<PathBuf>,
     packs: Vec<PathBuf>,
-    select: Option<(RecordType, u32)>,
+    select: Option<Sel>,
     compare: bool,
     classic: bool,
 }
@@ -44,8 +44,11 @@ fn parse_args() -> Startup {
             st.packs.extend(args.next().map(PathBuf::from));
         } else if a == "--select" {
             st.select = args.next().and_then(|v| {
+                if v == "kit" {
+                    return Some(Sel::PlayerKit);
+                }
                 let (t, id) = v.split_once(':')?;
-                Some((t.parse().ok()?, id.parse().ok()?))
+                Some(Sel::Record(t.parse::<RecordType>().ok()?, id.parse().ok()?))
             });
         } else {
             st.cache = Some(PathBuf::from(a));
@@ -89,13 +92,13 @@ fn select_startup(
         .list
         .iter()
         .position(|s| matches!(s, Source::Cache { .. }));
-    let (Some((t, id)), Some(si)) = (st.select, cache) else {
+    let (Some(sel), Some(si)) = (st.select.clone(), cache) else {
         return;
     };
     compare.enabled = st.compare;
     *selected = Selected {
         source: Some(si),
-        sel: Some(Sel::Record(t, id)),
+        sel: Some(sel),
     };
 }
 
@@ -119,6 +122,7 @@ fn main() {
             viewport3d::plugin,
             viewport2d::plugin,
             playback::plugin,
+            kit::plugin,
             classic::plugin,
             map_view::plugin,
             jobs::plugin,

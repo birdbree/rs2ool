@@ -229,6 +229,47 @@ pub fn sequences(
     Ok((seqs, packs))
 }
 
+/// Item `obj`'s equipment model for a body type, as the client builds it
+/// for a player wearing it: the item's equip models (up to three) merged,
+/// moved by its y offset, and recoloured. `None` when the item has
+/// no equip model for that body type.
+pub fn equip_model(
+    records: &Records,
+    obj: u32,
+    female: bool,
+) -> Result<Option<Model>, ConvertError> {
+    let Record::Obj(d) = records.decode(RecordType::Obj, obj)? else {
+        unreachable!()
+    };
+    let (ids, offset) = if female {
+        (
+            [d.female_equip1, d.female_equip2, d.female_equip3],
+            d.female_offset,
+        )
+    } else {
+        ([d.male_equip1, d.male_equip2, d.male_equip3], d.male_offset)
+    };
+    // As `ItemDef`: nothing without the first model, and the third only
+    // with the second.
+    let ids: Vec<u16> = match ids {
+        [None, ..] => return Ok(None),
+        [Some(a), Some(b), c] => [Some(a), Some(b), c].into_iter().flatten().collect(),
+        [Some(a), None, _] => vec![a],
+    };
+    let models = ids
+        .into_iter()
+        .map(|m| model(records, m))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut merged = merge(&models);
+    if offset != 0 {
+        for v in &mut merged.vertices {
+            v[1] += i32::from(offset);
+        }
+    }
+    recolour(&mut merged, &d.recolours);
+    Ok(Some(merged))
+}
+
 /// Assemble NPC `id`: its models merged and recoloured, its stand and walk
 /// sequences (plus `extra` sequence ids, since 317 `npc.dat` names no combat
 /// animations) and their frame packs.

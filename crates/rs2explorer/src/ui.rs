@@ -11,6 +11,7 @@ use rs2intermediate::record::RecordType;
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
+use crate::kit::{Kit, kit_ui};
 use crate::playback::{Playback, apply_state, playback_ui, states_ui};
 use crate::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
@@ -125,6 +126,16 @@ fn tree_ui(
                                 ));
                             }
                         });
+                    let kit = Selected {
+                        source: Some(si),
+                        sel: Some(Sel::PlayerKit),
+                    };
+                    if ui
+                        .selectable_label(*selected == kit, "player kit")
+                        .clicked()
+                    {
+                        *selected = kit;
+                    }
                     for &t in RecordType::ALL {
                         let open = matches!(*reveal, Some((rsi, rt, _)) if rsi == si && rt == t);
                         egui::CollapsingHeader::new(t.name())
@@ -205,6 +216,7 @@ fn sel_label(sources: &Sources, s: &Selected) -> String {
         Some(Sel::Record(t, id)) => format!("{t} {id} ({src})"),
         Some(Sel::PackRecord(id)) => format!("record {id:#x} ({src})"),
         Some(Sel::DumpFile(p)) => format!("{} ({src})", p.display()),
+        Some(Sel::PlayerKit) => format!("player kit ({src})"),
     }
 }
 
@@ -324,6 +336,7 @@ struct UiState<'w> {
     compare_sel: ResMut<'w, CompareSelected>,
     compare_loaded: ResMut<'w, Loaded<CompareSelected>>,
     playback: ResMut<'w, Playback>,
+    kit: ResMut<'w, Kit>,
 }
 
 fn layout(
@@ -420,6 +433,7 @@ fn layout(
         .show(&mut root, |ui| {
             let mut c = *st.compare;
             compare_ui(ui, &mut c, &st.compare_sel, &st.sources, &st.compare_loaded);
+            kit_ui(ui, &mut st.kit);
             if c != *st.compare {
                 *st.compare = c;
             }
