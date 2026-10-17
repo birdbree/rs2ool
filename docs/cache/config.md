@@ -81,7 +81,7 @@ An opcode a decoder doesn't know is:
 
 The next byte is then read as an opcode. That's what the original client does too, which means an unknown opcode with operands throws the rest of the definition out of step. The warning tells you where it started.
 
-There are two exceptions, both in types that store recolours in fixed six-slot arrays (`idk` and `spotanim`, see below). Opcodes that fall inside the original client's opcode range test but index past the end of its arrays still carry a `u16`: `idk` opcodes 46–49, 56–59 and 65–69, and `spotanim` opcodes 46–49 and 56–59. The reader consumes that `u16` and records the opcode as unknown.
+There are a few exceptions: opcodes that fall inside one of the original client's opcode ranges but index past the end of the array it fills. They still carry their operand, so the reader consumes it and records the opcode as unknown. `idk` opcodes 46–49, 56–59 and 65–69 and `spotanim` opcodes 46–49 and 56–59 each carry a `u16` (both types store recolours in fixed six-slot arrays, see below), and `loc` opcodes 35–38 each carry a string (the original client reads 30–38 as actions into five slots).
 
 Separately, a few opcodes are known but their operands are read and discarded, without being reported: `npc` 90–92 (a `u16` each), `obj` 10 (a `u16`) and `seq` 12 (4 bytes).
 

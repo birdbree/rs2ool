@@ -36,6 +36,7 @@ Each definition is an opcode stream ending with opcode 0. An opcode not listed h
 | 28 | `u8` | `decor_displacement` |
 | 29 | `u8`, signed | `ambient` |
 | 30–34 | `string` | `actions[op − 30]`; `"hidden"` (any case) is stored as none |
+| 35–38 | `string` | Read and recorded as unknown. The original client's action range runs to 38 but it has five slots, so these fail in its own loader; real caches don't use them |
 | 39 | `u8`, signed | `contrast` (stored as read, not multiplied) |
 | 40 | `count u8`, then `{from u16, to u16}` × count | `recolours` |
 | 60 | `u16` | `minimap_function` |
