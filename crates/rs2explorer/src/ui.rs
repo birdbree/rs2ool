@@ -72,7 +72,8 @@ fn list_ui(
             ui.label(format!("{} of {}", shown.len(), rows.len()));
             let mut area = egui::ScrollArea::vertical()
                 .id_salt(format!("{key:?}"))
-                .max_height(240.0);
+                .max_height(240.0)
+                .auto_shrink([false, true]);
             if let Some(id) = target {
                 if let Some(i) = shown.iter().position(|r| r.id == id) {
                     area = area.vertical_scroll_offset((i as f32 * ROW_HEIGHT - 100.0).max(0.0));
@@ -80,6 +81,7 @@ fn list_ui(
                 *reveal = None;
             }
             area.show_rows(ui, ROW_HEIGHT, shown.len(), |ui, range| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 for r in &shown[range] {
                     let sel = match key {
                         ListKey::Type(_, t) => Sel::Record(t, r.id),
@@ -221,33 +223,37 @@ fn inspector_ui(
         crate::selection::LoadedData::Record { record, .. } => Some(record.record_type()),
         _ => None,
     };
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        egui::CollapsingHeader::new("metadata")
-            .default_open(true)
-            .show(ui, |ui| grid(ui, "meta", &meta, None));
-        if !fields.is_empty() {
-            egui::CollapsingHeader::new("fields")
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            egui::CollapsingHeader::new("metadata")
                 .default_open(true)
-                .show(ui, |ui| {
-                    if let Some(c) = grid(ui, "fields", &fields, of) {
-                        clicked = Some(c);
-                    }
-                });
-        }
-        if let Some(bytes) = inspector::raw_bytes(data) {
-            egui::CollapsingHeader::new(format!("bytes ({})", bytes.len())).show(ui, |ui| {
-                let lines = bytes.len().div_ceil(16);
-                egui::ScrollArea::vertical()
-                    .id_salt("hex")
-                    .max_height(300.0)
-                    .show_rows(ui, ROW_HEIGHT, lines, |ui, range| {
-                        for row in range {
-                            ui.monospace(inspector::hex_line(bytes, row));
+                .show(ui, |ui| grid(ui, "meta", &meta, None));
+            if !fields.is_empty() {
+                egui::CollapsingHeader::new("fields")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if let Some(c) = grid(ui, "fields", &fields, of) {
+                            clicked = Some(c);
                         }
                     });
-            });
-        }
-    });
+            }
+            if let Some(bytes) = inspector::raw_bytes(data) {
+                egui::CollapsingHeader::new(format!("bytes ({})", bytes.len())).show(ui, |ui| {
+                    let lines = bytes.len().div_ceil(16);
+                    egui::ScrollArea::vertical()
+                        .id_salt("hex")
+                        .max_height(300.0)
+                        .auto_shrink([false, true])
+                        .show_rows(ui, ROW_HEIGHT, lines, |ui, range| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                            for row in range {
+                                ui.monospace(inspector::hex_line(bytes, row));
+                            }
+                        });
+                });
+            }
+        });
     clicked
 }
 
@@ -333,12 +339,15 @@ fn layout(
         .default_size(280.0)
         .size_range(160.0..=420.0)
         .show(&mut root, |ui| {
-            egui::ScrollArea::vertical().id_salt("tree").show(ui, |ui| {
-                tree_ui(ui, &st.sources, &mut st.lists, &mut sel, &mut reveal);
-                for e in &st.sources.errors {
-                    ui.colored_label(egui::Color32::LIGHT_RED, e);
-                }
-            });
+            egui::ScrollArea::vertical()
+                .id_salt("tree")
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    tree_ui(ui, &st.sources, &mut st.lists, &mut sel, &mut reveal);
+                    for e in &st.sources.errors {
+                        ui.colored_label(egui::Color32::LIGHT_RED, e);
+                    }
+                });
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         })
         .response

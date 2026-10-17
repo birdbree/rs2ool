@@ -8,7 +8,7 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use rs2cache::{Cache, Records};
 use rs2explorer::mesh::{self, NPC_LIGHTING, Shading};
-use rs2explorer::viewport3d::{self, LightingMode, OrbitCamera, Shown};
+use rs2explorer::viewport3d::{self, LightingMode, Limits, OrbitCamera, Shown};
 
 #[test]
 fn man_mesh_is_upright_with_a_vertex_per_corner() {
@@ -70,6 +70,47 @@ fn arrow_keys_orbit() {
         (o.pitch - viewport3d::PITCH_LIMIT).abs() < 1e-6,
         "pitch clamps at 85°"
     );
+}
+
+#[test]
+fn wasd_flies_and_the_camera_stays_bounded() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .init_resource::<ButtonInput<KeyCode>>()
+        .add_systems(Update, viewport3d::orbit_keys);
+    let mut start = OrbitCamera {
+        yaw: 0.0,
+        target: Vec3::splat(500.0),
+        ..Default::default()
+    };
+    start.bound(Limits::around(Vec3::ZERO, Vec3::splat(1000.0), 0.0, 0.1));
+    let cam = app.world_mut().spawn(start).id();
+    let before = *app.world().get::<OrbitCamera>(cam).unwrap();
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::KeyW);
+        keys.press(KeyCode::Space);
+    }
+    app.update();
+    let after = *app.world().get::<OrbitCamera>(cam).unwrap();
+    // At yaw 0 the eye is on +z looking towards −z.
+    assert!(after.target.z < before.target.z, "W moves forward");
+    assert!(after.target.y > before.target.y, "Space moves up");
+    assert_eq!(after.yaw, before.yaw, "flying does not turn");
+
+    let mut o = after;
+    o.fly(1e9, -1e9, -1e9);
+    assert_eq!(
+        o.target,
+        Vec3::new(1000.0, 0.0, 1000.0),
+        "target stays in the box"
+    );
+    o.zoom(1e-9);
+    assert_eq!(o.distance, o.limits.near);
+    o.zoom(1e9);
+    assert_eq!(o.distance, o.limits.far);
+    o.turn(0.0, -10.0);
+    assert_eq!(o.pitch, 0.1, "pitch stays above the floor");
 }
 
 #[test]

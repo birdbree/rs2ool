@@ -4,12 +4,14 @@
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{CameraOutputMode, Viewport};
-use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::render::render_resource::BlendState;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::{egui_wants_any_keyboard_input, egui_wants_any_pointer_input};
-use bevy_egui::{EguiContext, EguiGlobalSettings, PrimaryEguiContext};
+use bevy_egui::{
+    EguiContext, EguiGlobalSettings, EguiInput, EguiPreUpdateSet, PrimaryEguiContext, egui,
+};
 
 use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData};
@@ -27,6 +29,46 @@ pub struct OrbitCamera {
     pub pitch: f32,
     pub distance: f32,
     pub target: Vec3,
+    pub limits: Limits,
+}
+
+/// Where the camera may go: the target stays in a box around the scene,
+/// the distance in a range sized to it, and the pitch above `min_pitch`
+/// (a region keeps the eye above the ground).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Limits {
+    pub lo: Vec3,
+    pub hi: Vec3,
+    pub near: f32,
+    pub far: f32,
+    pub min_pitch: f32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            lo: Vec3::splat(-20_000.0),
+            hi: Vec3::splat(20_000.0),
+            near: 20.0,
+            far: 20_000.0,
+            min_pitch: -PITCH_LIMIT,
+        }
+    }
+}
+
+impl Limits {
+    /// Limits for a scene spanning `lo..hi`, with `margin` of slack around
+    /// it for the target.
+    pub fn around(lo: Vec3, hi: Vec3, margin: f32, min_pitch: f32) -> Self {
+        let size = (hi - lo).length().max(50.0);
+        Self {
+            lo: lo - Vec3::splat(margin),
+            hi: hi + Vec3::splat(margin),
+            near: (size * 0.05).max(60.0),
+            far: size * 4.0,
+            min_pitch,
+        }
+    }
 }
 
 impl Default for OrbitCamera {
@@ -36,6 +78,7 @@ impl Default for OrbitCamera {
             pitch: 0.35,
             distance: 450.0,
             target: Vec3::new(0.0, 100.0, 0.0),
+            limits: Limits::default(),
         }
     }
 }
@@ -43,6 +86,11 @@ impl Default for OrbitCamera {
 pub const PITCH_LIMIT: f32 = 85.0 * std::f32::consts::PI / 180.0;
 const KEY_SPEED: f32 = 1.5;
 const DRAG_SPEED: f32 = 0.008;
+/// Fly speed, in multiples of the orbit distance per second.
+const FLY_SPEED: f32 = 0.8;
+/// Zoom per scroll line, and per pixel for trackpads.
+const ZOOM_PER_LINE: f32 = 0.04;
+const ZOOM_PER_PIXEL: f32 = 0.0015;
 
 impl OrbitCamera {
     pub fn transform(&self) -> Transform {
@@ -54,10 +102,31 @@ impl OrbitCamera {
         Transform::from_translation(self.target + offset).looking_at(self.target, Vec3::Y)
     }
 
-    /// Turn by `dyaw`, `dpitch` (pitch clamped to ±85°).
+    /// Turn by `dyaw`, `dpitch` (pitch clamped to ±85° and the limits).
     pub fn turn(&mut self, dyaw: f32, dpitch: f32) {
         self.yaw += dyaw;
-        self.pitch = (self.pitch + dpitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+        self.pitch = (self.pitch + dpitch).clamp(self.limits.min_pitch, PITCH_LIMIT);
+    }
+
+    /// Zoom by `factor` (below 1 moves in), within the limits.
+    pub fn zoom(&mut self, factor: f32) {
+        self.distance = (self.distance * factor).clamp(self.limits.near, self.limits.far);
+    }
+
+    /// Move the target by `right`, `forward` (on the ground, relative to
+    /// the view direction) and `up`, within the limits.
+    pub fn fly(&mut self, right: f32, forward: f32, up: f32) {
+        let (s, c) = self.yaw.sin_cos();
+        let d = Vec3::new(c, 0.0, -s) * right + Vec3::new(-s, 0.0, -c) * forward + Vec3::Y * up;
+        self.target = (self.target + d).clamp(self.limits.lo, self.limits.hi);
+    }
+
+    /// Set new limits and pull the state inside them.
+    pub fn bound(&mut self, limits: Limits) {
+        self.limits = limits;
+        self.target = self.target.clamp(limits.lo, limits.hi);
+        self.zoom(1.0);
+        self.turn(0.0, 0.0);
     }
 }
 
@@ -170,13 +239,30 @@ fn follow_rect(
     }
 }
 
-/// Arrow keys orbit: left/right yaw, up/down pitch.
+/// Arrow keys orbit: left/right yaw, up/down pitch. W/A/S/D move the
+/// target across the ground relative to the view, Space raises it and Tab
+/// lowers it.
 pub fn orbit_keys(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut q: Query<&mut OrbitCamera>,
 ) {
-    let step = KEY_SPEED * time.delta_secs().max(1.0 / 120.0);
+    let dt = time.delta_secs().max(1.0 / 120.0);
+    let axis = |pos: KeyCode, neg: KeyCode| {
+        f32::from(u8::from(keys.pressed(pos))) - f32::from(u8::from(keys.pressed(neg)))
+    };
+    let (right, forward, up) = (
+        axis(KeyCode::KeyD, KeyCode::KeyA),
+        axis(KeyCode::KeyW, KeyCode::KeyS),
+        axis(KeyCode::Space, KeyCode::Tab),
+    );
+    if right != 0.0 || forward != 0.0 || up != 0.0 {
+        for mut o in &mut q {
+            let speed = o.distance * FLY_SPEED * dt;
+            o.fly(right * speed, forward * speed, up * speed);
+        }
+    }
+    let step = KEY_SPEED * dt;
     let (mut dy, mut dp) = (0.0, 0.0);
     if keys.pressed(KeyCode::ArrowLeft) {
         dy -= step;
@@ -232,7 +318,11 @@ fn orbit_mouse(
             o.turn(-motion.delta.x * DRAG_SPEED, motion.delta.y * DRAG_SPEED);
         }
         if inside && scroll.delta.y != 0.0 {
-            o.distance = (o.distance * (1.0 - scroll.delta.y * 0.1)).clamp(20.0, 20_000.0);
+            let per = match scroll.unit {
+                MouseScrollUnit::Line => ZOOM_PER_LINE,
+                MouseScrollUnit::Pixel => ZOOM_PER_PIXEL,
+            };
+            o.zoom((-scroll.delta.y * per).exp());
         }
     }
 }
@@ -277,6 +367,8 @@ fn show_selection(
         for mut o in &mut cams {
             o.target = (lo + hi) / 2.0;
             o.distance = ((hi - lo).length() * 1.6).max(100.0);
+            let margin = (hi - lo).max_element() * 0.5;
+            o.bound(Limits::around(lo, hi, margin, -PITCH_LIMIT));
         }
     }
     shown.client = meshes.add(client);
@@ -349,11 +441,35 @@ fn furniture(mut gizmos: Gizmos) {
     gizmos.axes(Transform::IDENTITY, 64.0);
 }
 
+/// Tab lowers the camera, so egui only sees it while a widget has focus;
+/// otherwise its first press would focus a search box and take the keys.
+fn keep_tab_for_camera(mut q: Query<(&mut EguiContext, &mut EguiInput)>) {
+    for (mut ctx, mut input) in &mut q {
+        if ctx.get_mut().memory(|m| m.focused().is_none()) {
+            input.events.retain(|e| {
+                !matches!(
+                    e,
+                    egui::Event::Key {
+                        key: egui::Key::Tab,
+                        ..
+                    }
+                )
+            });
+        }
+    }
+}
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<LightingMode>()
         .init_resource::<Overlays>()
         .init_resource::<Shown>()
         .add_systems(Startup, setup)
+        .add_systems(
+            PreUpdate,
+            keep_tab_for_camera
+                .after(EguiPreUpdateSet::ProcessInput)
+                .before(EguiPreUpdateSet::BeginPass),
+        )
         .add_systems(
             Update,
             (

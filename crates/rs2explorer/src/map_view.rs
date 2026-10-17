@@ -134,7 +134,7 @@ use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData, Sel, Selected};
 use crate::sources::{Source, Sources};
 use crate::ui::{Nav, ViewportRect};
-use crate::viewport3d::OrbitCamera;
+use crate::viewport3d::{Limits, OrbitCamera};
 
 /// Everything a region scene needs, computed on the task pool.
 pub struct Built {
@@ -436,10 +436,20 @@ fn spawn(
         scene.entities.push(e);
     }
     let half = REGION_SIZE as f32 * TILE / 2.0;
+    let extent = REGION_SIZE as f32 * TILE;
     for mut o in &mut cams {
         o.target = Vec3::new(half, 0.0, -half);
         o.distance = 7000.0;
         o.pitch = 0.9;
+        // The target stays over the region, below the tallest buildings;
+        // the eye stays above the ground and outside the near plane.
+        o.bound(Limits {
+            lo: Vec3::new(0.0, -2500.0, -extent),
+            hi: Vec3::new(extent, 2500.0, 0.0),
+            near: 300.0,
+            far: 14_000.0,
+            min_pitch: 0.08,
+        });
     }
 }
 
