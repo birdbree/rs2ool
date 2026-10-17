@@ -29,8 +29,8 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#24](https://github.com/birdbree/rs2ool/issues/24) Mix secondary frames through interleave slots
 - [ ] [#25](https://github.com/birdbree/rs2ool/issues/25) Carry scale transforms into clips
 - [ ] [#26](https://github.com/birdbree/rs2ool/issues/26) Apply alpha transforms
-- [ ] [#27](https://github.com/birdbree/rs2ool/issues/27) Draw terrain the way the original client does
-- [ ] [#28](https://github.com/birdbree/rs2ool/issues/28) Draw overlay shapes and rotations
+- [x] [#27](https://github.com/birdbree/rs2ool/issues/27) Draw terrain the way the original client does
+- [x] [#28](https://github.com/birdbree/rs2ool/issues/28) Draw overlay shapes and rotations
 - [ ] [#29](https://github.com/birdbree/rs2ool/issues/29) Stitch neighbouring regions
 - [ ] [#30](https://github.com/birdbree/rs2ool/issues/30) Draw interfaces with the cache's fonts and models
 - [ ] [#31](https://github.com/birdbree/rs2ool/issues/31) Pixel-exact check against the original renderer

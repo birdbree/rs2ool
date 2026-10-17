@@ -164,7 +164,7 @@ An item id wins over the slot's kit part: the slot then shows the item's equipme
 
 ## Maps and the world map
 
-Selecting a `map` record builds the region: one terrain mesh per plane and every placed location that has a model. The region is drawn with the simplifications on [Terrain](../client/terrain.md#the-region-viewers-simplifications). An overlay in the corner of the viewport shows "region X_Y", **N**, **W**, **E** and **S** buttons that step to the neighbouring region (north is +y), and a checkbox for each of the four planes.
+Selecting a `map` record builds the region: each plane's ground and every placed location that has a model. The ground is blended, lit, shadowed, shaped and textured as the original client draws it, the same in the modern and classic views; [Terrain](../client/terrain.md#what-the-region-viewer-draws) lists what the viewer leaves out. An overlay in the corner of the viewport shows "region X_Y", **N**, **W**, **E** and **S** buttons that step to the neighbouring region (north is +y), and a checkbox for each of the four planes.
 
 The camera starts above the middle of the region and is bounded to it: the target stays within the region's footprint, between plane 0's lowest ground and 3000 units above it, the zoom stays between 300 and 14000 units, and the pitch stays at least 0.08 radians above the horizon, so the eye never goes underground.
 

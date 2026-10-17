@@ -16,7 +16,7 @@ The behaviour described here is what the code in `crates/` reproduces, mainly [`
 | [Assembly](assembly.md) | merging models and welding vertices, recolours, scale after animation, equipment slots, object shaping and placement rotation |
 | [Lighting](lighting.md) | per-model lighting: flat and smooth faces, textured shades, ambient and contrast, the standard light setups |
 | [Rasteriser](rasteriser.md) | projection, the back-face test, depth buckets, priority interleaving, the fillers, texture pages, alpha blending |
-| [Terrain](terrain.md) | explicit and derived tile heights, the noise function, planes, overlay shapes, tile flags |
+| [Terrain](terrain.md) | tile heights and the noise function, planes, underlay blending, ground lighting and shadows, overlay shapes, textured and invisible floors, tile flags |
 
 ## Where to start
 

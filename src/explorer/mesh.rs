@@ -444,6 +444,55 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
         .collect()
 }
 
+/// A model that's already lit (map ground from
+/// [`rs2classic::terrain::ground`], say) at `vertices` in cache space, split
+/// into parts by texture like [`model_parts`]: gouraud and flat faces in
+/// their lit colours, textured faces with UVs from their P/M/N triangle
+/// and their shades as brightness. Drawn unlit, it looks the way the
+/// classic renderer draws it.
+pub fn lit_model_parts(m: &rs2classic::LitModel, vertices: &[[i32; 3]]) -> Vec<Part> {
+    let mut groups: std::collections::BTreeMap<Option<u16>, Buffers> = Default::default();
+    for (i, f) in m.faces.iter().enumerate() {
+        let p = f.map(|v| vertices[usize::from(v)]);
+        let nrm = flat_normal(p.map(world));
+        let c = m.colours[i];
+        let triple = m.textured_faces.get(m.texture_triple[i]);
+        let (key, colours, uv) = match (m.kinds[i], triple) {
+            (k @ (2 | 3), Some(&[tp, tm, tn])) if m.base[i] < 50 => {
+                let at = |v: u16| vertices[usize::from(v)];
+                let shades = if k == 3 { [c[0]; 3] } else { c };
+                (
+                    Some(m.base[i]),
+                    shades.map(|s| [texture_shade(s); 3]),
+                    texture_uvs(p, at(tp), at(tm), at(tn)),
+                )
+            }
+            // A textured face without its texture draws grey, as the
+            // classic renderer does.
+            (2 | 3, _) => (None, [[0.5; 3]; 3], [[0.0; 2]; 3]),
+            (rs2classic::light::kind::FLAT_RGB, _) => (None, [rgb(c[0] as u32); 3], [[0.0; 2]; 3]),
+            (1, _) => (None, [rgb(hsl_to_rgb(c[0] as u16)); 3], [[0.0; 2]; 3]),
+            _ => (None, c.map(|h| rgb(hsl_to_rgb(h as u16))), [[0.0; 2]; 3]),
+        };
+        let g = groups.entry(key).or_default();
+        for (corner, q) in p.iter().enumerate() {
+            let col = colours[corner];
+            g.pos.push(world(*q));
+            g.normals.push(nrm);
+            g.colors.push([col[0], col[1], col[2], 1.0]);
+            g.uvs.push(uv[corner]);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(texture, g)| Part {
+            texture,
+            mesh: build(g.pos, g.normals, g.colors)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs),
+        })
+        .collect()
+}
+
 /// Per-corner vertex data of one part while it is collected.
 #[derive(Default)]
 struct Buffers {

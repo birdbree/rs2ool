@@ -27,7 +27,9 @@ Each definition ends with opcode 0. An opcode not listed is logged, added to `un
 | 6 | `string` | `name` |
 | 7 | `u24` | `secondary_rgb`: the colour used on the minimap |
 
-Opcode 3 is read by the original client and then ignored; the decoder still records it, and floor conversion carries it as a flag.
+Opcode 3 is read by the original client and then ignored: an overlay hides the underlay only where its shape covers the tile. The decoder still records it, and floor conversion carries it as a flag.
+
+RGB `0xFF00FF` is special: the original client draws an overlay of that colour as nothing, leaving a hole (see [Terrain](../client/terrain.md#overlays-and-underlays)). `secondary_rgb` only changes the floor's minimap colour, never the ground (see [Terrain](../client/terrain.md#the-minimap)).
 
 ## Defaults
 
@@ -35,7 +37,7 @@ Opcode 3 is read by the original client and then ignored; the decoder still reco
 
 ## Post-decode derivations
 
-None. The decoder keeps `rgb` as the 24-bit value it read; it doesn't convert it to HSL. See [Colour](../client/colour.md) for the colour spaces involved.
+None. The decoder keeps `rgb` as the 24-bit value it read; it doesn't convert it to HSL. The ground builder does that, as the original client does when it loads floors: see [Colour](../client/colour.md#from-rgb-floor-colours).
 
 ## Fields
 
@@ -43,7 +45,7 @@ None. The decoder keeps `rgb` as the 24-bit value it read; it doesn't convert it
 
 ## How map tiles refer to floors
 
-A region's underlay and overlay bytes are 1-based: 0 means no floor, and value `n` refers to flo `n − 1`. The explorer's map views colour a tile from its overlay's `rgb` first, then its underlay's. See [Map](map.md).
+A region's underlay and overlay bytes are 1-based: 0 means no floor, and value `n` refers to flo `n − 1`. Underlays are blended across neighbouring tiles; overlays draw in their own colour or texture, cut to the tile's shape. See [Map](map.md) and [Terrain](../client/terrain.md).
 
 ## Conversion
 

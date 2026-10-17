@@ -102,6 +102,8 @@ The original client uses one of two fixed setups, depending on what the model is
 
 Both directions have negative y, so with y down both light from above. Worked through: `NPC` has `L = 65` and `k = 215`, so a flat face divides by 322; `OBJECT` has `L = 71` and `k = 213`, dividing by 319.
 
+Map ground uses the `OBJECT` direction and contrast too, but lights grid points from the slope of the ground rather than faces, with a base of 96 instead of the ambient term, minus the shadows walls and scenery cast. See [Terrain](terrain.md#ground-lighting).
+
 ## Output
 
 The lit model keeps the faces, each face's kind, the lit values (or shades), the original face colours (texture ids for textured faces), the texture-triangle index (`type >> 2`), per-face transparency, and face priorities. The [rasteriser](rasteriser.md) draws from that.
@@ -110,6 +112,7 @@ The lit model keeps the faces, each face's kind, the lit values (or shades), the
 
 - [Colour](colour.md): the HSL layout and the table lit colours are looked up in.
 - [Rasteriser](rasteriser.md): how lit colours and shades are drawn.
+- [Terrain](terrain.md#ground-lighting): how map ground is lit.
 - [Models](../records/model.md): face render types and colours.
 - [Textures](../records/texture.md): what a textured face's colour means.
 - [Coordinates](coordinates.md): the cache's axes, y down.
