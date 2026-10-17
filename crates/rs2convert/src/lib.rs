@@ -9,6 +9,7 @@ pub mod model;
 pub mod palette;
 pub mod pipeline;
 pub mod rig;
+pub mod sprite;
 pub mod texture;
 pub mod validate;
 

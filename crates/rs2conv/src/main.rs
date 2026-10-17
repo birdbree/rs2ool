@@ -52,6 +52,17 @@ enum Cmd {
         #[command(flatten)]
         out: Out,
     },
+    /// Convert media and title sprites, and fonts, into a sprites pack.
+    Sprites {
+        /// Only this archive (`media` or `title`).
+        #[arg(long)]
+        archive: Option<String>,
+        /// Every sprite (the default when --archive is not given).
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -152,6 +163,11 @@ fn main() -> ExitCode {
                     seq,
                     out,
                 } => ctx.and_then(|c| c.npc(id, &anims, &seq, &out.dir)),
+                Cmd::Sprites {
+                    archive,
+                    all: _,
+                    out,
+                } => ctx.and_then(|c| c.sprites(archive.as_deref(), &out.dir)),
                 Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
                 Cmd::Inspect { .. } | Cmd::Pack { .. } => unreachable!(),
             }

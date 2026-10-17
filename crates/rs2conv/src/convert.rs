@@ -213,6 +213,21 @@ impl<'c> Ctx<'c> {
         self.report(dir, "player", &out)
     }
 
+    pub fn sprites(&self, archive: Option<&str>, dir: &Path) -> anyhow::Result<()> {
+        use rs2cache::archive::{MEDIA, TITLE, archive_by_name};
+        let archives = match archive {
+            None => vec![MEDIA, TITLE],
+            Some(name) => match archive_by_name(name) {
+                Some(n) if n == MEDIA || n == TITLE => vec![n],
+                _ => anyhow::bail!("--archive must be media or title"),
+            },
+        };
+        write(
+            &rs2convert::sprite::pack(&self.records, &archives, self.crc)?,
+            dir,
+        )
+    }
+
     pub fn textures(&self, dir: &Path) -> anyhow::Result<()> {
         let atlas = TextureAtlas::build(&images(&self.records)?)?;
         write(&atlas.pack(self.crc)?, dir)?;
