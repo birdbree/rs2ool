@@ -12,9 +12,12 @@ rs2intermediate.workspace = true
 rs2pack.workspace = true
 rs2convert.workspace = true
 rs2render.workspace = true
+cachedump.workspace = true
 anyhow.workspace = true
 bevy = "=0.20.0"
 bevy_egui = "=0.43.1"
+directories = "=6.0.0"
+image.workspace = true
 rfd = "=0.17.2"
 serde.workspace = true
 serde_json.workspace = true

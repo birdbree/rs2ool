@@ -22,9 +22,13 @@ struct Ctx<'a> {
     out: &'a Output,
     xref: Option<&'a Xref>,
     jsonl: bool,
+    quiet: bool,
 }
 
-fn progress(n: usize, what: &str) -> ProgressBar {
+fn progress(n: usize, what: &str, quiet: bool) -> ProgressBar {
+    if quiet {
+        return ProgressBar::hidden();
+    }
     let bar = ProgressBar::new(n as u64);
     bar.set_style(
         ProgressStyle::with_template("{msg} {bar:40} {pos}/{len} {eta}")
@@ -53,6 +57,7 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
         out: &out,
         xref: xref.as_ref(),
         jsonl: args.out.jsonl,
+        quiet: args.out.quiet,
     };
     let s = &args.source;
     let ids_given = args.ids.given();
@@ -121,7 +126,9 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
         }
     }
     let (files, absent, failures) = out.finish()?;
-    eprintln!("{files} files written, {absent} absent, {failures} failed");
+    if !args.out.quiet {
+        eprintln!("{files} files written, {absent} absent, {failures} failed");
+    }
     Ok(if failures > 0 {
         Outcome::Partial
     } else {
@@ -149,7 +156,7 @@ fn stem(records: &Records, t: RecordType, id: u32) -> anyhow::Result<String> {
 
 /// Decode and write records of one type, in parallel.
 fn dump_types(ctx: &Ctx, t: RecordType, ids: &[u32]) {
-    let bar = progress(ids.len(), t.name());
+    let bar = progress(ids.len(), t.name(), ctx.quiet);
     let lines: Vec<Option<(u32, String)>> = ids
         .par_iter()
         .map(|&id| {
@@ -366,7 +373,7 @@ fn write_interface_tree(ctx: &Ctx, ids: &[u32]) -> anyhow::Result<()> {
 
 fn dump_index(ctx: &Ctx, index: u8, ids: &[u32], raw: bool) {
     let cache = ctx.records.cache();
-    let bar = progress(ids.len(), &format!("idx{index}"));
+    let bar = progress(ids.len(), &format!("idx{index}"), ctx.quiet);
     ids.par_iter().for_each(|&id| {
         let r = (|| -> anyhow::Result<()> {
             let fm = index_file(cache, index, id)?;

@@ -3,17 +3,10 @@
 //! Exit codes: 0 ok, 1 usage, 2 cache error, 3 partial failure (some
 //! records failed; they are listed in the manifest or the verify report).
 
-mod dump;
-mod groups;
-mod list;
-mod output;
-mod select;
-mod verify;
-mod xref;
-
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use cachedump::{DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, select, verify};
 use clap::{Args, Parser, Subcommand};
 use rs2cache::{Cache, Records};
 use rs2intermediate::record::RecordType;
@@ -33,7 +26,7 @@ enum Cmd {
     /// Print the indices and archives, or the contents of one.
     List(ListArgs),
     /// Extract records to files, raw or decoded.
-    Dump(DumpArgs),
+    Dump(DumpCli),
     /// Decode records of one type to JSON (shorthand for `dump --type`).
     Decode(DecodeArgs),
     /// Print one record's metadata sidecar.
@@ -59,7 +52,7 @@ struct ListArgs {
 /// Which ids to take.
 #[derive(Args, Clone, Default)]
 #[group(multiple = false)]
-pub struct IdArgs {
+struct IdCli {
     /// One id.
     #[arg(long)]
     pub id: Option<u32>,
@@ -84,7 +77,7 @@ fn parse_range(s: &str) -> Result<(u32, u32), String> {
 /// Where the records come from: exactly one.
 #[derive(Args, Clone)]
 #[group(required = true, multiple = false)]
-pub struct SourceArgs {
+struct SourceCli {
     /// An index, 0–4.
     #[arg(long)]
     pub index: Option<u8>,
@@ -114,11 +107,11 @@ fn parse_region(s: &str) -> Result<(u8, u8), String> {
 }
 
 #[derive(Args, Clone)]
-pub struct DumpArgs {
+struct DumpCli {
     #[command(flatten)]
-    pub source: SourceArgs,
+    pub source: SourceCli,
     #[command(flatten)]
-    pub ids: IdArgs,
+    pub ids: IdCli,
     /// With --archive, only this entry (a name, or `#hash`).
     #[arg(long, requires = "archive")]
     pub entry: Option<String>,
@@ -129,11 +122,11 @@ pub struct DumpArgs {
     #[arg(long)]
     pub decode: bool,
     #[command(flatten)]
-    pub out: OutArgs,
+    pub out: OutCli,
 }
 
 #[derive(Args, Clone)]
-pub struct OutArgs {
+struct OutCli {
     /// Output directory.
     #[arg(short = 'o', long = "out")]
     pub dir: PathBuf,
@@ -152,13 +145,13 @@ pub struct OutArgs {
 }
 
 #[derive(Args, Clone)]
-pub struct DecodeArgs {
+struct DecodeArgs {
     /// Record type.
     pub kind: RecordType,
     #[command(flatten)]
-    pub ids: IdArgs,
+    pub ids: IdCli,
     #[command(flatten)]
-    pub out: OutArgs,
+    pub out: OutCli,
 }
 
 #[derive(Args)]
@@ -169,10 +162,53 @@ struct InfoArgs {
     id: u32,
 }
 
-/// How a run ended, mapped to the exit code.
-pub enum Outcome {
-    Ok,
-    Partial,
+impl From<IdCli> for IdArgs {
+    fn from(a: IdCli) -> Self {
+        IdArgs {
+            id: a.id,
+            range: a.range,
+            all: a.all,
+        }
+    }
+}
+
+impl From<SourceCli> for SourceArgs {
+    fn from(a: SourceCli) -> Self {
+        SourceArgs {
+            index: a.index,
+            archive: a.archive,
+            kind: a.kind,
+            region: a.region,
+            all_regions: a.all_regions,
+            group: a.group,
+        }
+    }
+}
+
+impl From<OutCli> for OutArgs {
+    fn from(a: OutCli) -> Self {
+        OutArgs {
+            dir: a.dir,
+            meta: a.meta,
+            meta_only: a.meta_only,
+            xref: a.xref,
+            jsonl: a.jsonl,
+            quiet: false,
+        }
+    }
+}
+
+impl From<DumpCli> for DumpArgs {
+    fn from(a: DumpCli) -> Self {
+        DumpArgs {
+            source: a.source.into(),
+            ids: a.ids.into(),
+            entry: a.entry,
+            raw: a.raw,
+            decode: a.decode,
+            out: a.out.into(),
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -205,22 +241,18 @@ fn main() -> ExitCode {
     let records = Records::new(&cache);
     let result = match cli.cmd {
         Cmd::List(a) => list::run(&records, a.index, a.archive.as_deref(), a.kind),
-        Cmd::Dump(a) => dump::run(&records, &a),
+        Cmd::Dump(a) => dump::run(&records, &a.into()),
         Cmd::Decode(a) => {
             let args = DumpArgs {
                 source: SourceArgs {
-                    index: None,
-                    archive: None,
                     kind: Some(a.kind),
-                    region: None,
-                    all_regions: false,
-                    group: None,
+                    ..Default::default()
                 },
-                ids: a.ids,
+                ids: a.ids.into(),
                 entry: None,
                 raw: false,
                 decode: true,
-                out: a.out,
+                out: a.out.into(),
             };
             dump::run(&records, &args)
         }

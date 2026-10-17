@@ -5,6 +5,7 @@
 //! depends on the clock.
 
 pub mod bytes;
+pub mod loose;
 pub mod pack;
 pub mod palette;
 pub mod records;

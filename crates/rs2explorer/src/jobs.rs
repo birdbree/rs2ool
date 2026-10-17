@@ -20,8 +20,25 @@ impl ProgressHandle {
     }
 }
 
-/// How a job ended: a message for the user, or an error.
-pub type JobResult = Result<String, String>;
+/// What a finished job reports: a message, and outputs the user can open
+/// as sources.
+#[derive(Debug, Clone, Default)]
+pub struct Done {
+    pub message: String,
+    pub opens: Vec<(crate::sources::Kind, std::path::PathBuf)>,
+}
+
+impl From<String> for Done {
+    fn from(message: String) -> Self {
+        Done {
+            message,
+            opens: Vec::new(),
+        }
+    }
+}
+
+/// How a job ended.
+pub type JobResult = Result<Done, String>;
 
 pub struct Job {
     pub name: String,
@@ -52,7 +69,7 @@ impl Jobs {
         &mut self,
         name: impl Into<String>,
         total: u32,
-        f: impl FnOnce(ProgressHandle) -> anyhow::Result<String> + Send + 'static,
+        f: impl FnOnce(ProgressHandle) -> anyhow::Result<Done> + Send + 'static,
     ) {
         let progress = Arc::new(AtomicU32::new(0));
         let handle = ProgressHandle(progress.clone());

@@ -3,7 +3,6 @@
 //! Exit codes: 0 ok, 1 usage, 2 cache or I/O error, 3 partial failure.
 
 mod convert;
-mod loose;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -148,7 +147,9 @@ fn main() -> ExitCode {
     };
     let result = match cli.cmd {
         Cmd::Inspect { pack } => inspect(&pack),
-        Cmd::Pack { dir, out } => loose::bake(&dir, &out).map(|p| println!("{}", p.display())),
+        Cmd::Pack { dir, out } => rs2pack::loose::bake(&dir, &out)
+            .map(|p| println!("{}", p.display()))
+            .map_err(Into::into),
         cmd => {
             let Some(dir) = cli.cache else {
                 eprintln!("error: no cache directory; pass --cache <dir> or set RS2_CACHE");

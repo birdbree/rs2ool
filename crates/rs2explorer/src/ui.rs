@@ -8,6 +8,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2intermediate::record::RecordType;
 
+use crate::actions::{Actions, Settings, actions_menu};
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
@@ -324,7 +325,7 @@ struct UiState<'w> {
     lists: ResMut<'w, Lists>,
     selected: ResMut<'w, Selected>,
     loaded: ResMut<'w, Loaded>,
-    jobs: Res<'w, Jobs>,
+    jobs: ResMut<'w, Jobs>,
     rect: ResMut<'w, ViewportRect>,
     render_mode: ResMut<'w, RenderMode>,
     lighting: ResMut<'w, LightingMode>,
@@ -337,6 +338,8 @@ struct UiState<'w> {
     compare_loaded: ResMut<'w, Loaded<CompareSelected>>,
     playback: ResMut<'w, Playback>,
     kit: ResMut<'w, Kit>,
+    actions: ResMut<'w, Actions>,
+    settings: Res<'w, Settings>,
 }
 
 fn layout(
@@ -388,6 +391,14 @@ fn layout(
                         st.sources.pick(Kind::Pack);
                     }
                 });
+                actions_menu(
+                    ui,
+                    &mut st.actions,
+                    &st.settings,
+                    &st.selected,
+                    &st.sources,
+                    &mut st.jobs,
+                );
                 if st.sources.pending() > 0 {
                     ui.spinner();
                     ui.label("opening…");
@@ -460,6 +471,7 @@ fn layout(
         st.nav.back.push(old);
         st.nav.reveal = Some((si, t, id));
     }
+    let mut open = Vec::new();
     let bottom = egui::Panel::bottom("jobs")
         .resizable(true)
         .default_size(80.0)
@@ -480,8 +492,17 @@ fn layout(
                         None => {
                             ui.add(egui::ProgressBar::new(job.fraction()).desired_width(200.0));
                         }
-                        Some(Ok(msg)) => {
-                            ui.label(msg);
+                        Some(Ok(done)) => {
+                            ui.label(&done.message);
+                            for (kind, path) in &done.opens {
+                                if ui
+                                    .small_button("Open as source")
+                                    .on_hover_text(path.display().to_string())
+                                    .clicked()
+                                {
+                                    open.push((*kind, path.clone()));
+                                }
+                            }
                         }
                         Some(Err(e)) => {
                             ui.colored_label(egui::Color32::LIGHT_RED, e);
@@ -494,6 +515,9 @@ fn layout(
         .response
         .rect
         .height();
+    for (kind, path) in open {
+        st.sources.open_path(kind, path);
+    }
     let scale = window.scale_factor();
     let pos = UVec2::new((left * scale) as u32, (top * scale) as u32);
     let full = UVec2::new(window.physical_width(), window.physical_height());
