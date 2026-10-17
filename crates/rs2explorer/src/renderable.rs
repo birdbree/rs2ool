@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rs2convert::creature::{self, Creature};
+use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
 use rs2intermediate::model::Model;
 use rs2intermediate::record::{Record, RecordType};
@@ -14,8 +15,10 @@ use rs2intermediate::sprite::{Font, SpriteSheet};
 use rs2pack::records::anim::Clip;
 use rs2pack::records::material::{PALETTE_ID, decode_palette};
 use rs2pack::records::model::PackModel;
+use rs2pack::records::object::{self, ObjectRecord};
 use rs2pack::records::rig::Rig;
 use rs2pack::records::sprite::SpriteRecord;
+use rs2pack::records::strings::decode as decode_strings;
 use rs2pack::records::texture::{ATLAS_BASE, Atlas};
 use rs2pack::{Kind, PackReader};
 
@@ -193,6 +196,95 @@ pub fn dumped_model_id(rel: &Path) -> Option<u32> {
         return None;
     }
     name.file_stem()?.to_str()?.parse().ok()
+}
+
+/// An object's states, in the order the objects pack lists them: the
+/// location itself, then each morph child. Each has a label, its options
+/// and what it draws.
+#[derive(Default)]
+pub struct States {
+    pub labels: Vec<String>,
+    pub options: Vec<Vec<String>>,
+    pub renderables: Vec<Option<Arc<Renderable>>>,
+}
+
+/// The states of a cache location with a morph table, or of an object in
+/// an objects pack (drawn from the models pack beside it, its options from
+/// the strings pack). `None` for anything else, or a location with no
+/// morph children.
+pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Option<States> {
+    match (source, sel, record) {
+        (Source::Cache { records, .. }, _, Some(Record::Loc(d))) => {
+            let children: Vec<u16> = d
+                .morph
+                .iter()
+                .flat_map(|m| m.children.iter())
+                .flatten()
+                .copied()
+                .collect();
+            if children.is_empty() {
+                return None;
+            }
+            let mut st = States::default();
+            let mut push = |label: String, r: &Record| {
+                let Record::Loc(def) = r else { return };
+                st.labels.push(label);
+                st.options
+                    .push(def.actions.iter().flatten().cloned().collect());
+                st.renderables.push(
+                    rs2convert::preview::model_for(records, r)
+                        .ok()
+                        .flatten()
+                        .map(|m| Arc::new(Renderable::CacheModel(m))),
+                );
+            };
+            push(format!("default (loc {})", d.id), record?);
+            for c in children {
+                if let Ok(r) = records.decode(RecordType::Loc, c.into()) {
+                    push(format!("loc {c}"), &r);
+                }
+            }
+            Some(st)
+        }
+        (Source::Pack { path, reader }, Sel::PackRecord(id), _)
+            if reader.manifest.kind == Kind::Objects =>
+        {
+            let o = ObjectRecord::decode(&reader.get(*id)?.ok()?).ok()?;
+            let models = sibling_packs(path, Kind::Models);
+            let palette = sibling_palette(path).map(Arc::new);
+            let strings: Vec<String> = sibling_packs(path, Kind::Strings)
+                .iter()
+                .find_map(|p| decode_strings(&p.get(OBJECT_STRINGS << 8)?.ok()?).ok())
+                .unwrap_or_default();
+            let mut st = States::default();
+            for (i, s) in o.states.iter().enumerate() {
+                st.labels.push(format!("state {i}"));
+                st.options.push(
+                    s.options
+                        .iter()
+                        .filter(|&&o| o != object::NONE)
+                        .map(|&o| {
+                            strings
+                                .get(o as usize)
+                                .cloned()
+                                .unwrap_or_else(|| format!("#{o}"))
+                        })
+                        .collect(),
+                );
+                let model = models
+                    .iter()
+                    .find_map(|p| PackModel::decode(&p.get(s.model)?.ok()?).ok());
+                st.renderables.push(model.map(|model| {
+                    Arc::new(Renderable::PackModel {
+                        model,
+                        palette: palette.clone(),
+                    })
+                }));
+            }
+            Some(st)
+        }
+        _ => None,
+    }
 }
 
 /// The rig a converted creature model is skinned by: NPC `n`'s model is

@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use rs2intermediate::record::{Meta, Record, RecordType};
 
-use crate::renderable::{Renderable, load_renderable};
+use crate::renderable::{Renderable, States, load_renderable, load_states};
 use crate::sources::{Source, Sources, detach};
 
 /// One selectable thing within a source.
@@ -69,7 +69,7 @@ pub enum LoadedData {
     },
 }
 
-type LoadTask = Task<Result<(LoadedData, Option<Renderable>), String>>;
+type LoadTask = Task<Result<(LoadedData, Option<Renderable>, Option<States>), String>>;
 
 /// The decoded form of the selection in slot `S` (the main selection by
 /// default; [`CompareSelected`] for compare mode's right pane).
@@ -80,6 +80,10 @@ pub struct Loaded<S = Selected> {
     pub data: Option<Arc<LoadedData>>,
     /// What the viewports draw for it, if anything.
     pub renderable: Option<Arc<Renderable>>,
+    /// An object's states, when it has more than its default; `state` is
+    /// the one shown (its renderable is `renderable`).
+    pub states: Option<Arc<States>>,
+    pub state: usize,
     pub error: Option<String>,
     pending: Option<((usize, Sel), LoadTask)>,
     slot: PhantomData<fn() -> S>,
@@ -91,6 +95,8 @@ impl<S> Default for Loaded<S> {
             for_sel: None,
             data: None,
             renderable: None,
+            states: None,
+            state: 0,
             error: None,
             pending: None,
             slot: PhantomData,
@@ -212,7 +218,15 @@ fn start<S: Slot>(selected: Res<S>, sources: Res<Sources>, mut loaded: ResMut<Lo
     }
     let source = detach(source);
     let key = (si, sel.clone());
-    let task = AsyncComputeTaskPool::get().spawn(async move { load(&source, &sel) });
+    let task = AsyncComputeTaskPool::get().spawn(async move {
+        let (data, r) = load(&source, &sel)?;
+        let record = match &data {
+            LoadedData::Record { record, .. } => Some(&**record),
+            _ => None,
+        };
+        let states = load_states(&source, &sel, record);
+        Ok((data, r, states))
+    });
     loaded.pending = Some((key, task));
 }
 
@@ -228,14 +242,26 @@ fn poll<S: Slot>(mut loaded: ResMut<Loaded<S>>) {
     let (key, _) = loaded.pending.take().expect("pending");
     loaded.for_sel = Some(key);
     match result {
-        Ok((d, r)) => {
+        Ok((d, r, states)) => {
             loaded.data = Some(Arc::new(d));
-            loaded.renderable = r.map(Arc::new);
+            // An object with states shows its own model, or when it has none
+            // (a morph parent is often invisible) its first state that draws.
+            let first = states
+                .as_ref()
+                .and_then(|s| s.renderables.iter().position(Option::is_some));
+            loaded.state = if r.is_some() { 0 } else { first.unwrap_or(0) };
+            loaded.renderable = r.map(Arc::new).or_else(|| {
+                states
+                    .as_ref()
+                    .and_then(|s| s.renderables.get(loaded.state).cloned().flatten())
+            });
+            loaded.states = states.map(Arc::new);
             loaded.error = None;
         }
         Err(e) => {
             loaded.data = None;
             loaded.renderable = None;
+            loaded.states = None;
             loaded.error = Some(e);
         }
     }

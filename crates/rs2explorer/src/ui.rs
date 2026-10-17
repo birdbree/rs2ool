@@ -11,7 +11,7 @@ use rs2intermediate::record::RecordType;
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
-use crate::playback::{Playback, playback_ui};
+use crate::playback::{Playback, apply_state, playback_ui, states_ui};
 use crate::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
 use crate::tree::{self, ListKey, Lists};
@@ -311,7 +311,7 @@ struct UiState<'w> {
     sources: ResMut<'w, Sources>,
     lists: ResMut<'w, Lists>,
     selected: ResMut<'w, Selected>,
-    loaded: Res<'w, Loaded>,
+    loaded: ResMut<'w, Loaded>,
     jobs: Res<'w, Jobs>,
     rect: ResMut<'w, ViewportRect>,
     render_mode: ResMut<'w, RenderMode>,
@@ -322,7 +322,7 @@ struct UiState<'w> {
     world: ResMut<'w, crate::map_view::WorldMap>,
     compare: ResMut<'w, Compare>,
     compare_sel: ResMut<'w, CompareSelected>,
-    compare_loaded: Res<'w, Loaded<CompareSelected>>,
+    compare_loaded: ResMut<'w, Loaded<CompareSelected>>,
     playback: ResMut<'w, Playback>,
 }
 
@@ -450,6 +450,14 @@ fn layout(
         .resizable(true)
         .default_size(80.0)
         .show(&mut root, |ui| {
+            // Only write the loaded selections when a state is chosen, so
+            // the viewports are not rebuilt every frame.
+            if let Some(i) = states_ui(ui, &st.loaded) {
+                apply_state(&mut st.loaded, i);
+                if st.compare.enabled {
+                    apply_state(&mut st.compare_loaded, i);
+                }
+            }
             playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref());
             for job in st.jobs.list.iter().rev().take(4) {
                 ui.horizontal(|ui| {

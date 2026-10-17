@@ -304,6 +304,49 @@ fn apply(
     });
 }
 
+/// The state picker for an object with states, and the shown state's
+/// options. Returns the newly chosen state.
+pub fn states_ui(ui: &mut egui::Ui, main: &Loaded) -> Option<usize> {
+    let states = main.states.as_ref()?;
+    let mut chosen = main.state;
+    ui.horizontal_wrapped(|ui| {
+        egui::ComboBox::from_id_salt("object_state")
+            .selected_text(states.labels.get(main.state).cloned().unwrap_or_default())
+            .show_ui(ui, |ui| {
+                for (i, l) in states.labels.iter().enumerate() {
+                    ui.selectable_value(&mut chosen, i, l);
+                }
+            });
+        let options = states
+            .options
+            .get(main.state)
+            .map_or(&[][..], Vec::as_slice);
+        if options.is_empty() {
+            ui.weak("no options");
+        } else {
+            ui.label(format!("Options: {}", options.join(", ")));
+        }
+        if states
+            .renderables
+            .get(main.state)
+            .is_some_and(Option::is_none)
+        {
+            ui.weak("(this state draws nothing)");
+        }
+    });
+    (chosen != main.state).then_some(chosen)
+}
+
+/// Show state `i` of a loaded object, if it has that state.
+pub fn apply_state<S>(l: &mut Loaded<S>, i: usize) {
+    if let Some(s) = l.states.clone()
+        && i < s.renderables.len()
+    {
+        l.state = i;
+        l.renderable = s.renderables[i].clone();
+    }
+}
+
 /// The playback bar: sequence, play/pause, loop and a frame scrubber.
 pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderable>) {
     let Some(r) = main.filter(|_| !pb.seqs.is_empty()) else {
