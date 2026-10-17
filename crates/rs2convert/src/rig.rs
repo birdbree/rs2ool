@@ -351,10 +351,17 @@ impl InferredRig {
     /// The `rigs` record.
     ///
     /// Rest positions are each pivot relative to its parent's, in pack
-    /// space, cast to `i16` with no range check. Rest rotations are zero.
-    /// Labels the mesh doesn't use are left [`UNBOUND`]. Fails with more
-    /// than 254 bones.
+    /// space. Rest rotations are zero. Labels the mesh doesn't use are left
+    /// [`UNBOUND`]. Fails with more than 254 bones, or when a bone sits
+    /// further from its parent than an `i16` reaches.
     pub fn record(&self) -> Result<Rig, ConvertError> {
+        // Checked first, so the u8 bone indices below can't wrap.
+        if self.bones.len() > 254 {
+            return Err(ConvertError::Invalid(format!(
+                "{} bones is more than a rig holds",
+                self.bones.len()
+            )));
+        }
         let mut label_bone = [UNBOUND; 256];
         for (&l, &b) in &self.label_bone {
             label_bone[usize::from(l)] = b as u8;
@@ -362,27 +369,33 @@ impl InferredRig {
         let bones = self
             .bones
             .iter()
-            .map(|b| {
+            .enumerate()
+            .map(|(i, b)| {
                 let pp = b.parent.map_or([0; 3], |p| self.bones[p].pivot);
                 let d = crate::space::to_pack([
                     b.pivot[0] - pp[0],
                     b.pivot[1] - pp[1],
                     b.pivot[2] - pp[2],
                 ]);
+                // Same rule as model vertices: out of i16 range is an
+                // error, never a silent wrap.
+                let mut rest_pos = [0i16; 3];
+                for (out, v) in rest_pos.iter_mut().zip(d) {
+                    *out = i16::try_from(v).map_err(|_| {
+                        ConvertError::Invalid(format!(
+                            "bone {i} ({}) is {v} units from its parent, past i16",
+                            b.name
+                        ))
+                    })?;
+                }
                 Ok(Bone {
                     name_hash: name_hash(&b.name),
                     parent: b.parent.map_or(NO_PARENT, |p| p as u8),
-                    rest_pos: d.map(|v| v as i16),
+                    rest_pos,
                     rest_rot: [0; 3],
                 })
             })
             .collect::<Result<Vec<_>, ConvertError>>()?;
-        if bones.len() > 254 {
-            return Err(ConvertError::Invalid(format!(
-                "{} bones is more than a rig holds",
-                bones.len()
-            )));
-        }
         Ok(Rig { bones, label_bone })
     }
 
