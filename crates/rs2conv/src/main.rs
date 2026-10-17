@@ -30,6 +30,28 @@ enum Cmd {
     Materials(Out),
     /// Pack the 50 textures into an atlas, with a material per texture.
     Textures(Out),
+    /// Convert an NPC: merged model, inferred rig and (with --with-anims)
+    /// validated clips.
+    Npc {
+        /// NPC id.
+        #[arg(long)]
+        id: u32,
+        #[command(flatten)]
+        anims: AnimArgs,
+        /// Extra sequence ids (317 npc.dat names no combat animations).
+        #[arg(long, value_delimiter = ',')]
+        seq: Vec<u16>,
+        #[command(flatten)]
+        out: Out,
+    },
+    /// Convert every identity-kit part, and rig the default body with the
+    /// player stance sequences.
+    PlayerKit {
+        #[command(flatten)]
+        anims: AnimArgs,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -45,6 +67,17 @@ enum Cmd {
         #[arg(short = 'o', long = "out")]
         out: PathBuf,
     },
+}
+
+#[derive(clap::Args)]
+pub struct AnimArgs {
+    /// Also infer the rig's clips and validate them.
+    #[arg(long)]
+    pub with_anims: bool,
+    /// A JSON parent table replacing rig inference's parent choice:
+    /// `[[[child labels], [parent labels]], …]`.
+    #[arg(long = "override")]
+    pub override_file: Option<PathBuf>,
 }
 
 /// Which ids to convert.
@@ -113,11 +146,19 @@ fn main() -> ExitCode {
                 Cmd::Materials(o) => ctx.and_then(|c| c.materials(&o.dir)),
                 Cmd::Textures(o) => ctx.and_then(|c| c.textures(&o.dir)),
                 Cmd::Models { ids, out } => ctx.and_then(|c| c.models(&ids, &out.dir)),
+                Cmd::Npc {
+                    id,
+                    anims,
+                    seq,
+                    out,
+                } => ctx.and_then(|c| c.npc(id, &anims, &seq, &out.dir)),
+                Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
                 Cmd::Inspect { .. } | Cmd::Pack { .. } => unreachable!(),
             }
         }
     };
     match result {
+        Ok(()) if convert::FLAGGED.load(std::sync::atomic::Ordering::Relaxed) => ExitCode::from(3),
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");

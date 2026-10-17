@@ -2,9 +2,15 @@
 //! palette, models, creatures, rig inference, clips, validation, textures,
 //! sprites, floors and objects.
 
+pub mod clip;
+pub mod creature;
+pub mod deform;
 pub mod model;
 pub mod palette;
+pub mod pipeline;
+pub mod rig;
 pub mod texture;
+pub mod validate;
 
 use rs2cache::{Cache, archive};
 use thiserror::Error;
