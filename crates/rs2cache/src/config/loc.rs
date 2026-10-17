@@ -99,6 +99,14 @@ impl ConfigType for Loc {
                     has_action_strings = true;
                     d.actions[usize::from(op - 30)] = action(c)?;
                 }
+                // The original client reads 30–38 as actions, but its array
+                // has five slots, so 35–38 fail in its own loader and real
+                // caches don't use them. Read the string to stay aligned,
+                // then report the opcode as unknown.
+                35..=38 => {
+                    c.string()?;
+                    return Ok(false);
+                }
                 40 => d.recolours = recolours(c)?,
                 60 => d.minimap_function = Some(c.u16()?),
                 62 => d.mirrored = true,
@@ -277,6 +285,17 @@ mod tests {
         let d = Loc::decode(0, &mut Cursor::new(&data)).unwrap();
         assert_eq!(d.unknown_opcodes, [99]);
         assert_eq!(d.size_x, 4);
+    }
+
+    #[test]
+    fn action_opcodes_past_the_five_slots_keep_the_stream_aligned() {
+        // Opcode 35 carries a string like 30–34 do; skipping it without
+        // reading would misread "Extra" as a run of opcodes.
+        let data = Ops::default().op(35).str("Extra").op(14).u8(3).end();
+        let d = Loc::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.unknown_opcodes, [35]);
+        assert_eq!(d.size_x, 3);
+        assert!(d.actions.iter().all(Option::is_none));
     }
 
     #[test]
