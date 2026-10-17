@@ -298,7 +298,7 @@ impl InferredRig {
     }
 
     /// The `rigs` record. Rest positions are pivots relative to the parent
-    /// pivot, converted to y-up.
+    /// pivot, in pack space.
     pub fn record(&self) -> Result<Rig, ConvertError> {
         let mut label_bone = [UNBOUND; 256];
         for (&l, &b) in &self.label_bone {
@@ -309,11 +309,11 @@ impl InferredRig {
             .iter()
             .map(|b| {
                 let pp = b.parent.map_or([0; 3], |p| self.bones[p].pivot);
-                let d = [
+                let d = crate::space::to_pack([
                     b.pivot[0] - pp[0],
-                    -(b.pivot[1] - pp[1]),
+                    b.pivot[1] - pp[1],
                     b.pivot[2] - pp[2],
-                ];
+                ]);
                 Ok(Bone {
                     name_hash: name_hash(&b.name),
                     parent: b.parent.map_or(NO_PARENT, |p| p as u8),

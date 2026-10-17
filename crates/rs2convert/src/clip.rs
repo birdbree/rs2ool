@@ -24,7 +24,7 @@ use crate::creature::{Creature, Sequence};
 use crate::deform::{self, Groups};
 use crate::rig::InferredRig;
 
-const FLIP: DVec3 = DVec3::new(1.0, -1.0, 1.0);
+use crate::space::FLIP;
 
 fn flip_affine(a: DAffine3) -> DAffine3 {
     let p = DAffine3::from_scale(FLIP);

@@ -1,7 +1,7 @@
 //! `anims` record: one clip.
 //!
 //! ```text
-//! magic "RANM", version u8 = 1
+//! magic "RANM", version u8 = 2
 //! rig u32                       (rigs record the clip drives)
 //! frameCount u8
 //! frameStart frameCount × u16   (start of each frame, in 20 ms client cycles)
@@ -69,7 +69,7 @@ impl Clip {
         self.check()?;
         let mut w = Writer::default();
         w.bytes(MAGIC)
-            .u8(1)
+            .u8(super::VERSION)
             .u32(self.rig)
             .u8(self.frame_start.len() as u8);
         for &s in &self.frame_start {

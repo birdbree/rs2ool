@@ -140,8 +140,8 @@ pub fn label_colour(l: u8) -> [f32; 3] {
 }
 
 /// Build a mesh from a converted pack model and the pack palette (grey
-/// without one). Pack positions are already y up. With client shading the
-/// face normal is taken back to cache space (y down) for the client's
+/// without one). Pack space is the explorer's world space. With client
+/// shading the face normal is taken back to cache space for the client's
 /// lightness term, applied to the colour's HSL lightness as the client
 /// applies it to its 7-bit luminance.
 pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading: Shading) -> Mesh {
@@ -150,11 +150,8 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
     let mut normals = Vec::with_capacity(n);
     let mut colors = Vec::with_capacity(n);
     for (i, f) in m.faces.iter().enumerate() {
-        // Pack positions are y up with the cache's z; flip z as `world` does.
-        let p = f.map(|v| {
-            let [x, y, z] = m.vertices[usize::from(v)].map(f32::from);
-            [x, y, -z]
-        });
+        // Pack space is the explorer's world space (y and z negated).
+        let p = f.map(|v| m.vertices[usize::from(v)].map(f32::from));
         let nrm = flat_normal(p);
         let base = if m.material_slots[i] != 0 {
             [0.55, 0.5, 0.45]
@@ -169,7 +166,7 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
             Shading::Client(l) => {
                 let c = f.map(|v| {
                     let [x, y, z] = m.vertices[usize::from(v)].map(i32::from);
-                    [x, -y, z]
+                    [x, -y, -z]
                 });
                 let lightness = face_lightness(cross(sub(c[1], c[0]), sub(c[2], c[0])), &l);
                 scale_lightness(base, lightness as f32 / 128.0)

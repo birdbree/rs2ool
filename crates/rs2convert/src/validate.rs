@@ -108,10 +108,10 @@ pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> Cl
                 } else {
                     usize::from(bone)
                 };
-                let rest = DVec3::new(p[0].into(), (-p[1]).into(), p[2].into());
+                let rest = crate::space::to_pack_vec(*p);
                 let skinned = world[b].transform_point3(rest - pivots[b]);
                 let r = reference[v];
-                let want = DVec3::new(r[0].into(), (-r[1]).into(), r[2].into());
+                let want = crate::space::to_pack_vec(r);
                 WorstVertex {
                     vertex: v,
                     label,

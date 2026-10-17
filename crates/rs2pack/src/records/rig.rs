@@ -1,7 +1,7 @@
 //! `rigs` record.
 //!
 //! ```text
-//! magic "RRIG", version u8 = 1
+//! magic "RRIG", version u8 = 2
 //! boneCount u8
 //! bones      boneCount × {nameHash u32, parent u8 (255 = none), restPos i16×3, restRot u8×3}
 //! labelBone  256 × u8   (bone for each vertex label; 255 = unbound)
@@ -57,7 +57,7 @@ impl Rig {
     pub fn encode(&self) -> Result<Vec<u8>, RecordError> {
         self.check()?;
         let mut w = Writer::default();
-        w.bytes(MAGIC).u8(1).u8(self.bones.len() as u8);
+        w.bytes(MAGIC).u8(super::VERSION).u8(self.bones.len() as u8);
         for b in &self.bones {
             w.u32(b.name_hash)
                 .u8(b.parent)

@@ -13,6 +13,7 @@ pub mod pipeline;
 pub mod preview;
 pub mod rig;
 pub mod run;
+pub mod space;
 pub mod sprite;
 pub mod texture;
 pub mod validate;

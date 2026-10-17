@@ -34,13 +34,18 @@ fn to_i16(v: i32, what: &str) -> Result<i16, ConvertError> {
     i16::try_from(v).map_err(|_| ConvertError::Invalid(format!("{what} {v} does not fit i16")))
 }
 
-/// Convert a decoded model. y is negated (317 is y-down); x and z pass
-/// through. Faces keep their winding.
+/// Convert a decoded model into pack space ([`space::to_pack`]: y and z
+/// negated, a rotation). Faces keep their winding.
+///
+/// [`space::to_pack`]: crate::space::to_pack
 pub fn convert(m: &Model, palette: &Palette) -> Result<PackModel, ConvertError> {
     let vertices = m
         .vertices
         .iter()
-        .map(|v| Ok([to_i16(v[0], "x")?, to_i16(-v[1], "y")?, to_i16(v[2], "z")?]))
+        .map(|&v| {
+            let [x, y, z] = crate::space::to_pack(v);
+            Ok([to_i16(x, "x")?, to_i16(y, "y")?, to_i16(z, "z")?])
+        })
         .collect::<Result<Vec<_>, ConvertError>>()?;
     let f = m.faces.len();
     let mut material_slots = vec![material_id::PALETTE as u8; f];

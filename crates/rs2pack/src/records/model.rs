@@ -1,9 +1,9 @@
 //! `models` record.
 //!
 //! ```text
-//! magic "RMDL", version u8 = 1
+//! magic "RMDL", version u8 = 2
 //! vertexCount u16, faceCount u16, flags u8, attachCount u8
-//! vertices      vertexCount × {x, y, z i16}          (y up)
+//! vertices      vertexCount × {x, y, z i16}          (y up, z = −cache z)
 //! faces         faceCount × {a, b, c}                (u8 when vertexCount < 256, else u16)
 //! materialSlot  faceCount × u8
 //! paletteIndex  faceCount × u16
@@ -96,7 +96,7 @@ impl PackModel {
         let small = self.vertices.len() < 256;
         let mut w = Writer::default();
         w.bytes(MAGIC)
-            .u8(1)
+            .u8(super::VERSION)
             .u16(self.vertices.len() as u16)
             .u16(self.faces.len() as u16)
             .u8(self.flags())

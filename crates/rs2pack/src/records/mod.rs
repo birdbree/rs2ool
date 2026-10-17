@@ -28,12 +28,17 @@ pub enum RecordError {
     Trailing(usize),
 }
 
+/// The version of the model, rig and anim record headers. Version 2 maps
+/// cache space to pack space by negating y and z (version 1 negated y
+/// only, which mirrored every asset).
+pub const VERSION: u8 = 2;
+
 pub(crate) fn magic(r: &mut crate::bytes::Reader, m: &'static [u8; 4]) -> Result<(), RecordError> {
     if r.bytes(4)? != m {
         return Err(RecordError::Magic { expected: m });
     }
     let v = r.u8()?;
-    if v != 1 {
+    if v != VERSION {
         return Err(RecordError::Version(v));
     }
     Ok(())
