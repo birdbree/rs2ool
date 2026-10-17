@@ -1,0 +1,23 @@
+[package]
+name = "rs2cache"
+description = "Reader for the RuneScape 2 revision-317 cache"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rs2intermediate.workspace = true
+bzip2.workspace = true
+flate2.workspace = true
+memmap2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
