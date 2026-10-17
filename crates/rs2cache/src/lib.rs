@@ -9,6 +9,7 @@ pub mod compress;
 pub mod config;
 pub mod io;
 pub mod model;
+pub mod sprite;
 
 pub use archive::{Archive, ArchiveError, EntryName};
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
