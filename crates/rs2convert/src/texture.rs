@@ -1,11 +1,11 @@
 //! Textures: the 50 texture sprites packed into one 1024² atlas with shelf
 //! packing, plus a texture-mode material per texture.
 
+use contentpack::records::material::{Material, mode};
+use contentpack::records::texture::{ATLAS_BASE, Atlas, TextureRect, flags};
+use contentpack::{Kind, PackWriter};
 use rs2cache::Records;
 use rs2cache::types::record::{Record, RecordType};
-use rs2pack::records::material::{Material, mode};
-use rs2pack::records::texture::{ATLAS_BASE, Atlas, TextureRect, flags};
-use rs2pack::{Kind, PackWriter};
 
 use crate::{ConvertError, material_id};
 

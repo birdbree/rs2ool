@@ -2,8 +2,8 @@
 //! textures doubled), colours through the brightness curve, masked to
 //! `0xf8f8ff`, with three progressively darker copies for shading.
 
+use contentpack::palette::gamma;
 use rs2cache::types::sprite::SpriteSheet;
-use rs2pack::palette::gamma;
 
 /// One prepared texture: 4 × 16384 texels and whether it has no
 /// transparent (zero) texels.

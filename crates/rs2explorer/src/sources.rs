@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use contentpack::PackReader;
 use rs2cache::{Cache, Records};
-use rs2pack::PackReader;
 
 pub enum Source {
     /// A cache, with its memoising record handle. The cache is leaked for

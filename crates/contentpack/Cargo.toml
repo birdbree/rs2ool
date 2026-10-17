@@ -1,5 +1,5 @@
 [package]
-name = "rs2pack"
+name = "contentpack"
 description = "Content-pack container and record encoders for the low-poly client"
 edition.workspace = true
 version.workspace = true

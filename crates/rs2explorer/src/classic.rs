@@ -1,4 +1,4 @@
-//! The classic renderer view: the selected model drawn by `rs2render` (a
+//! The classic renderer view: the selected model drawn by `rs2classic` (a
 //! reimplementation of the 317 client's software renderer) into a pixel
 //! buffer, shown nearest-neighbour over the viewport.
 
@@ -10,7 +10,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2cache::types::record::{Record, RecordType};
-use rs2render::{Framebuffer, LitModel, Textures, light};
+use rs2classic::{Framebuffer, LitModel, Textures, light};
 
 use crate::map_view::{ClassicScene, RegionScene};
 use crate::selection::Loaded;
@@ -89,7 +89,7 @@ fn load_textures(sources: Res<Sources>, mut view: ResMut<ClassicView>) {
             .collect();
         Some(Textures::from_sheets(
             &sheets,
-            rs2pack::palette::DEFAULT_BRIGHTNESS,
+            contentpack::palette::DEFAULT_BRIGHTNESS,
         ))
     }));
 }
@@ -102,7 +102,7 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
     let model = loaded.renderable.as_ref().and_then(|r| r.model());
     view.model = model.map(|m| {
         (
-            Arc::new(light(m, &rs2render::light::NPC)),
+            Arc::new(light(m, &rs2classic::light::NPC)),
             m.vertices.clone(),
         )
     });
@@ -145,7 +145,7 @@ fn visibility(on: ClassicOn, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
 /// regions both draw through it, so the classic and modern views match.
 ///
 /// [`mesh::world`]: crate::mesh::world
-pub fn scene_view(o: &OrbitCamera) -> rs2render::View {
+pub fn scene_view(o: &OrbitCamera) -> rs2classic::View {
     let to_cache = |v: Vec3| {
         [
             v.x.round() as i32,
@@ -163,7 +163,7 @@ pub fn scene_view(o: &OrbitCamera) -> rs2render::View {
     let units = |r: f64| (r / std::f64::consts::TAU * 2048.0).round() as i32;
     let yaw = units((-d[0]).atan2(d[2]));
     let pitch = units(d[1].atan2((d[0] * d[0] + d[2] * d[2]).sqrt()));
-    rs2render::View { eye, yaw, pitch }
+    rs2classic::View { eye, yaw, pitch }
 }
 
 /// The classic projection's focal length in classic pixels (`x << 9 / z`).
@@ -202,12 +202,12 @@ pub fn render_scene(
     fb: &mut Framebuffer,
     scene: &ClassicScene,
     planes: [bool; 4],
-    view: &rs2render::View,
+    view: &rs2classic::View,
     textures: &Textures,
 ) {
     for (plane, lit, verts) in &scene.terrain {
         if planes[usize::from(*plane)] {
-            rs2render::render_in_view(fb, lit, verts, view, textures);
+            rs2classic::render_in_view(fb, lit, verts, view, textures);
         }
     }
     let mut order: Vec<(i32, usize)> = scene
@@ -220,7 +220,7 @@ pub fn render_scene(
     order.sort_by_key(|&(d, i)| (std::cmp::Reverse(d), i));
     for (_, i) in order {
         let (_, lit, verts) = &scene.objects[i];
-        rs2render::render_in_view(fb, lit, verts, view, textures);
+        rs2classic::render_in_view(fb, lit, verts, view, textures);
     }
 }
 
@@ -273,7 +273,7 @@ fn draw(
     let tex = view.textures.clone();
     let tex = tex.as_deref().unwrap_or(&empty);
     if let Some((lit, verts)) = view.pose.as_ref().or(view.model.as_ref()) {
-        rs2render::render_in_view(&mut fb, lit, verts, &scene_view(&o), tex);
+        rs2classic::render_in_view(&mut fb, lit, verts, &scene_view(&o), tex);
     } else if let Some(scene) = &scene {
         render_scene(&mut fb, scene, region.planes, &scene_view(&o), tex);
     }

@@ -5,11 +5,11 @@
 
 use std::path::PathBuf;
 
+use contentpack::Kind;
 use rs2cache::types::record::{Record, RecordType};
 use rs2explorer::renderable::{Renderable, load_states};
 use rs2explorer::selection::{Sel, load};
 use rs2explorer::sources::{Source, open_cache, open_pack};
-use rs2pack::Kind;
 
 #[test]
 fn morphing_locations_switch_states_in_cache_and_pack() {

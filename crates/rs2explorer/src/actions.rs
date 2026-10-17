@@ -1,6 +1,6 @@
 //! Actions: export, dump, convert and bake, through the same library calls
 //! the CLIs make (`cachedump::dump::run`, `rs2convert::run`,
-//! `rs2pack::loose`), so every output is byte-identical to the CLI's. They
+//! `contentpack::loose`), so every output is byte-identical to the CLI's. They
 //! run as jobs; the output folder is remembered in `settings.json` in the
 //! platform config directory.
 
@@ -221,7 +221,7 @@ pub fn file_bytes(t: RecordType, id: u32, dir: &Path) -> Option<DumpArgs> {
 
 /// Bake a loose record directory into a pack in `out`, as `rs2conv pack`.
 pub fn bake(dir: &Path, out: &Path) -> anyhow::Result<Done> {
-    let path = rs2pack::loose::bake(dir, out)?;
+    let path = contentpack::loose::bake(dir, out)?;
     Ok(Done {
         message: format!("baked {}", path.display()),
         opens: vec![(Kind::Pack, path)],

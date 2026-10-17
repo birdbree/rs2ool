@@ -8,9 +8,9 @@ publish.workspace = true
 
 [dependencies]
 rs2cache.workspace = true
-rs2pack.workspace = true
+contentpack.workspace = true
 rs2convert.workspace = true
-rs2render.workspace = true
+rs2classic.workspace = true
 cachedump.workspace = true
 anyhow.workspace = true
 bevy = "=0.20.0"

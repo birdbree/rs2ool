@@ -8,11 +8,11 @@ use std::path::PathBuf;
 
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
-use rs2render::light::{NPC, OBJECT};
-use rs2render::{Camera, Framebuffer, Textures, light, render};
+use rs2classic::light::{NPC, OBJECT};
+use rs2classic::{Camera, Framebuffer, Textures, light, render};
 
 fn ppm(name: &str, fb: &Framebuffer) {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("rs2render");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("rs2classic");
     std::fs::create_dir_all(&dir).unwrap();
     let mut out = format!("P6\n{} {}\n255\n", fb.width, fb.height).into_bytes();
     for &p in &fb.pixels {
@@ -28,7 +28,7 @@ fn textures(records: &Records) -> Textures {
             _ => None,
         })
         .collect();
-    Textures::from_sheets(&sheets, rs2pack::palette::DEFAULT_BRIGHTNESS)
+    Textures::from_sheets(&sheets, contentpack::palette::DEFAULT_BRIGHTNESS)
 }
 
 /// Centre a model on the origin (the camera looks at it).
@@ -74,7 +74,9 @@ fn renders_man_and_a_textured_model() {
         .filter(|&p| p != 0x101010)
         .collect();
     assert!(drawn.len() > 3000, "only {} pixels drawn", drawn.len());
-    let table: BTreeSet<u32> = (0..=u16::MAX).map(rs2pack::palette::hsl_to_rgb).collect();
+    let table: BTreeSet<u32> = (0..=u16::MAX)
+        .map(contentpack::palette::hsl_to_rgb)
+        .collect();
     assert!(
         drawn.iter().all(|p| table.contains(p)),
         "smooth/flat pixels come from the HSL table"

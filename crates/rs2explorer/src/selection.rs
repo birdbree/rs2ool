@@ -63,7 +63,7 @@ pub enum LoadedData {
         meta: Box<Meta>,
     },
     Pack {
-        kind: rs2pack::Kind,
+        kind: contentpack::Kind,
         id: u32,
         bytes: Vec<u8>,
         decoded: String,
@@ -119,9 +119,9 @@ impl<S> Loaded<S> {
 }
 
 /// Decode a pack record for display, by kind.
-pub fn describe_pack_record(kind: rs2pack::Kind, id: u32, bytes: &[u8]) -> String {
-    use rs2pack::Kind;
-    use rs2pack::records::*;
+pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> String {
+    use contentpack::Kind;
+    use contentpack::records::*;
     let r = match kind {
         Kind::Models => model::PackModel::decode(bytes).map(|m| format!("{m:#?}")),
         Kind::Materials if id == material::PALETTE_ID => {

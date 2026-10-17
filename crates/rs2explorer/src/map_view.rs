@@ -4,9 +4,9 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
+use contentpack::palette::split;
 use rs2cache::types::config::{FloDef, LocDef};
 use rs2cache::types::map::{Location, Plane, REGION_SIZE, Region};
-use rs2pack::palette::split;
 
 /// World units per tile.
 pub const TILE: f32 = 128.0;
@@ -151,9 +151,9 @@ pub struct Built {
 /// down, z along the tile y axis).
 pub struct ClassicScene {
     /// One flat-RGB terrain model per plane, with its vertices.
-    pub terrain: Vec<(u8, rs2render::LitModel, Vec<[i32; 3]>)>,
+    pub terrain: Vec<(u8, rs2classic::LitModel, Vec<[i32; 3]>)>,
     /// Each placed object: its plane, lit model and world vertices.
-    pub objects: Vec<(u8, Arc<rs2render::LitModel>, Vec<[i32; 3]>)>,
+    pub objects: Vec<(u8, Arc<rs2classic::LitModel>, Vec<[i32; 3]>)>,
     /// The region's centre, for the camera target.
     pub centre: [i32; 3],
 }
@@ -205,12 +205,17 @@ pub fn classic_scene(
             }
         }
         if !faces.is_empty() {
-            terrain.push((pi as u8, rs2render::LitModel::flat_rgb(faces, rgb), verts));
+            terrain.push((pi as u8, rs2classic::LitModel::flat_rgb(faces, rgb), verts));
         }
     }
-    let lit: BTreeMap<(u16, u8), Arc<rs2render::LitModel>> = models
+    let lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> = models
         .iter()
-        .map(|(k, m)| (*k, Arc::new(rs2render::light(m, &rs2render::light::OBJECT))))
+        .map(|(k, m)| {
+            (
+                *k,
+                Arc::new(rs2classic::light(m, &rs2classic::light::OBJECT)),
+            )
+        })
         .collect();
     let mut objects = Vec::new();
     for l in &region.locations {

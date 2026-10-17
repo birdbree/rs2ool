@@ -3,11 +3,11 @@
 
 use std::collections::BTreeMap;
 
+use contentpack::records::material::{Material, flags, mode};
+use contentpack::records::strings;
+use contentpack::{Kind, PackWriter};
 use rs2cache::Records;
 use rs2cache::types::record::{Record, RecordType};
-use rs2pack::records::material::{Material, flags, mode};
-use rs2pack::records::strings;
-use rs2pack::{Kind, PackWriter};
 
 use crate::palette::Palette;
 use crate::{ConvertError, material_id};

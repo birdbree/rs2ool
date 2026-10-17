@@ -15,9 +15,9 @@
 
 use std::f64::consts::TAU;
 
+use contentpack::records::anim::{Clip, Key, NO_LOOP};
 use glam::{DAffine3, DMat3, DVec3};
 use rs2cache::types::anim::{Frame, FramePack, kind};
-use rs2pack::records::anim::{Clip, Key, NO_LOOP};
 
 use crate::ConvertError;
 use crate::creature::{Creature, Sequence};

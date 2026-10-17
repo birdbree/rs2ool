@@ -23,7 +23,9 @@ fn tables() -> &'static Tables {
                 recip[k] = 32768 / k as i32;
             }
         }
-        let hsl = (0..=u16::MAX).map(rs2pack::palette::hsl_to_rgb).collect();
+        let hsl = (0..=u16::MAX)
+            .map(contentpack::palette::hsl_to_rgb)
+            .collect();
         Tables {
             sin,
             cos,

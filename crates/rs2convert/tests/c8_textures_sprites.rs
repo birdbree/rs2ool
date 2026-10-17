@@ -4,13 +4,13 @@
 
 mod common;
 
+use contentpack::PackReader;
+use contentpack::records::sprite::{FontMetrics, SpriteRecord};
+use contentpack::records::texture::{ATLAS_BASE, Atlas, TextureRect};
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
 use rs2convert::sprite;
 use rs2convert::texture::{TextureAtlas, images};
-use rs2pack::PackReader;
-use rs2pack::records::sprite::{FontMetrics, SpriteRecord};
-use rs2pack::records::texture::{ATLAS_BASE, Atlas, TextureRect};
 
 #[test]
 fn atlas_round_trips_pixel_exact() {

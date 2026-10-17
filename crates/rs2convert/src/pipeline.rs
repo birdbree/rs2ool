@@ -3,13 +3,13 @@
 
 use std::collections::BTreeMap;
 
+use contentpack::records::anim::Clip;
+use contentpack::records::model::PackModel;
+use contentpack::records::rig::Rig;
+use contentpack::{Kind, PackWriter};
 use rs2cache::Records;
 use rs2cache::anim::FrameIndex;
 use rs2cache::types::record::{Record, RecordType};
-use rs2pack::records::anim::Clip;
-use rs2pack::records::model::PackModel;
-use rs2pack::records::rig::Rig;
-use rs2pack::{Kind, PackWriter};
 use serde::Serialize;
 
 use crate::creature::{self, Creature};

@@ -1,4 +1,4 @@
-//! Conversion pipelines from decoded cache records to `rs2pack` records:
+//! Conversion pipelines from decoded cache records to `contentpack` records:
 //! palette, models, creatures, rig inference, clips, validation, textures,
 //! sprites, floors and objects.
 
@@ -26,7 +26,7 @@ pub enum ConvertError {
     #[error(transparent)]
     Cache(#[from] rs2cache::Error),
     #[error(transparent)]
-    Record(#[from] rs2pack::records::RecordError),
+    Record(#[from] contentpack::records::RecordError),
     #[error("{0}")]
     Invalid(String),
 }

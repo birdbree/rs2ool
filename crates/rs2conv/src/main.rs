@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use rs2pack::PackReader;
+use contentpack::PackReader;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -147,7 +147,7 @@ fn main() -> ExitCode {
     };
     let result = match cli.cmd {
         Cmd::Inspect { pack } => inspect(&pack),
-        Cmd::Pack { dir, out } => rs2pack::loose::bake(&dir, &out)
+        Cmd::Pack { dir, out } => contentpack::loose::bake(&dir, &out)
             .map(|p| println!("{}", p.display()))
             .map_err(Into::into),
         cmd => {

@@ -3,13 +3,13 @@
 
 mod common;
 
+use contentpack::PackReader;
+use contentpack::records::material::{Material, flags, mode};
+use contentpack::records::strings;
 use rs2cache::Records;
 use rs2cache::types::record::RecordType;
 use rs2convert::palette::Palette;
 use rs2convert::{floor, material_id};
-use rs2pack::PackReader;
-use rs2pack::records::material::{Material, flags, mode};
-use rs2pack::records::strings;
 
 #[test]
 fn one_material_per_floor() {

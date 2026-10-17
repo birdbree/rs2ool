@@ -4,13 +4,13 @@
 
 mod common;
 
+use contentpack::records::model::PackModel;
+use contentpack::{Kind, PackReader, PackWriter};
 use rayon::prelude::*;
 use rs2cache::Records;
 use rs2cache::types::record::{Record, RecordType};
 use rs2convert::model::convert;
 use rs2convert::palette::{Palette, corpus};
-use rs2pack::records::model::PackModel;
-use rs2pack::{Kind, PackReader, PackWriter};
 
 #[test]
 fn every_model_converts() {

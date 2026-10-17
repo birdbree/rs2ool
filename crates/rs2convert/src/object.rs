@@ -4,16 +4,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use contentpack::records::object::{
+    self, KitRecord, ObjectRecord, State, Transition, collision, kit_kind, layer, placement,
+};
+use contentpack::records::strings;
+use contentpack::{Kind, PackWriter};
 use rayon::prelude::*;
 use rs2cache::Records;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
-use rs2pack::records::object::{
-    self, KitRecord, ObjectRecord, State, Transition, collision, kit_kind, layer, placement,
-};
-use rs2pack::records::strings;
-use rs2pack::{Kind, PackWriter};
 
 use crate::creature::merge;
 use crate::palette::Palette;

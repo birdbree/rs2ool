@@ -1,5 +1,5 @@
 [package]
-name = "rs2render"
+name = "rs2classic"
 description = "A reimplementation of the RS2 317 client's software model renderer"
 edition.workspace = true
 version.workspace = true
@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 rs2cache.workspace = true
-rs2pack.workspace = true
+contentpack.workspace = true
 
 [dev-dependencies]
 rs2convert.workspace = true

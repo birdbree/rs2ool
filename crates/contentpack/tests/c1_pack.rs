@@ -1,8 +1,8 @@
 //! Phase C1 check: a pack holding one synthetic model reads back with the
 //! record byte-identical.
 
-use rs2pack::records::model::{AttachPoint, PackModel};
-use rs2pack::{Kind, PackReader, PackWriter};
+use contentpack::records::model::{AttachPoint, PackModel};
+use contentpack::{Kind, PackReader, PackWriter};
 
 #[test]
 fn one_synthetic_model_round_trips() {

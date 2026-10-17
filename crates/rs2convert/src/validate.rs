@@ -1,10 +1,10 @@
 //! Validation: re-skin the converted model with the rig and clip records as
 //! the client would, and compare with the 317 reference deformation.
 
+use contentpack::records::anim::Clip;
+use contentpack::records::model::PackModel;
+use contentpack::records::rig::{NO_PARENT, Rig, UNBOUND};
 use glam::{DAffine3, DVec3};
-use rs2pack::records::anim::Clip;
-use rs2pack::records::model::PackModel;
-use rs2pack::records::rig::{NO_PARENT, Rig, UNBOUND};
 use serde::Serialize;
 
 use crate::clip::local_from_key;
@@ -125,7 +125,7 @@ pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> Cl
             .map(|(v, p)| {
                 let label = labels.get(v).copied().unwrap_or(0);
                 let bone = rig.label_bone[usize::from(label)];
-                let b = if bone == rs2pack::records::rig::UNBOUND {
+                let b = if bone == contentpack::records::rig::UNBOUND {
                     0
                 } else {
                     usize::from(bone)

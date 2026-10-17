@@ -15,7 +15,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use rs2render::texture::TexturePage;
+use rs2classic::texture::TexturePage;
 
 use crate::classic::ClassicView;
 use crate::mesh::{self, NPC_LIGHTING, Shading};
@@ -24,7 +24,7 @@ use crate::renderable::find_match;
 use crate::selection::{CompareSelected, Loaded, Selected};
 use crate::sources::Sources;
 use crate::ui::ViewportRect;
-use rs2pack::records::model::PackModel;
+use contentpack::records::model::PackModel;
 
 /// Marks the world camera(s).
 #[derive(Component)]

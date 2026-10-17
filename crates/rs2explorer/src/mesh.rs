@@ -3,9 +3,9 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
+use contentpack::palette::{hsl_to_rgb, split};
+use contentpack::records::model::PackModel;
 use rs2cache::types::model::Model;
-use rs2pack::palette::{hsl_to_rgb, split};
-use rs2pack::records::model::PackModel;
 
 /// The client's flat lighting parameters: ambient, contrast and the light
 /// direction in cache coordinates.

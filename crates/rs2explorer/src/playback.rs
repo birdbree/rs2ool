@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use rs2pack::records::anim::NO_LOOP;
+use contentpack::records::anim::NO_LOOP;
 
 use crate::classic::ClassicView;
 use crate::renderable::Renderable;
@@ -296,7 +296,7 @@ fn apply(
                 ..m.clone()
             };
             Some((
-                Arc::new(rs2render::light(&model, &rs2render::light::NPC)),
+                Arc::new(rs2classic::light(&model, &rs2classic::light::NPC)),
                 v,
             ))
         }

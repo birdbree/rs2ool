@@ -10,9 +10,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use contentpack::records::rig::{Bone, NO_PARENT, Rig, UNBOUND};
 use glam::DVec3;
 use rs2cache::types::anim::kind;
-use rs2pack::records::rig::{Bone, NO_PARENT, Rig, UNBOUND};
 use serde::Serialize;
 
 use crate::ConvertError;

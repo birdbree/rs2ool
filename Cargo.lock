@@ -2512,6 +2512,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "contentpack"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+ "zstd",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5399,15 +5411,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rs2classic"
+version = "0.1.0"
+dependencies = [
+ "contentpack",
+ "rs2cache",
+ "rs2convert",
+]
+
+[[package]]
 name = "rs2conv"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "contentpack",
  "image",
  "rs2cache",
  "rs2convert",
- "rs2pack",
  "serde",
  "serde_json",
  "tracing",
@@ -5418,11 +5439,11 @@ dependencies = [
 name = "rs2convert"
 version = "0.1.0"
 dependencies = [
+ "contentpack",
  "crc32fast",
  "glam 0.29.3",
  "rayon",
  "rs2cache",
- "rs2pack",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5437,36 +5458,15 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "cachedump",
+ "contentpack",
  "directories",
  "image",
  "rfd",
  "rs2cache",
+ "rs2classic",
  "rs2convert",
- "rs2pack",
- "rs2render",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "rs2pack"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.21",
- "zstd",
-]
-
-[[package]]
-name = "rs2render"
-version = "0.1.0"
-dependencies = [
- "rs2cache",
- "rs2convert",
- "rs2pack",
 ]
 
 [[package]]

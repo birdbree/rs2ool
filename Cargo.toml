@@ -10,9 +10,9 @@ publish = false
 
 [workspace.dependencies]
 rs2cache = { path = "crates/rs2cache" }
-rs2pack = { path = "crates/rs2pack" }
+contentpack = { path = "crates/contentpack" }
 rs2convert = { path = "crates/rs2convert" }
-rs2render = { path = "crates/rs2render" }
+rs2classic = { path = "crates/rs2classic" }
 cachedump = { path = "crates/cachedump" }
 anyhow = "1"
 bzip2 = "0.5"
@@ -42,5 +42,5 @@ all = { level = "warn", priority = -1 }
 opt-level = 2
 
 # The software renderer draws whole regions per frame; keep it fast in dev.
-[profile.dev.package.rs2render]
+[profile.dev.package.rs2classic]
 opt-level = 3

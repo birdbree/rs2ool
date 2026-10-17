@@ -1,8 +1,8 @@
 //! Model conversion: 317 model → `models` record.
 
+use contentpack::records::model::PackModel;
 use glam::DVec3;
 use rs2cache::types::model::Model;
-use rs2pack::records::model::PackModel;
 
 use crate::palette::{Palette, is_textured};
 use crate::{ConvertError, material_id};

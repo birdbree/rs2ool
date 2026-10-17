@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn bakes_a_loose_directory() {
-        let dir = std::env::temp_dir().join(format!("rs2pack-loose-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("contentpack-loose-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let m = LooseManifest {

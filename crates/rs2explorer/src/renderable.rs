@@ -6,21 +6,21 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use contentpack::records::anim::Clip;
+use contentpack::records::material::{PALETTE_ID, decode_palette};
+use contentpack::records::model::PackModel;
+use contentpack::records::object::{self, ObjectRecord};
+use contentpack::records::rig::Rig;
+use contentpack::records::sprite::SpriteRecord;
+use contentpack::records::strings::decode as decode_strings;
+use contentpack::records::texture::{ATLAS_BASE, Atlas};
+use contentpack::{Kind, PackReader};
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::types::sprite::{Font, SpriteSheet};
 use rs2convert::creature::{self, Creature};
 use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
-use rs2pack::records::anim::Clip;
-use rs2pack::records::material::{PALETTE_ID, decode_palette};
-use rs2pack::records::model::PackModel;
-use rs2pack::records::object::{self, ObjectRecord};
-use rs2pack::records::rig::Rig;
-use rs2pack::records::sprite::SpriteRecord;
-use rs2pack::records::strings::decode as decode_strings;
-use rs2pack::records::texture::{ATLAS_BASE, Atlas};
-use rs2pack::{Kind, PackReader};
 
 use crate::selection::Sel;
 use crate::sources::Source;

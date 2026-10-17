@@ -2,13 +2,13 @@
 
 use std::collections::BTreeMap;
 
+use contentpack::palette::{hsl_to_rgb, kmeans, nearest, rgb_distance, split};
+use contentpack::records::material::{self, Material, mode};
+use contentpack::{Kind, PackWriter};
 use rayon::prelude::*;
 use rs2cache::Records;
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
-use rs2pack::palette::{hsl_to_rgb, kmeans, nearest, rgb_distance, split};
-use rs2pack::records::material::{self, Material, mode};
-use rs2pack::{Kind, PackWriter};
 use serde::Serialize;
 
 use crate::{ConvertError, material_id};

@@ -5,12 +5,12 @@
 
 mod common;
 
+use contentpack::PackReader;
+use contentpack::records::object::{KitRecord, ObjectRecord, layer};
 use rs2cache::Records;
 use rs2cache::types::record::{Record, RecordType};
 use rs2convert::object;
 use rs2convert::palette::Palette;
-use rs2pack::PackReader;
-use rs2pack::records::object::{KitRecord, ObjectRecord, layer};
 
 #[test]
 fn every_object_converts() {

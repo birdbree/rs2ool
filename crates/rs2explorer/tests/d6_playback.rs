@@ -5,12 +5,12 @@
 
 use std::path::PathBuf;
 
+use contentpack::Kind;
 use rs2cache::types::record::{Record, RecordType};
 use rs2explorer::playback::{CYCLE_MS, Clock, Posed, posed, sequences, timing};
 use rs2explorer::renderable::Renderable;
 use rs2explorer::selection::{Sel, load};
 use rs2explorer::sources::{Source, open_cache, open_pack};
-use rs2pack::Kind;
 
 #[test]
 fn man_walks_at_client_speed_and_in_step_with_its_conversion() {

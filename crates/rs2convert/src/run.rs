@@ -6,10 +6,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use contentpack::{Kind, PackWriter};
 use rayon::prelude::*;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
-use rs2pack::{Kind, PackWriter};
 
 use crate::palette::{Palette, PaletteError, corpus};
 use crate::pipeline::{self, CreatureOutput, ids as pids};
