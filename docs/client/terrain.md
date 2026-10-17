@@ -104,7 +104,7 @@ The decoder doesn't act on any flag.
 The explorer draws a region to look at, not to match the original client pixel for pixel:
 
 - **One region at a time.** Neighbouring regions aren't stitched. Corners on the far edge reuse the edge tile's own height instead of reading the next region.
-- **Flat colours.** A tile takes its `flo` record's RGB directly, with no blending, texturing or terrain lighting. The modern view uses the underlay colour (or the overlay's when there's no underlay). The classic view and the world map use the overlay colour, else the underlay's.
+- **Flat colours.** A tile takes its `flo` record's RGB directly, with no blending, texturing or terrain lighting. A textured floor (water, for one) has no RGB, so it takes its texture's average colour instead, the way the original client colours a textured floor where it can't draw the texture: the mean of the texture's palette after the brightness curve, then a further brightness curve of 1.4. The modern view uses the underlay colour (or the overlay's when there's no underlay). The classic view and the world map use the overlay colour, else the underlay's.
 - **Rough overlay shapes.** In the modern view, shape 0 covers the whole tile and any other shape covers one of the tile's two triangles with the overlay and the other with the base colour. Overlay rotation is ignored.
 - **Missing floors.** Plane 0 draws every tile, using a default ground colour where there's no floor. Planes 1–3 draw only tiles that have one.
 - **No flags.** Tile flags, bridges included, don't change what's drawn. Each plane can be toggled on and off instead.
