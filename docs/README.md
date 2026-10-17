@@ -1,6 +1,6 @@
-# rs2util documentation
+# rs2ool documentation
 
-rs2util is a Rust workspace for reading the revision-317 RS2 game cache, the data files of the original Java client. It decodes every record in that cache, renders models the way the original client draws them, and converts records into a separate, documented content-pack format. Everything runs offline against a cache you supply. No cache is included in the repository; you point the tools at your own copy of one.
+rs2ool (say it "R.S. Tool") is a Rust workspace for reading the revision-317 RS2 game cache, the data files of the original Java client. It decodes every record in that cache, renders models the way the original client draws them, and converts records into a separate, documented content-pack format. Everything runs offline against a cache you supply. No cache is included in the repository; you point the tools at your own copy of one.
 
 This wiki covers the tools and also the formats themselves. If you're here to understand the 317 cache, start at [The cache](cache/README.md) and [Records](records/README.md). If you just want to dump or convert something, start at [Getting started](getting-started.md).
 
