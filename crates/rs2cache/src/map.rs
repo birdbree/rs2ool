@@ -133,7 +133,7 @@ pub fn decode_tiles(entry: &MapIndexEntry, tiles: &[u8]) -> Result<(Vec<Plane>, 
     let (base_x, base_y) = (i32::from(entry.x()) * 64, i32::from(entry.y()) * 64);
     let mut planes: Vec<Plane> = Vec::with_capacity(4);
     let mut c = Cursor::new(tiles);
-    for plane in 0..4 {
+    for _ in 0..4 {
         let mut p = Plane {
             heights: vec![0; n],
             height_derived: vec![false; n],
