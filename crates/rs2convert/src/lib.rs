@@ -10,6 +10,7 @@ pub mod model;
 pub mod object;
 pub mod palette;
 pub mod pipeline;
+pub mod preview;
 pub mod rig;
 pub mod run;
 pub mod sprite;

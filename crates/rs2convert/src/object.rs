@@ -39,7 +39,7 @@ pub fn layer_of(kind: u8) -> u8 {
 
 /// Geometry as the client builds it for a definition, before placement:
 /// mirrored (z negated, winding kept), scaled, then offset.
-fn shaped(mut m: Model, d: &LocDef) -> Model {
+pub fn shaped(mut m: Model, d: &LocDef) -> Model {
     if d.mirrored {
         for v in &mut m.vertices {
             v[2] = -v[2];
@@ -61,7 +61,7 @@ fn shaped(mut m: Model, d: &LocDef) -> Model {
 
 /// The models of a definition, by placement type: untyped models (op 5)
 /// merge into one type-10 model, as the client draws them.
-fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, ConvertError> {
+pub fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, ConvertError> {
     let load = |id: u16| -> Result<Model, ConvertError> {
         match records.decode(RecordType::Model, id.into())? {
             Record::Model(m) => Ok(m),

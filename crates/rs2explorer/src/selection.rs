@@ -32,6 +32,9 @@ pub enum LoadedData {
     Record {
         record: Box<Record>,
         meta: Box<Meta>,
+        /// The model the record describes, assembled as the client draws
+        /// it (`rs2convert::preview`), for the viewers.
+        preview: Option<Box<rs2intermediate::model::Model>>,
     },
     Pack {
         kind: rs2pack::Kind,
@@ -109,9 +112,13 @@ fn load(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
         (Source::Cache { records, .. }, Sel::Record(t, id)) => {
             let record = records.decode(*t, *id).map_err(|e| e.to_string())?;
             let meta = records.meta(*t, *id).map_err(|e| e.to_string())?;
+            let preview = rs2convert::preview::model_for(records, &record)
+                .map_err(|e| e.to_string())?
+                .map(Box::new);
             Ok(LoadedData::Record {
                 record: Box::new(record),
                 meta: Box::new(meta),
+                preview,
             })
         }
         (Source::Pack { reader, .. }, Sel::PackRecord(id)) => {

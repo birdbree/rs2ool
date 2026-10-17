@@ -57,7 +57,7 @@ pub fn rows(value: &Value, max_items: usize) -> Rows {
 /// The sidecar rows and the decoded-field rows of a loaded selection.
 pub fn sections(data: &LoadedData) -> (Rows, Rows) {
     match data {
-        LoadedData::Record { record, meta } => {
+        LoadedData::Record { record, meta, .. } => {
             let mut m = serde_json::to_value(meta).unwrap_or(Value::Null);
             // The definition is shown below; keep the sidecar to the facts.
             if let Some(o) = m.as_object_mut() {
@@ -146,5 +146,82 @@ mod tests {
             hex_line(b"AB", 0).trim_end(),
             format!("00000000  41 42{}  AB", " ".repeat(42)).trim_end()
         );
+    }
+}
+
+/// The record type a field of `of` refers to, by its flattened key (array
+/// indices removed), if it is a reference.
+pub fn link_type(
+    of: rs2intermediate::record::RecordType,
+    key: &str,
+) -> Option<rs2intermediate::record::RecordType> {
+    use rs2intermediate::record::RecordType as T;
+    let mut k = String::with_capacity(key.len());
+    let mut skip = false;
+    for c in key.chars() {
+        match c {
+            '[' => skip = true,
+            ']' => skip = false,
+            c if !skip => k.push(c),
+            _ => {}
+        }
+    }
+    Some(match (of, k.as_str()) {
+        (T::Npc, "models" | "chat_head_models") => T::Model,
+        (
+            T::Npc,
+            "stand_anim" | "walk_anim" | "walk_back_anim" | "walk_left_anim" | "walk_right_anim",
+        ) => T::Seq,
+        (T::Npc, "morph.children") => T::Npc,
+        (T::Loc, "models.model") => T::Model,
+        (T::Loc, "animation") => T::Seq,
+        (T::Loc, "morph.children") => T::Loc,
+        (
+            T::Obj,
+            "inventory_model" | "male_equip1" | "male_equip2" | "male_equip3" | "female_equip1"
+            | "female_equip2" | "female_equip3" | "male_chat_head1" | "male_chat_head2"
+            | "female_chat_head1" | "female_chat_head2",
+        ) => T::Model,
+        (T::Obj, "noted_id" | "noted_template" | "stack_variants.item") => T::Obj,
+        (T::Idk, "models" | "chat_head_models") => T::Model,
+        (T::SpotAnim, "model") => T::Model,
+        (T::SpotAnim, "sequence") => T::Seq,
+        (T::Map, "locations.id") => T::Loc,
+        (T::Varbit, "varp") => T::Varp,
+        (T::Interface, "content.children.id") => T::Interface,
+        (T::Interface, "content.model" | "content.enabled_model") => T::Model,
+        (T::Interface, "content.animation" | "content.enabled_animation") => T::Seq,
+        _ => return None,
+    })
+}
+
+/// The ids in a row's displayed value: one number, or a `[a, b, …]` list.
+pub fn link_ids(value: &str) -> Vec<u32> {
+    value
+        .trim_start_matches('[')
+        .split(['[', ']', ','])
+        .map_while(|p| {
+            let p = p.trim();
+            if p.starts_with('…') { None } else { Some(p) }
+        })
+        .filter_map(|p| p.parse().ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+    use rs2intermediate::record::RecordType as T;
+
+    #[test]
+    fn references_resolve() {
+        assert_eq!(link_type(T::Npc, "models"), Some(T::Model));
+        assert_eq!(link_type(T::Npc, "stand_anim"), Some(T::Seq));
+        assert_eq!(link_type(T::Loc, "models[3].model"), Some(T::Model));
+        assert_eq!(link_type(T::Map, "locations[0].id"), Some(T::Loc));
+        assert_eq!(link_type(T::Npc, "name"), None);
+        assert_eq!(link_ids("[215, 246, 292] … (7 total)"), [215, 246, 292]);
+        assert_eq!(link_ids("808"), [808]);
+        assert!(link_ids("Man").is_empty());
     }
 }

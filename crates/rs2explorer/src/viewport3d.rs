@@ -10,7 +10,6 @@ use bevy::render::render_resource::BlendState;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::{egui_wants_any_keyboard_input, egui_wants_any_pointer_input};
 use bevy_egui::{EguiContext, EguiGlobalSettings, PrimaryEguiContext};
-use rs2intermediate::record::Record;
 
 use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData};
@@ -259,13 +258,13 @@ fn show_selection(
         return;
     }
     let Some(data) = &loaded.data else { return };
-    let LoadedData::Record { record, .. } = &**data else {
+    let LoadedData::Record { preview, .. } = &**data else {
         return;
     };
-    let Record::Model(m) = &**record else { return };
     if let Some(e) = shown.entity.take() {
         commands.entity(e).despawn();
     }
+    let Some(m) = preview else { return };
     let client = mesh::mesh_from_model(
         m,
         &m.vertices,

@@ -29,6 +29,13 @@ pub struct ViewportRect {
 
 const ROW_HEIGHT: f32 = 18.0;
 
+/// Selection history and a pending "reveal this record in the tree".
+#[derive(Resource, Default)]
+pub struct Nav {
+    pub back: Vec<Selected>,
+    pub reveal: Option<(usize, RecordType, u32)>,
+}
+
 fn list_ui(
     ui: &mut egui::Ui,
     key: ListKey,
@@ -36,8 +43,16 @@ fn list_ui(
     si: usize,
     lists: &mut Lists,
     selected: &mut Selected,
+    reveal: &mut Option<(usize, RecordType, u32)>,
 ) {
     lists.request(key, source);
+    let target = match (key, *reveal) {
+        (ListKey::Type(ksi, kt), Some((rsi, rt, id))) if ksi == rsi && kt == rt => Some(id),
+        _ => None,
+    };
+    if target.is_some() {
+        lists.search.insert(key, String::new());
+    }
     let search = lists.search.entry(key).or_default();
     ui.add(
         egui::TextEdit::singleline(search)
@@ -55,30 +70,42 @@ fn list_ui(
         Some(Ok(rows)) => {
             let shown: Vec<&tree::Row> = rows.iter().filter(|r| r.matches(&filter)).collect();
             ui.label(format!("{} of {}", shown.len(), rows.len()));
-            egui::ScrollArea::vertical()
+            let mut area = egui::ScrollArea::vertical()
                 .id_salt(format!("{key:?}"))
-                .max_height(240.0)
-                .show_rows(ui, ROW_HEIGHT, shown.len(), |ui, range| {
-                    for r in &shown[range] {
-                        let sel = match key {
-                            ListKey::Type(_, t) => Sel::Record(t, r.id),
-                            ListKey::Pack(_) => Sel::PackRecord(r.id),
-                            ListKey::Dump(_) => Sel::DumpFile(r.name.clone().into()),
+                .max_height(240.0);
+            if let Some(id) = target {
+                if let Some(i) = shown.iter().position(|r| r.id == id) {
+                    area = area.vertical_scroll_offset((i as f32 * ROW_HEIGHT - 100.0).max(0.0));
+                }
+                *reveal = None;
+            }
+            area.show_rows(ui, ROW_HEIGHT, shown.len(), |ui, range| {
+                for r in &shown[range] {
+                    let sel = match key {
+                        ListKey::Type(_, t) => Sel::Record(t, r.id),
+                        ListKey::Pack(_) => Sel::PackRecord(r.id),
+                        ListKey::Dump(_) => Sel::DumpFile(r.name.clone().into()),
+                    };
+                    let is = selected.source == Some(si) && selected.sel.as_ref() == Some(&sel);
+                    if ui.selectable_label(is, r.label()).clicked() {
+                        *selected = Selected {
+                            source: Some(si),
+                            sel: Some(sel),
                         };
-                        let is = selected.source == Some(si) && selected.sel.as_ref() == Some(&sel);
-                        if ui.selectable_label(is, r.label()).clicked() {
-                            *selected = Selected {
-                                source: Some(si),
-                                sel: Some(sel),
-                            };
-                        }
                     }
-                });
+                }
+            });
         }
     }
 }
 
-fn tree_ui(ui: &mut egui::Ui, sources: &Sources, lists: &mut Lists, selected: &mut Selected) {
+fn tree_ui(
+    ui: &mut egui::Ui,
+    sources: &Sources,
+    lists: &mut Lists,
+    selected: &mut Selected,
+    reveal: &mut Option<(usize, RecordType, u32)>,
+) {
     for (si, s) in sources.list.iter().enumerate() {
         egui::CollapsingHeader::new(s.label())
             .id_salt(si)
@@ -96,50 +123,116 @@ fn tree_ui(ui: &mut egui::Ui, sources: &Sources, lists: &mut Lists, selected: &m
                             }
                         });
                     for &t in RecordType::ALL {
+                        let open = matches!(*reveal, Some((rsi, rt, _)) if rsi == si && rt == t);
                         egui::CollapsingHeader::new(t.name())
                             .id_salt((si, t.name()))
+                            .open(open.then_some(true))
                             .show(ui, |ui| {
-                                list_ui(ui, ListKey::Type(si, t), s, si, lists, selected);
+                                list_ui(ui, ListKey::Type(si, t), s, si, lists, selected, reveal);
                             });
                     }
                 }
-                Source::Pack { .. } => list_ui(ui, ListKey::Pack(si), s, si, lists, selected),
-                Source::DumpDir { .. } => list_ui(ui, ListKey::Dump(si), s, si, lists, selected),
+                Source::Pack { .. } => {
+                    list_ui(ui, ListKey::Pack(si), s, si, lists, selected, reveal)
+                }
+                Source::DumpDir { .. } => {
+                    list_ui(ui, ListKey::Dump(si), s, si, lists, selected, reveal)
+                }
             });
     }
 }
 
-fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
-    egui::Grid::new(id)
-        .num_columns(2)
-        .striped(true)
-        .show(ui, |ui| {
-            for (k, v) in rows {
-                ui.monospace(k);
-                ui.label(v);
-                ui.end_row();
-            }
-        });
+/// Key/value rows: keys in a fixed-width column, values wrapping within the
+/// panel. (`egui::Grid` gives columns unbounded width, so values in it
+/// never wrap.)
+/// Values that refer to other records (per [`inspector::link_type`]) show
+/// each id as a link; the clicked one is returned.
+fn grid(
+    ui: &mut egui::Ui,
+    id: &str,
+    rows: &[(String, String)],
+    of: Option<RecordType>,
+) -> Option<(RecordType, u32)> {
+    let key_width = (ui.available_width() * 0.4).min(190.0);
+    let mut clicked = None;
+    ui.push_id(id, |ui| {
+        for (k, v) in rows {
+            ui.horizontal_top(|ui| {
+                ui.add_sized(
+                    [key_width, 0.0],
+                    egui::Label::new(egui::RichText::new(k).monospace()).truncate(),
+                );
+                let target = of.and_then(|t| inspector::link_type(t, k));
+                let ids = target.map(|_| inspector::link_ids(v)).unwrap_or_default();
+                match target {
+                    Some(t) if !ids.is_empty() => {
+                        ui.horizontal_wrapped(|ui| {
+                            for id in ids {
+                                if ui
+                                    .link(id.to_string())
+                                    .on_hover_text(format!("open {t} {id}"))
+                                    .clicked()
+                                {
+                                    clicked = Some((t, id));
+                                }
+                            }
+                            if v.contains('…') {
+                                ui.label("…");
+                            }
+                        });
+                    }
+                    _ => {
+                        ui.add(egui::Label::new(v).wrap());
+                    }
+                }
+            });
+        }
+    });
+    clicked
 }
 
-fn inspector_ui(ui: &mut egui::Ui, loaded: &Loaded) {
-    ui.heading("Inspector");
+fn inspector_ui(
+    ui: &mut egui::Ui,
+    loaded: &Loaded,
+    nav: &Nav,
+    back: &mut bool,
+) -> Option<(RecordType, u32)> {
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.heading("Inspector");
+        if ui
+            .add_enabled(!nav.back.is_empty(), egui::Button::new("◀ Back"))
+            .clicked()
+        {
+            *back = true;
+        }
+    });
     if loaded.is_loading() {
         ui.spinner();
     }
     if let Some(e) = &loaded.error {
         ui.colored_label(egui::Color32::LIGHT_RED, e);
     }
-    let Some(data) = &loaded.data else { return };
+    let Some(data) = &loaded.data else {
+        return None;
+    };
     let (meta, fields) = inspector::sections(data);
+    let of = match &**data {
+        crate::selection::LoadedData::Record { record, .. } => Some(record.record_type()),
+        _ => None,
+    };
     egui::ScrollArea::vertical().show(ui, |ui| {
         egui::CollapsingHeader::new("metadata")
             .default_open(true)
-            .show(ui, |ui| grid(ui, "meta", &meta));
+            .show(ui, |ui| grid(ui, "meta", &meta, None));
         if !fields.is_empty() {
             egui::CollapsingHeader::new("fields")
                 .default_open(true)
-                .show(ui, |ui| grid(ui, "fields", &fields));
+                .show(ui, |ui| {
+                    if let Some(c) = grid(ui, "fields", &fields, of) {
+                        clicked = Some(c);
+                    }
+                });
         }
         if let Some(bytes) = inspector::raw_bytes(data) {
             egui::CollapsingHeader::new(format!("bytes ({})", bytes.len())).show(ui, |ui| {
@@ -155,6 +248,7 @@ fn inspector_ui(ui: &mut egui::Ui, loaded: &Loaded) {
             });
         }
     });
+    clicked
 }
 
 /// The resources the layout reads and writes.
@@ -170,6 +264,7 @@ struct UiState<'w> {
     lighting: ResMut<'w, LightingMode>,
     overlays: ResMut<'w, Overlays>,
     classic: ResMut<'w, ClassicView>,
+    nav: ResMut<'w, Nav>,
 }
 
 fn layout(
@@ -229,13 +324,14 @@ fn layout(
         .rect
         .height();
     let mut sel = st.selected.clone();
+    let mut reveal = st.nav.reveal.take();
     let left = egui::Panel::left("tree")
         .resizable(true)
         .default_size(280.0)
         .size_range(160.0..=420.0)
         .show(&mut root, |ui| {
             egui::ScrollArea::vertical().id_salt("tree").show(ui, |ui| {
-                tree_ui(ui, &st.sources, &mut st.lists, &mut sel);
+                tree_ui(ui, &st.sources, &mut st.lists, &mut sel, &mut reveal);
                 for e in &st.sources.errors {
                     ui.colored_label(egui::Color32::LIGHT_RED, e);
                 }
@@ -245,20 +341,41 @@ fn layout(
         .response
         .rect
         .width();
+    st.nav.reveal = reveal;
     if sel != *st.selected {
-        *st.selected = sel;
+        let old = std::mem::replace(&mut *st.selected, sel);
+        if old.sel.is_some() {
+            st.nav.back.push(old);
+        }
     }
+    let (mut back, mut clicked) = (false, None);
     let right = egui::Panel::right("inspector")
         .resizable(true)
         .default_size(340.0)
         .size_range(200.0..=480.0)
         .show(&mut root, |ui| {
-            inspector_ui(ui, &st.loaded);
+            clicked = inspector_ui(ui, &st.loaded, &st.nav, &mut back);
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         })
         .response
         .rect
         .width();
+    if back && let Some(prev) = st.nav.back.pop() {
+        if let (Some(si), Some(Sel::Record(t, id))) = (prev.source, &prev.sel) {
+            st.nav.reveal = Some((si, *t, *id));
+        }
+        *st.selected = prev;
+    } else if let (Some((t, id)), Some(si)) = (clicked, st.selected.source) {
+        let old = std::mem::replace(
+            &mut *st.selected,
+            Selected {
+                source: Some(si),
+                sel: Some(Sel::Record(t, id)),
+            },
+        );
+        st.nav.back.push(old);
+        st.nav.reveal = Some((si, t, id));
+    }
     let bottom = egui::Panel::bottom("jobs")
         .resizable(true)
         .default_size(80.0)
@@ -302,5 +419,6 @@ fn layout(
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<ViewportRect>()
+        .init_resource::<Nav>()
         .add_systems(EguiPrimaryContextPass, layout.in_set(Layout));
 }

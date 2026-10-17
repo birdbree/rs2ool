@@ -119,15 +119,15 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
         return;
     }
     let Some(data) = &loaded.data else { return };
-    let LoadedData::Record { record, .. } = &**data else {
+    let LoadedData::Record { preview, .. } = &**data else {
         return;
     };
-    if let Record::Model(m) = &**record {
-        view.model = Some((
+    view.model = preview.as_ref().map(|m| {
+        (
             Arc::new(light(m, &rs2render::light::NPC)),
             centred(&m.vertices),
-        ));
-    }
+        )
+    });
 }
 
 /// Hide the Bevy model while the classic renderer is showing.
