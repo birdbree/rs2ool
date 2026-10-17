@@ -265,16 +265,18 @@ fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
     [channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0)]
 }
 
-/// The unit flat normal of a world-space triangle, taken as `e2 × e1`
-/// (the reverse of the `e1 × e2` the cache-space lighting uses). Straight
-/// up for a degenerate triangle.
+/// The unit flat normal of a world-space triangle, `e1 × e2`: the same
+/// cross product the original client lights with in cache space. World
+/// space is cache space turned half a turn about x (a rotation, not a
+/// mirror), so the cross product turns with it and still points out of
+/// the model. Straight up for a degenerate triangle.
 fn flat_normal(p: [[f32; 3]; 3]) -> [f32; 3] {
     let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
     let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
     let c = [
-        e2[1] * e1[2] - e2[2] * e1[1],
-        e2[2] * e1[0] - e2[0] * e1[2],
-        e2[0] * e1[1] - e2[1] * e1[0],
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
     ];
     let len = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
     if len > 0.0 {
@@ -454,6 +456,50 @@ mod tests {
         assert_eq!(uv[1], [1.0, 0.0]);
         // Past N, v runs on so the repeating sampler wraps it.
         assert_eq!(uv[2], [0.5, 2.0]);
+    }
+
+    /// A closed tetrahedron wound the way cache models are, with `e1 × e2`
+    /// pointing out of the shape in cache space.
+    fn tetrahedron() -> Model {
+        Model {
+            vertices: vec![[0, 0, 0], [100, 0, 0], [0, 100, 0], [0, 0, 100]],
+            faces: vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
+            face_colours: vec![0; 4],
+            face_types: None,
+            priority: 0,
+            face_priorities: None,
+            face_alphas: None,
+            face_labels: None,
+            vertex_labels: None,
+            textured_faces: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn flat_normals_point_out_of_the_model() {
+        let m = tetrahedron();
+        let mesh = mesh_from_model(&m, &m.vertices, Shading::Raw, false);
+        let Some(VertexAttributeValues::Float32x3(n)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("normals");
+        };
+        let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("positions");
+        };
+        // Centre of the shape in world space.
+        let c = m
+            .vertices
+            .iter()
+            .map(|&v| world(v))
+            .fold([0.0f32; 3], |a, v| {
+                [a[0] + v[0] / 4.0, a[1] + v[1] / 4.0, a[2] + v[2] / 4.0]
+            });
+        for (face, (pos, nrm)) in p.chunks(3).zip(n.chunks(3)).enumerate() {
+            let mid = [0, 1, 2].map(|a| (pos[0][a] + pos[1][a] + pos[2][a]) / 3.0);
+            let out: f32 = (0..3).map(|a| nrm[0][a] * (mid[a] - c[a])).sum();
+            assert!(out > 0.0, "face {face}'s normal points into the shape");
+        }
     }
 
     #[test]
