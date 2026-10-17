@@ -437,15 +437,20 @@ fn spawn(
     }
     let half = REGION_SIZE as f32 * TILE / 2.0;
     let extent = REGION_SIZE as f32 * TILE;
+    // Plane 0's lowest ground (y up): the target never sinks below it, and
+    // with the pitch held above the horizon neither does the eye.
+    let floor = built.region.planes[0]
+        .heights
+        .iter()
+        .map(|&h| -h as f32)
+        .fold(f32::INFINITY, f32::min);
     for mut o in &mut cams {
         o.target = Vec3::new(half, 0.0, -half);
         o.distance = 7000.0;
         o.pitch = 0.9;
-        // The target stays over the region, below the tallest buildings;
-        // the eye stays above the ground and outside the near plane.
         o.bound(Limits {
-            lo: Vec3::new(0.0, -2500.0, -extent),
-            hi: Vec3::new(extent, 2500.0, 0.0),
+            lo: Vec3::new(0.0, floor, -extent),
+            hi: Vec3::new(extent, floor + 3000.0, 0.0),
             near: 300.0,
             far: 14_000.0,
             min_pitch: 0.08,
