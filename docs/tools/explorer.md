@@ -58,7 +58,7 @@ Anything with a model draws in the 3D viewport:
 - `model/<id>.json` files in a dump directory;
 - records of a models pack, coloured with the palette from a materials pack written beside it (`<dir>/materials/`), or grey without one.
 
-A new selection recentres the camera on it. A 128-unit grid, a 128 × 240 × 128 box (one tile, one storey) and axes sit at the origin so scale errors stand out (see [Coordinates](../client/coordinates.md)). **View › Colour by vertex label** recolours each vertex by its label instead of its face colour, which makes groups and welds easy to see.
+A new selection recentres the camera on it. A 128-unit grid, a 128 × 240 × 128 box (one tile, one storey) and axes sit at the origin so scale errors stand out (see [Coordinates](../client/coordinates.md)). The modern renderer can also colour vertices by label or by bone, and draw a converted creature's bones; see [Vertex colours and bones](#vertex-colours-and-bones).
 
 ### Controls
 
@@ -87,6 +87,18 @@ The pitch is limited to 85° above or below the horizon. Around a model, the tar
 | Engine lighting | the raw face colours under a directional light and ambient light, for judging shape |
 
 Every face is flat-shaded in both. For pack models, 317 lighting takes each face normal back to cache space and applies the same term to the colour's lightness. See [Lighting](../client/lighting.md).
+
+### Vertex colours and bones
+
+**View › Vertex colours** picks what the modern renderer colours vertices by:
+
+| Choice | What you see |
+| --- | --- |
+| Face colours (default) | each face's own colour |
+| By vertex label | each vertex coloured by its label, which makes groups and welds easy to see; cache models and pack models alike |
+| By bone | each vertex of a converted creature coloured by the bone it follows (its label's bone in the rig, or bone 0 when unbound), the way the skinning binds it; anything without a rig keeps its face colours |
+
+**View › Bones** draws a converted creature's rig over the model: a dot on each bone's pivot and a line from it to its parent's pivot, each bone in the colour **By bone** paints its vertices. The bones are posed at the playback frame, with the same pose that skins the mesh, so they move with it, and at rest when nothing's playing. In compare mode they're drawn in whichever pane shows the converted creature. Cache models and NPCs have no rig, so they show no bones. It's the quickest way to check [rig inference](../conversion/rig-inference.md): a pivot in the wrong place or a bone hanging off the wrong parent shows up straight away.
 
 ## Compare mode
 

@@ -18,7 +18,7 @@ use contentpack::records::anim::NO_LOOP;
 use crate::explorer::classic::ClassicView;
 use crate::explorer::renderable::Renderable;
 use crate::explorer::selection::{CompareSelected, Loaded};
-use crate::explorer::viewport3d::{Overlays, Pose, Shown, ShownModel, posed_parts};
+use crate::explorer::viewport3d::{Overlays, Pose, Shown, ShownModel, VertexColours, posed_parts};
 
 /// Milliseconds per cycle of the original client.
 pub const CYCLE_MS: f32 = 20.0;
@@ -226,7 +226,7 @@ struct PoseKey {
     compare: usize,
     seq: u32,
     frame: usize,
-    labels: bool,
+    colours: VertexColours,
     main_parts: usize,
     compare_parts: usize,
 }
@@ -311,7 +311,7 @@ fn apply(
         compare: ptr(right.renderable.as_ref()),
         seq,
         frame: pb.clock.frame,
-        labels: overlays.labels,
+        colours: overlays.colours,
         main_parts: shown.main.parts.len(),
         compare_parts: shown.compare.parts.len(),
     };
@@ -326,7 +326,7 @@ fn apply(
         let r = r?;
         let p = posed(r, seq, frame)?;
         // `client` is the 317-lit variant, `real` the engine-lit one.
-        let (client, real, _) = posed_parts(r, overlays.labels, p.pose());
+        let (client, real, _) = posed_parts(r, overlays.colours, p.pose());
         for ((part, c), rl) in side.parts.iter().zip(client).zip(real) {
             if let Some(mut m) = meshes.get_mut(&part.client) {
                 *m = c.mesh;

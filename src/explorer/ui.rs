@@ -20,7 +20,7 @@ use crate::explorer::playback::{Playback, apply_state, playback_ui, states_ui};
 use crate::explorer::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::explorer::sources::{Kind, Source, Sources};
 use crate::explorer::tree::{self, ListKey, Lists};
-use crate::explorer::viewport3d::{Compare, LightingMode, Overlays};
+use crate::explorer::viewport3d::{Compare, LightingMode, Overlays, VertexColours};
 
 /// The layout system, for ordering painters that draw over the viewport.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -399,7 +399,12 @@ fn layout(
                         ui.label("Lighting");
                         ui.radio_value(&mut *st.lighting, LightingMode::Client, "317 lighting");
                         ui.radio_value(&mut *st.lighting, LightingMode::Real, "Engine lighting");
-                        ui.checkbox(&mut st.overlays.labels, "Colour by vertex label");
+                        ui.label("Vertex colours");
+                        let colours = &mut st.overlays.colours;
+                        ui.radio_value(colours, VertexColours::Faces, "Face colours");
+                        ui.radio_value(colours, VertexColours::Labels, "By vertex label");
+                        ui.radio_value(colours, VertexColours::Bones, "By bone");
+                        ui.checkbox(&mut st.overlays.bones, "Bones");
                     });
                     ui.separator();
                     ui.checkbox(&mut st.world.open, "World map");
