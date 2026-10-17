@@ -1,0 +1,24 @@
+[package]
+name = "cachedump"
+description = "List, dump, decode and verify a RuneScape 2 revision-317 cache"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rs2cache.workspace = true
+rs2intermediate.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+crc32fast.workspace = true
+image.workspace = true
+indicatif.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

@@ -345,7 +345,8 @@ fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<SpriteSheet, Error> {
     sprite::decode_block(&e.data, index, end).map_err(|e| sprite_error(n, e))
 }
 
-fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> {
+/// Metadata of one file of index 0–4.
+pub fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> {
     let (raw, chain) = cache.read_raw_with_chain(index, id)?;
     let gz = compress::is_gzip(&raw);
     let inflated =
@@ -360,7 +361,8 @@ fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> {
     })
 }
 
-fn entry_file(n: u8, a: &Archive, e: &Entry) -> FileMeta {
+/// Metadata of one archive entry.
+pub fn entry_file(n: u8, a: &Archive, e: &Entry) -> FileMeta {
     FileMeta {
         source: Source::Archive {
             archive: n,
