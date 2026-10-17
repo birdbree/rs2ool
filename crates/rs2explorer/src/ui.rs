@@ -8,11 +8,17 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2intermediate::record::RecordType;
 
+use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
 use crate::selection::{Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
 use crate::tree::{self, ListKey, Lists};
+use crate::viewport3d::{LightingMode, Overlays};
+
+/// The layout system, for ordering painters that draw over the viewport.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Layout;
 
 /// The central area left for the viewports, in physical pixels.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
@@ -160,6 +166,10 @@ struct UiState<'w> {
     loaded: Res<'w, Loaded>,
     jobs: Res<'w, Jobs>,
     rect: ResMut<'w, ViewportRect>,
+    render_mode: ResMut<'w, RenderMode>,
+    lighting: ResMut<'w, LightingMode>,
+    overlays: ResMut<'w, Overlays>,
+    classic: ResMut<'w, ClassicView>,
 }
 
 fn layout(
@@ -178,6 +188,26 @@ fn layout(
     let top = egui::Panel::top("menu")
         .show(&mut root, |ui| {
             ui.horizontal(|ui| {
+                ui.menu_button("View", |ui| {
+                    ui.label("Renderer");
+                    ui.radio_value(&mut *st.render_mode, RenderMode::Modern, "Modern (Bevy)");
+                    ui.radio_value(
+                        &mut *st.render_mode,
+                        RenderMode::Classic,
+                        "Classic (317 software renderer)",
+                    );
+                    ui.separator();
+                    ui.add_enabled_ui(*st.render_mode == RenderMode::Modern, |ui| {
+                        ui.label("Lighting");
+                        ui.radio_value(&mut *st.lighting, LightingMode::Client, "317 lighting");
+                        ui.radio_value(&mut *st.lighting, LightingMode::Real, "Engine lighting");
+                        ui.checkbox(&mut st.overlays.labels, "Colour by vertex label");
+                    });
+                    ui.add_enabled_ui(*st.render_mode == RenderMode::Classic, |ui| {
+                        ui.label("Classic pixel size");
+                        ui.add(egui::Slider::new(&mut st.classic.scale, 1..=4).suffix("×"));
+                    });
+                });
                 ui.menu_button("Open…", |ui| {
                     if ui.button("Cache directory").clicked() {
                         st.sources.pick(Kind::Cache);
@@ -272,5 +302,5 @@ fn layout(
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<ViewportRect>()
-        .add_systems(EguiPrimaryContextPass, layout);
+        .add_systems(EguiPrimaryContextPass, layout.in_set(Layout));
 }

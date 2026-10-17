@@ -13,6 +13,7 @@ rs2cache = { path = "crates/rs2cache" }
 rs2intermediate = { path = "crates/rs2intermediate" }
 rs2pack = { path = "crates/rs2pack" }
 rs2convert = { path = "crates/rs2convert" }
+rs2render = { path = "crates/rs2render" }
 anyhow = "1"
 bzip2 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }

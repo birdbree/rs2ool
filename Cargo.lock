@@ -5407,6 +5407,7 @@ dependencies = [
  "rs2convert",
  "rs2intermediate",
  "rs2pack",
+ "rs2render",
  "serde",
  "serde_json",
 ]
@@ -5428,6 +5429,16 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "zstd",
+]
+
+[[package]]
+name = "rs2render"
+version = "0.1.0"
+dependencies = [
+ "rs2cache",
+ "rs2convert",
+ "rs2intermediate",
+ "rs2pack",
 ]
 
 [[package]]

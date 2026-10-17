@@ -10,25 +10,29 @@ use bevy_egui::EguiPlugin;
 
 use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Sources};
-use rs2explorer::{jobs, selection, sources, tree, ui, viewport3d};
+use rs2explorer::{classic, jobs, selection, sources, tree, ui, viewport3d};
 use rs2intermediate::record::RecordType;
 
-/// `rs2explorer [cache-dir] [--select type:id]`: open a cache at startup
+/// `rs2explorer [cache-dir] [--select type:id] [--classic]`: open a cache at startup
 /// (default `RS2_CACHE`) and optionally select a record in it.
 #[derive(Resource, Default)]
 struct Startup {
     cache: Option<PathBuf>,
     select: Option<(RecordType, u32)>,
+    classic: bool,
 }
 
 fn parse_args() -> Startup {
     let mut st = Startup {
         cache: std::env::var_os("RS2_CACHE").map(PathBuf::from),
         select: None,
+        classic: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        if a == "--select" {
+        if a == "--classic" {
+            st.classic = true;
+        } else if a == "--select" {
             st.select = args.next().and_then(|v| {
                 let (t, id) = v.split_once(':')?;
                 Some((t.parse().ok()?, id.parse().ok()?))
@@ -40,7 +44,14 @@ fn parse_args() -> Startup {
     st
 }
 
-fn open_startup(st: Res<Startup>, mut sources: ResMut<Sources>) {
+fn open_startup(
+    st: Res<Startup>,
+    mut sources: ResMut<Sources>,
+    mut mode: ResMut<classic::RenderMode>,
+) {
+    if st.classic {
+        *mode = classic::RenderMode::Classic;
+    }
     if let Some(c) = &st.cache {
         sources.open_path(Kind::Cache, c.clone());
     }
@@ -82,6 +93,7 @@ fn main() {
             selection::plugin,
             tree::plugin,
             viewport3d::plugin,
+            classic::plugin,
             jobs::plugin,
         ))
         .insert_resource(parse_args())

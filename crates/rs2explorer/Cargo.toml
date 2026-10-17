@@ -11,6 +11,7 @@ rs2cache.workspace = true
 rs2intermediate.workspace = true
 rs2pack.workspace = true
 rs2convert.workspace = true
+rs2render.workspace = true
 anyhow.workspace = true
 bevy = "=0.20.0"
 bevy_egui = "=0.43.1"

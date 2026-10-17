@@ -1,5 +1,6 @@
 //! The explorer's plugins, as a library so headless tests can drive them.
 
+pub mod classic;
 pub mod inspector;
 pub mod jobs;
 pub mod mesh;

@@ -20,7 +20,9 @@ fn channel(t: f64, p: f64, q: f64) -> f64 {
     }
 }
 
-fn gamma(rgb: u32, brightness: f64) -> u32 {
+/// Apply the client's brightness (gamma) to a packed 24-bit colour, as
+/// `Texture.method373`.
+pub fn gamma(rgb: u32, brightness: f64) -> u32 {
     let f = |c: u32| ((f64::from(c) / 256.0).powf(brightness) * 256.0) as u32;
     (f(rgb >> 16) << 16) + (f((rgb >> 8) & 0xff) << 8) + f(rgb & 0xff)
 }

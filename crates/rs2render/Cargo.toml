@@ -1,0 +1,18 @@
+[package]
+name = "rs2render"
+description = "A reimplementation of the RS2 317 client's software model renderer"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rs2intermediate.workspace = true
+rs2pack.workspace = true
+
+[dev-dependencies]
+rs2cache.workspace = true
+rs2convert.workspace = true
+
+[lints]
+workspace = true
