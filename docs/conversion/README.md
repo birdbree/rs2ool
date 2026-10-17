@@ -36,7 +36,7 @@ Each `rs2ool pack` subcommand is one function in [`rs2convert::run`](../../crate
 
 Every run that writes palette indices (`models`, `npc`, `player-kit`, `floors`, `objects`) builds the palette from scratch first, the same way `materials` does. That's why indices written by separate runs agree with each other.
 
-Material ids share one space: 0 is the palette material, `1 + t` is texture `t`, `1000 + f` is floor `f` (constants in `rs2convert::material_id`). Wall kits name `2000 + loc` as their material, though no conversion writes a material with that id.
+Material ids share one space: 0 is the palette material, `1 + t` is texture `t`, `1000 + f` is floor `f` (constants in `rs2convert::material_id`). Wall kits name material 0.
 
 ## Entry points and `Outcome`
 

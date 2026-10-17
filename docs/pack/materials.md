@@ -70,7 +70,7 @@ Model faces carry a palette index directly ([Models](models.md)), and so do pale
 
 ## Ids
 
-Material ids are `u16`; see [Record ids](record-ids.md#materials) for the whole scheme: 0 for the palette material, `1 + t` for textures, `1000 + flo` for floors, and `2000 + loc` for wall kits, which kit records name but no `materials` record carries. Model faces hold a `u8` material slot, so faces can only use ids below 256.
+Material ids are `u16`; see [Record ids](record-ids.md#materials) for the whole scheme: 0 for the palette material, `1 + t` for textures, and `1000 + flo` for floors. Wall kits name material 0. Model faces hold a `u8` material slot, so faces can only use ids below 256.
 
 ## See also
 
