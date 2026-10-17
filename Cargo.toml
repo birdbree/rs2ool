@@ -13,7 +13,6 @@ rs2cache = { path = "crates/rs2cache" }
 contentpack = { path = "crates/contentpack" }
 rs2convert = { path = "crates/rs2convert" }
 rs2classic = { path = "crates/rs2classic" }
-cachedump = { path = "crates/cachedump" }
 anyhow = "1"
 bzip2 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }
