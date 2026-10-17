@@ -11,11 +11,14 @@ publish = false
 [workspace.dependencies]
 rs2cache = { path = "crates/rs2cache" }
 rs2intermediate = { path = "crates/rs2intermediate" }
+rs2pack = { path = "crates/rs2pack" }
+rs2convert = { path = "crates/rs2convert" }
 anyhow = "1"
 bzip2 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }
 crc32fast = "1"
 flate2 = "1"
+glam = "0.29"
 image = { version = "0.25", default-features = false, features = ["png"] }
 indicatif = "0.17"
 memmap2 = "0.9"
@@ -24,8 +27,10 @@ rayon = "1"
 insta = { version = "1", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
+zstd = "0.13"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.clippy]
