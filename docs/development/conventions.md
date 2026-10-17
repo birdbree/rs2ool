@@ -59,7 +59,7 @@ The same input must produce the same bytes. In practice:
 - Parallel work (with `rayon`) either collects into an ordered `Vec` before results are combined, or writes one file per record and sorts the dump's `manifest.json` before writing it.
 - Algorithms that could depend on seeding are made deterministic: the palette's k-means seeds from the heaviest colour, and its entries are sorted afterwards.
 
-Packs are named by the SHA-256 of their index and blob, so a determinism break shows up as a different file name. `tests/c_determinism.rs` checks this; see [testing](testing.md) and [determinism](../conversion/determinism.md).
+Packs are named by the SHA-256 of the whole file, so a determinism break shows up as a different file name. `tests/c_determinism.rs` checks this; see [testing](testing.md) and [determinism](../conversion/determinism.md).
 
 ## The explorer
 

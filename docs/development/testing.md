@@ -79,7 +79,7 @@ The `verify` test also builds a damaged cache: it copies the index files into th
 
 ## The determinism test
 
-`tests/c_determinism.rs` runs `rs2ool pack npc --id 1 --with-anims`, `rs2ool pack materials` and `rs2ool pack textures` twice each, into separate directories, and compares the sorted lists of pack paths. Packs are named by the SHA-256 of their index and blob, so equal names mean byte-identical records. In `contentpack`, the unit test `baking_is_deterministic_and_order_independent` checks the same thing at the container level: inserting records and manifest extras in a different order bakes the same bytes. See [determinism](../conversion/determinism.md) for what makes the output stable.
+`tests/c_determinism.rs` runs `rs2ool pack npc --id 1 --with-anims`, `rs2ool pack materials` and `rs2ool pack textures` twice each, into separate directories, and compares the sorted lists of pack paths. Packs are named by the SHA-256 of the whole file, so equal names mean byte-identical packs. In `contentpack`, the unit test `baking_is_deterministic_and_order_independent` checks the same thing at the container level: inserting records and manifest extras in a different order bakes the same bytes. See [determinism](../conversion/determinism.md) for what makes the output stable.
 
 ## Headless explorer tests
 

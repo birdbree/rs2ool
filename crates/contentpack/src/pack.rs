@@ -17,9 +17,10 @@
 //! from the start of the blob, `length` is the stored (compressed) length
 //! and `crc` is the CRC32 of the uncompressed record, whatever the codec.
 //!
-//! The pack is named by the lowercase hex SHA-256 of index and blob. The
-//! header and manifest aren't hashed, so two packs with the same records but
-//! different manifests get the same name.
+//! The pack is named by the lowercase hex SHA-256 of the whole file, header
+//! and manifest included, so `sha256sum` on a pack prints its name. Two packs
+//! that differ anywhere, even only in the manifest's `source_cache_crc` or
+//! `extra` tables, get different names.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -263,7 +264,7 @@ impl PackWriter {
         self.extra.insert(key.to_owned(), value);
     }
 
-    /// Bake the pack. Returns its name (hex SHA-256 of index and blob) and
+    /// Bake the pack. Returns its name (hex SHA-256 of the whole file) and
     /// its bytes.
     pub fn bake(&self) -> (String, Vec<u8>) {
         let mut index = Writer::default();
@@ -291,11 +292,6 @@ impl PackWriter {
             extra: self.extra.clone(),
         };
         let manifest = serde_json::to_vec(&manifest).expect("manifest serialises");
-        // The name hashes index and blob only, not the header or manifest.
-        let mut h = Sha256::new();
-        h.update(&index.0);
-        h.update(&blob);
-        let name: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
         let mut out = Writer::default();
         out.bytes(MAGIC)
             .u16(VERSION)
@@ -306,7 +302,7 @@ impl PackWriter {
             .bytes(&manifest)
             .bytes(&index.0)
             .bytes(&blob);
-        (name, out.0)
+        (name(&out.0), out.0)
     }
 
     /// Bake and write to `<dir>/<kind>/<hash>.pack`, creating directories as
@@ -323,6 +319,14 @@ impl PackWriter {
         std::fs::write(&path, bytes).map_err(io(&path))?;
         Ok(path)
     }
+}
+
+/// A pack's name: the lowercase hex SHA-256 of all its bytes.
+fn name(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// One index entry: where a record sits in the blob.
@@ -350,7 +354,7 @@ pub struct PackReader {
     /// assume it is; the reader doesn't check.
     pub index: Vec<IndexEntry>,
     blob: Vec<u8>,
-    /// Hex SHA-256 of index and blob, recomputed on open. Nothing compares
+    /// Hex SHA-256 of the whole file, recomputed on open. Nothing compares
     /// it with the file name.
     pub hash: String,
 }
@@ -402,15 +406,11 @@ impl PackReader {
             .collect::<Result<Vec<_>, Truncated>>()?;
         // The blob runs from the end of the index to the end of the file.
         let blob = bytes[HEADER + manifest_len + count * INDEX_ENTRY..].to_vec();
-        let mut h = Sha256::new();
-        h.update(index_bytes);
-        h.update(&blob);
-        let hash = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
         Ok(Self {
             manifest,
             index,
             blob,
-            hash,
+            hash: name(bytes),
         })
     }
 
@@ -497,6 +497,37 @@ mod tests {
         w.insert(2, vec![7; 1000]);
         assert_eq!(a, w.bake());
         assert_eq!(a.0.len(), 64);
+    }
+
+    #[test]
+    fn name_covers_the_whole_file() {
+        let (name, bytes) = sample().bake();
+        let digest: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(name, digest);
+
+        // Same records, different manifests: every one gets its own name.
+        let mut other_crc = sample();
+        other_crc.source_cache_crc = 1;
+        let mut other_extra = sample();
+        other_extra.set_extra("note", serde_json::json!({"a": 3}));
+        let mut other_kind = sample();
+        other_kind.kind = Kind::Textures;
+        let names = [
+            sample(),
+            other_crc,
+            other_extra,
+            other_kind,
+            sample().with_codec(Codec::None),
+        ]
+        .map(|w| w.bake().0);
+        for (i, a) in names.iter().enumerate() {
+            for b in &names[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
     }
 
     #[test]

@@ -9,7 +9,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#8](https://github.com/birdbree/rs2ool/issues/8) Merging models wraps texture triangle indices past 63
 - [ ] [#9](https://github.com/birdbree/rs2ool/issues/9) Kit and palette encoders don't check their counts
 - [ ] [#10](https://github.com/birdbree/rs2ool/issues/10) Pack reader trusts the header and an unsorted index
-- [ ] [#11](https://github.com/birdbree/rs2ool/issues/11) Pack names don't cover the manifest
+- [x] [#11](https://github.com/birdbree/rs2ool/issues/11) Pack names don't cover the manifest
 - [ ] [#12](https://github.com/birdbree/rs2ool/issues/12) Loose directories accept several spellings of one record id
 - [ ] [#13](https://github.com/birdbree/rs2ool/issues/13) Sidecar `crc32` means different things
 - [ ] [#14](https://github.com/birdbree/rs2ool/issues/14) Missing font entry reports "archive has no index.dat"
@@ -37,7 +37,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 
 ## Features
 
-- [ ] [#32](https://github.com/birdbree/rs2ool/issues/32) Add CI
+- [x] [#32](https://github.com/birdbree/rs2ool/issues/32) Add CI
 - [ ] [#33](https://github.com/birdbree/rs2ool/issues/33) glTF export
 - [ ] [#34](https://github.com/birdbree/rs2ool/issues/34) Render to PNG from the command line
 - [ ] [#35](https://github.com/birdbree/rs2ool/issues/35) Item packs

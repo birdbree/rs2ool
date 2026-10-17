@@ -4,7 +4,7 @@
 //! A pack is one file holding records of a single [`Kind`]. Each record is
 //! an opaque byte string keyed by a `u32` id; the container sorts them by
 //! id, compresses each one on its own and keeps a CRC32 of each. The file's
-//! named by the SHA-256 of its index and blob.
+//! named by the SHA-256 of the whole file.
 //!
 //! Everything here is little-endian, which is the opposite of the 317
 //! cache, so don't reach for a cache reader's integer helpers. Writing is

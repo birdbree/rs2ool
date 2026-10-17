@@ -20,7 +20,7 @@ Entry point: [`crates/contentpack/src/lib.rs`](../../crates/contentpack/src/lib.
 
 `PackWriter::new(kind, source_cache_crc)` starts an empty pack of one `Kind`. Records go in with `insert(id, bytes)`, which replaces any record already at that id. `set_extra(key, value)` attaches a kind-specific JSON table to the manifest. `with_codec(codec)` picks the per-record codec; the default is `Codec::Zstd` (level 9).
 
-- `bake()` returns `(name, bytes)`: the pack's name, which is the lowercase hex SHA-256 of its index and blob, and the whole file.
+- `bake()` returns `(name, bytes)`: the pack's name, which is the lowercase hex SHA-256 of the whole file, and the file's bytes.
 - `write_to(dir)` bakes and writes `<dir>/<kind>/<name>.pack`, creating directories as needed, and returns the path.
 - `kind()`, `len()` and `is_empty()` do what they say.
 
