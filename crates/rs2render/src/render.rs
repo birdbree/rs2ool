@@ -108,8 +108,8 @@ impl Projected {
         self.depth[i] = c[2] - origin_depth;
         self.camv[i] = c;
         if c[2] >= near {
-            self.sx[i] = centre.0 + c[0].wrapping_shl(9) / c[2];
-            self.sy[i] = centre.1 + c[1].wrapping_shl(9) / c[2];
+            self.sx[i] = centre.0.wrapping_add(c[0].wrapping_shl(9) / c[2]);
+            self.sy[i] = centre.1.wrapping_add(c[1].wrapping_shl(9) / c[2]);
         } else {
             self.ok[i] = false;
         }
@@ -251,12 +251,17 @@ pub fn draw_projected(
             continue;
         }
         let (x0, x1, x2) = (sx[a], sx[b], sx[c]);
-        if (x0 - x1) * (syv[c] - syv[b]) - (syv[a] - syv[b]) * (x2 - x1) <= 0 {
+        // Java int arithmetic: wraps, as the client's does, for vertices
+        // just past the near plane whose screen coordinates are huge.
+        let cross = (x0.wrapping_sub(x1))
+            .wrapping_mul(syv[c].wrapping_sub(syv[b]))
+            .wrapping_sub((syv[a].wrapping_sub(syv[b])).wrapping_mul(x2.wrapping_sub(x1)));
+        if cross <= 0 {
             continue;
         }
         let w = fb.width as i32 - 1;
         clip[f] = [x0, x1, x2].iter().any(|&x| x < 0 || x > w);
-        let key = (depth[a] + depth[b] + depth[c]) / 3 + near;
+        let key = (depth[a].wrapping_add(depth[b]).wrapping_add(depth[c])) / 3 + near;
         if let Some(bucket) = usize::try_from(key).ok().and_then(|k| buckets.get_mut(k)) {
             bucket.push(f);
         }

@@ -55,10 +55,13 @@ fn walk(
         if y[j] == y[i] {
             (0, 0)
         } else {
-            let dy = y[j] - y[i];
+            let dy = y[j].wrapping_sub(y[i]);
             (
-                (x[j] - x[i]).wrapping_shl(16) / dy,
-                (attr[j] - attr[i]).wrapping_shl(shift) / dy,
+                x[j].wrapping_sub(x[i]).wrapping_shl(16).wrapping_div(dy),
+                attr[j]
+                    .wrapping_sub(attr[i])
+                    .wrapping_shl(shift)
+                    .wrapping_div(dy),
             )
         }
     };
@@ -164,7 +167,11 @@ pub fn gouraud(fb: &mut Framebuffer, st: State, y: [i32; 3], x: [i32; 3], colour
         let row = (yy * w) as usize;
         let step;
         if st.clip {
-            let s = if r - l > 3 { (end - c) / (r - l) } else { 0 };
+            let s = if r.wrapping_sub(l) > 3 {
+                end.wrapping_sub(c).wrapping_div(r.wrapping_sub(l))
+            } else {
+                0
+            };
             if r > w - 1 {
                 r = w - 1;
             }
@@ -334,7 +341,9 @@ fn span_textured(row: &mut [u32], st: State, w: i32, cx: i32, page: &TexturePage
     }
     let (runs, step);
     if st.clip {
-        let s = (shade_end - shade) / (r - l);
+        let s = shade_end
+            .wrapping_sub(shade)
+            .wrapping_div(r.wrapping_sub(l));
         if r > w - 1 {
             r = w - 1;
         }
@@ -362,8 +371,8 @@ fn span_textured(row: &mut [u32], st: State, w: i32, cx: i32, page: &TexturePage
     let (mut tu, mut tv) = (0i32, 0i32);
     let z = dn >> 14;
     if z != 0 {
-        tu = (un / z).clamp(0, 16256);
-        tv = vn / z;
+        tu = un.wrapping_div(z).clamp(0, 16256);
+        tv = vn.wrapping_div(z);
     }
     un = un.wrapping_add(du);
     vn = vn.wrapping_add(dv);
@@ -371,11 +380,11 @@ fn span_textured(row: &mut [u32], st: State, w: i32, cx: i32, page: &TexturePage
     let (mut nu, mut nv) = (0i32, 0i32);
     let z = dn >> 14;
     if z != 0 {
-        nu = (un / z).clamp(7, 16256);
-        nv = vn / z;
+        nu = un.wrapping_div(z).clamp(7, 16256);
+        nv = vn.wrapping_div(z);
     }
     let mut su = (nu - tu) >> 3;
-    let mut sv = (nv - tv) >> 3;
+    let mut sv = nv.wrapping_sub(tv) >> 3;
     tu = tu.wrapping_add(shade & 0x600000);
     let mut dark = (shade >> 23) as u32;
     let mut i = l as isize;
@@ -404,11 +413,11 @@ fn span_textured(row: &mut [u32], st: State, w: i32, cx: i32, page: &TexturePage
         dn = dn.wrapping_add(dd);
         let z = dn >> 14;
         if z != 0 {
-            nu = (un / z).clamp(7, 16256);
-            nv = vn / z;
+            nu = un.wrapping_div(z).clamp(7, 16256);
+            nv = vn.wrapping_div(z);
         }
         su = (nu - tu) >> 3;
-        sv = (nv - tv) >> 3;
+        sv = nv.wrapping_sub(tv) >> 3;
         shade = shade.wrapping_add(step);
         tu = tu.wrapping_add(shade & 0x600000);
         dark = (shade >> 23) as u32;
@@ -525,6 +534,32 @@ mod tests {
             0xff0000,
         );
         assert_eq!(f.pixels[1], 0x7f007f);
+    }
+
+    #[test]
+    fn extreme_coordinates_wrap_instead_of_panicking() {
+        // Vertices just past the near plane project far off screen; the
+        // client's int arithmetic wraps there and so must ours.
+        let clip = State {
+            clip: true,
+            alpha: 0,
+        };
+        let big = [i32::MIN / 2, i32::MAX / 2, 7];
+        let ys = [-(1 << 30), 5, 1 << 30];
+        let mut f = fb();
+        flat(&mut f, clip, ys, big, 0xffffff);
+        gouraud(&mut f, clip, ys, big, [0, 60000, 127]);
+        let page = TexturePage {
+            texels: vec![0x808080; 65536],
+            opaque: true,
+        };
+        let tex = TexSpace {
+            p: [i32::MIN, 0, 50],
+            m: [i32::MAX, 1, 50],
+            n: [0, i32::MAX, 51],
+            centre: (16, 16),
+        };
+        textured(&mut f, clip, ys, big, [0, 64, 127], tex, &page);
     }
 
     #[test]
