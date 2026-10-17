@@ -1,0 +1,31 @@
+# Publish docs/ to the GitHub wiki whenever it changes on main.
+name: wiki
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "scripts/wiki.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        env:
+          # A WIKI_TOKEN secret (a token with repo scope) is used if present;
+          # otherwise the workflow's own token.
+          TOKEN: ${{ secrets.WIKI_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WIKI_REMOTE="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" \
+            python3 scripts/wiki.py publish
