@@ -131,9 +131,12 @@ pub fn label_colour(l: u8) -> [f32; 3] {
     }
 }
 
-/// Build a mesh from a converted pack model and the pack palette. Pack
-/// positions are already y up.
-pub fn mesh_from_pack_model(m: &PackModel, palette: &[[u8; 3]]) -> Mesh {
+/// Build a mesh from a converted pack model and the pack palette (grey
+/// without one). Pack positions are already y up. With client shading the
+/// face normal is taken back to cache space (y down) for the client's
+/// lightness term, applied to the colour's HSL lightness as the client
+/// applies it to its 7-bit luminance.
+pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading: Shading) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
     let mut normals = Vec::with_capacity(n);
@@ -144,9 +147,21 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: &[[u8; 3]]) -> Mesh {
         let base = if m.material_slots[i] != 0 {
             [0.55, 0.5, 0.45]
         } else {
-            palette
-                .get(usize::from(m.palette_indices[i]))
-                .map_or([1.0, 0.0, 1.0], |c| c.map(|v| f32::from(v) / 255.0))
+            palette.map_or([0.6, 0.6, 0.6], |pal| {
+                pal.get(usize::from(m.palette_indices[i]))
+                    .map_or([1.0, 0.0, 1.0], |c| c.map(|v| f32::from(v) / 255.0))
+            })
+        };
+        let base = match shading {
+            Shading::Raw => base,
+            Shading::Client(l) => {
+                let c = f.map(|v| {
+                    let [x, y, z] = m.vertices[usize::from(v)].map(i32::from);
+                    [x, -y, z]
+                });
+                let lightness = face_lightness(cross(sub(c[1], c[0]), sub(c[2], c[0])), &l);
+                scale_lightness(base, lightness as f32 / 128.0)
+            }
         };
         let alpha = m.alphas.as_ref().map_or(1.0, |a| f32::from(a[i]) / 255.0);
         for q in p {
@@ -156,6 +171,48 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: &[[u8; 3]]) -> Mesh {
         }
     }
     build(pos, normals, colors)
+}
+
+/// An RGB colour with its HSL lightness multiplied by `k` (clamped).
+fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = (max + min) / 2.0;
+    let target = (l * k).clamp(2.0 / 128.0, 126.0 / 128.0);
+    if max == min {
+        return [target; 3];
+    }
+    let d = max - min;
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
+    let h = if max == r {
+        (g - b) / d + if g < b { 6.0 } else { 0.0 }
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } / 6.0;
+    let q = if target < 0.5 {
+        target * (1.0 + s)
+    } else {
+        target + s - target * s
+    };
+    let p = 2.0 * target - q;
+    let channel = |t: f32| {
+        let t = t.rem_euclid(1.0);
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    [channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0)]
 }
 
 /// The flat normal of a y-up triangle whose winding came from the y-down
@@ -364,5 +421,17 @@ mod tests {
             "textured faces ignore face alpha"
         );
         assert!(parts[1].mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some());
+    }
+
+    #[test]
+    fn scaling_lightness_keeps_hue() {
+        let red = [0.8, 0.2, 0.2];
+        let same = scale_lightness(red, 1.0);
+        assert!(
+            same.iter().zip(red).all(|(a, b)| (a - b).abs() < 1e-5),
+            "{same:?}"
+        );
+        let dark = scale_lightness(red, 0.5);
+        assert!(dark[0] < red[0] && dark[0] > dark[1] && (dark[1] - dark[2]).abs() < 1e-6);
     }
 }

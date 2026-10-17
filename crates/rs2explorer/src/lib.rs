@@ -5,6 +5,7 @@ pub mod inspector;
 pub mod jobs;
 pub mod map_view;
 pub mod mesh;
+pub mod renderable;
 pub mod selection;
 pub mod sources;
 pub mod tree;

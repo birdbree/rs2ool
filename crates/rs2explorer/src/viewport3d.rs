@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::BlendState;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::{egui_wants_any_keyboard_input, egui_wants_any_pointer_input};
-use bevy_egui::{EguiContext, EguiGlobalSettings, PrimaryEguiContext};
+use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
@@ -19,7 +19,8 @@ use rs2render::texture::TexturePage;
 
 use crate::classic::ClassicView;
 use crate::mesh::{self, NPC_LIGHTING, Shading};
-use crate::selection::{Loaded, LoadedData};
+use crate::renderable::Renderable;
+use crate::selection::{CompareSelected, Loaded};
 use crate::ui::ViewportRect;
 
 /// Marks the world camera(s).
@@ -126,6 +127,15 @@ impl OrbitCamera {
         self.target = (self.target + d).clamp(self.limits.lo, self.limits.hi);
     }
 
+    /// Look at a model spanning `lo..hi` from a distance that fits it,
+    /// bounded around it.
+    pub fn frame(&mut self, (lo, hi): (Vec3, Vec3)) {
+        self.target = (lo + hi) / 2.0;
+        self.distance = ((hi - lo).length() * 1.6).max(100.0);
+        let margin = (hi - lo).max_element() * 0.5;
+        self.bound(Limits::around(lo, hi, margin, -PITCH_LIMIT));
+    }
+
     /// Set new limits and pull the state inside them.
     pub fn bound(&mut self, limits: Limits) {
         self.limits = limits;
@@ -152,23 +162,32 @@ pub struct Overlays {
     pub bones: bool,
 }
 
-/// One drawn part of the shown model: the faces with one texture (or
-/// none), as a child entity of [`Shown::entity`].
+/// One drawn part of a shown model: the faces with one texture (or none),
+/// as a child entity of [`ShownModel::entity`].
 #[derive(Debug, Clone)]
 pub struct ShownPart {
     pub entity: Entity,
     pub texture: Option<u16>,
     pub client: Handle<Mesh>,
     pub real: Handle<Mesh>,
+    /// Whether its model has per-face alpha (see [`Shown::unlit_blend`]).
+    pub blend: bool,
 }
 
-/// The model on screen: per part, one mesh per lighting mode, built once,
-/// so switching mode swaps handles without rebuilding anything.
-#[derive(Resource, Default)]
-pub struct Shown {
-    /// The parent of the parts' entities.
+/// One model on screen: a parent entity and its parts.
+#[derive(Debug, Clone, Default)]
+pub struct ShownModel {
     pub entity: Option<Entity>,
     pub parts: Vec<ShownPart>,
+}
+
+/// The models on screen, the main one and compare mode's right one: per
+/// part, one mesh per lighting mode, built once, so switching mode swaps
+/// handles without rebuilding anything.
+#[derive(Resource, Default)]
+pub struct Shown {
+    pub main: ShownModel,
+    pub compare: ShownModel,
     pub unlit: Handle<StandardMaterial>,
     pub lit: Handle<StandardMaterial>,
     /// Blended variants, only for models with per-face alpha: the blended
@@ -176,8 +195,6 @@ pub struct Shown {
     /// its inner faces through its outer ones.
     pub unlit_blend: Handle<StandardMaterial>,
     pub lit_blend: Handle<StandardMaterial>,
-    pub blend: bool,
-    pub labels: bool,
 }
 
 fn setup(
@@ -189,12 +206,29 @@ fn setup(
     egui_settings.auto_create_primary_context = false;
     let orbit = OrbitCamera::default();
     commands.spawn((WorldCamera, orbit, Camera3d::default(), orbit.transform()));
+    // Compare mode's right pane: layer 1, following the main camera.
+    commands.spawn((
+        WorldCamera,
+        ComparePane,
+        Camera3d::default(),
+        // A clear clears the whole target, not just this viewport, so only
+        // the main camera clears.
+        Camera {
+            is_active: false,
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        RenderLayers::layer(COMPARE_LAYER),
+        orbit.transform(),
+    ));
     commands.spawn((
         DirectionalLight {
             illuminance: 8000.0,
             ..default()
         },
         Transform::from_xyz(300.0, 600.0, 400.0).looking_at(Vec3::ZERO, Vec3::Y),
+        RenderLayers::from_layers(&[0, COMPARE_LAYER]),
     ));
     commands.insert_resource(GlobalAmbientLight {
         brightness: 400.0,
@@ -238,19 +272,66 @@ fn setup(
     ));
 }
 
+/// The right pane's camera in compare mode.
+#[derive(Component)]
+pub struct ComparePane;
+
+/// The render layer of compare mode's right-hand model.
+pub const COMPARE_LAYER: usize = 1;
+
+/// Compare mode: the right pane shows [`CompareSelected`]; tree clicks go
+/// to it while `pick_right` is set.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Compare {
+    pub enabled: bool,
+    pub pick_right: bool,
+}
+
+/// The viewport of each world camera: the whole rect, or its left and
+/// right halves in compare mode.
+pub fn pane_viewport(rect: &ViewportRect, compare: bool, right: bool) -> Viewport {
+    let (mut position, mut size) = (rect.position, rect.size);
+    if compare {
+        let left = size.x / 2;
+        size.x = if right { size.x - left } else { left };
+        if right {
+            position.x += left;
+        }
+    }
+    Viewport {
+        physical_position: position,
+        physical_size: size.max(UVec2::ONE),
+        ..default()
+    }
+}
+
 fn follow_rect(
     rect: Res<ViewportRect>,
-    mut cameras: Query<&mut Camera, (With<WorldCamera>, Without<EguiContext>)>,
+    compare: Res<Compare>,
+    mut cameras: Query<(&mut Camera, Has<ComparePane>), With<WorldCamera>>,
 ) {
-    if !rect.is_changed() || rect.size == UVec2::ZERO {
+    if !(rect.is_changed() || compare.is_changed()) || rect.size == UVec2::ZERO {
         return;
     }
-    for mut cam in &mut cameras {
-        cam.viewport = Some(Viewport {
-            physical_position: rect.position,
-            physical_size: rect.size,
-            ..default()
-        });
+    for (mut cam, right) in &mut cameras {
+        cam.viewport = Some(pane_viewport(&rect, compare.enabled, right));
+        if right {
+            cam.is_active = compare.enabled;
+        }
+    }
+}
+
+/// The right pane's camera takes the main camera's transform, so both
+/// panes orbit together from the one [`OrbitCamera`] state.
+pub fn sync_compare_camera(
+    main: Query<&Transform, (With<OrbitCamera>, Without<ComparePane>)>,
+    mut right: Query<&mut Transform, With<ComparePane>>,
+) {
+    let Some(t) = main.iter().next() else { return };
+    for mut r in &mut right {
+        if *r != *t {
+            *r = *t;
+        }
     }
 }
 
@@ -343,23 +424,26 @@ fn orbit_mouse(
     }
 }
 
-fn apply_orbit(mut q: Query<(&OrbitCamera, &mut Transform), Changed<OrbitCamera>>) {
+pub fn apply_orbit(mut q: Query<(&OrbitCamera, &mut Transform), Changed<OrbitCamera>>) {
     for (o, mut t) in &mut q {
         *t = o.transform();
     }
 }
 
-/// Show the selected model (or the first model of a selected definition's
-/// list, decoded already by the selection) when it changes.
-/// What decides how the selection is drawn.
+/// What decides how the selections are drawn.
 #[derive(SystemParam)]
 struct ShowInputs<'w> {
     loaded: Res<'w, Loaded>,
+    right: Res<'w, Loaded<CompareSelected>>,
+    compare: Res<'w, Compare>,
     overlays: Res<'w, Overlays>,
     mode: Res<'w, LightingMode>,
     textures: Res<'w, TextureMaterials>,
 }
 
+/// Show the selected model (or the model a selected definition draws) when
+/// it changes, and in compare mode the right pane's on layer 1. A new main
+/// model recentres the camera.
 fn show_selection(
     input: ShowInputs,
     mut commands: Commands,
@@ -369,76 +453,150 @@ fn show_selection(
 ) {
     let ShowInputs {
         loaded,
+        right,
+        compare,
         overlays,
         mode,
         textures,
     } = input;
-    if !loaded.is_changed() && !overlays.is_changed() {
-        return;
-    }
-    let Some(data) = &loaded.data else { return };
-    let LoadedData::Record { preview, .. } = &**data else {
-        return;
+    let mut cx = ShowContext {
+        commands: &mut commands,
+        meshes: &mut meshes,
+        labels: overlays.labels,
+        mode: *mode,
+        textures: &textures,
     };
-    if let Some(e) = shown.entity.take() {
-        commands.entity(e).despawn();
-    }
-    shown.parts.clear();
-    let Some(m) = preview else { return };
-    let parts = |shading| {
-        if overlays.labels {
-            let mesh = mesh::mesh_from_model(m, &m.vertices, shading, true);
-            vec![mesh::Part {
-                texture: None,
-                mesh,
-            }]
-        } else {
-            mesh::model_parts(m, &m.vertices, shading)
-        }
-    };
-    // Both shadings group faces the same way, so the parts pair up.
-    let client = parts(Shading::Client(NPC_LIGHTING));
-    let real = parts(Shading::Raw);
-    let bounds = real
-        .iter()
-        .filter_map(|p| mesh::bounds(&p.mesh))
-        .map(|(lo, hi)| (Vec3::from(lo), Vec3::from(hi)))
-        .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)));
-    if let Some((lo, hi)) = bounds {
+    if (loaded.is_changed() || overlays.is_changed())
+        && let Some(bounds) = cx.show(&mut shown, false, loaded.renderable.as_deref())
+    {
         for mut o in &mut cams {
-            o.target = (lo + hi) / 2.0;
-            o.distance = ((hi - lo).length() * 1.6).max(100.0);
-            let margin = (hi - lo).max_element() * 0.5;
-            o.bound(Limits::around(lo, hi, margin, -PITCH_LIMIT));
+            o.frame(bounds);
         }
     }
-    shown.labels = overlays.labels;
-    shown.blend = m
-        .face_alphas
-        .as_ref()
-        .is_some_and(|a| a.iter().any(|&x| x != 0));
-    let parent = commands
-        .spawn((Transform::IDENTITY, Visibility::default()))
-        .id();
-    for (c, r) in client.into_iter().zip(real) {
-        let mut part = ShownPart {
-            entity: Entity::PLACEHOLDER,
-            texture: c.texture,
-            client: meshes.add(c.mesh),
-            real: meshes.add(r.mesh),
-        };
-        let (mesh, mat) = handles(&shown, &part, *mode, &textures);
-        part.entity = commands
-            .spawn((
-                Mesh3d(mesh),
-                MeshMaterial3d(mat),
-                Transform::IDENTITY,
-                ChildOf(parent),
-            ))
-            .id();
-        shown.parts.push(part);
+    if right.is_changed() || overlays.is_changed() || compare.is_changed() {
+        let r = right.renderable.as_deref().filter(|_| compare.enabled);
+        cx.show(&mut shown, true, r);
     }
-    shown.entity = Some(parent);
+}
+
+/// What spawning a shown model needs.
+struct ShowContext<'a, 'w, 's> {
+    commands: &'a mut Commands<'w, 's>,
+    meshes: &'a mut Assets<Mesh>,
+    labels: bool,
+    mode: LightingMode,
+    textures: &'a TextureMaterials,
+}
+
+impl ShowContext<'_, '_, '_> {
+    /// Replace the main (or compare) model with `r`; returns its bounds.
+    fn show(
+        &mut self,
+        shown: &mut Shown,
+        right: bool,
+        r: Option<&Renderable>,
+    ) -> Option<(Vec3, Vec3)> {
+        let slot = if right {
+            &mut shown.compare
+        } else {
+            &mut shown.main
+        };
+        if let Some(e) = slot.entity.take() {
+            self.commands.entity(e).despawn();
+        }
+        slot.parts.clear();
+        let (client, real, blend) = renderable_parts(r?, self.labels);
+        let bounds = real
+            .iter()
+            .filter_map(|p| mesh::bounds(&p.mesh))
+            .map(|(lo, hi)| (Vec3::from(lo), Vec3::from(hi)))
+            .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)));
+        let layer = RenderLayers::layer(if right { COMPARE_LAYER } else { 0 });
+        let parent = self
+            .commands
+            .spawn((Transform::IDENTITY, Visibility::default(), layer.clone()))
+            .id();
+        let mut parts = Vec::new();
+        for (c, r) in client.into_iter().zip(real) {
+            let mut part = ShownPart {
+                entity: Entity::PLACEHOLDER,
+                texture: c.texture,
+                client: self.meshes.add(c.mesh),
+                real: self.meshes.add(r.mesh),
+                blend,
+            };
+            let (mesh, mat) = handles(shown, &part, self.mode, self.textures);
+            part.entity = self
+                .commands
+                .spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(mat),
+                    Transform::IDENTITY,
+                    layer.clone(),
+                    ChildOf(parent),
+                ))
+                .id();
+            parts.push(part);
+        }
+        let slot = if right {
+            &mut shown.compare
+        } else {
+            &mut shown.main
+        };
+        *slot = ShownModel {
+            entity: Some(parent),
+            parts,
+        };
+        bounds
+    }
+}
+
+/// A renderable's parts with client and raw shading (both shadings group
+/// faces the same way, so the parts pair up), and whether it has face
+/// alpha.
+pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
+    match r {
+        Renderable::CacheModel(m) | Renderable::DumpedModel(m) => {
+            let parts = |shading| {
+                if labels {
+                    let mesh = mesh::mesh_from_model(m, &m.vertices, shading, true);
+                    vec![mesh::Part {
+                        texture: None,
+                        mesh,
+                    }]
+                } else {
+                    mesh::model_parts(m, &m.vertices, shading)
+                }
+            };
+            let blend = m
+                .face_alphas
+                .as_ref()
+                .is_some_and(|a| a.iter().any(|&x| x != 0));
+            (
+                parts(Shading::Client(NPC_LIGHTING)),
+                parts(Shading::Raw),
+                blend,
+            )
+        }
+        Renderable::PackModel { model, palette } => {
+            let palette = palette.as_deref().map(Vec::as_slice);
+            let part = |shading| {
+                vec![mesh::Part {
+                    texture: None,
+                    mesh: mesh::mesh_from_pack_model(model, palette, shading),
+                }]
+            };
+            let blend = model
+                .alphas
+                .as_ref()
+                .is_some_and(|a| a.iter().any(|&x| x != 255));
+            (
+                part(Shading::Client(NPC_LIGHTING)),
+                part(Shading::Raw),
+                blend,
+            )
+        }
+    }
 }
 
 /// A part's mesh and material for a lighting mode: its texture's material
@@ -453,7 +611,7 @@ pub fn handles(
         LightingMode::Client => (&part.client, &shown.unlit, &shown.unlit_blend),
         LightingMode::Real => (&part.real, &shown.lit, &shown.lit_blend),
     };
-    let plain = || if shown.blend { blend } else { opaque }.clone();
+    let plain = || if part.blend { blend } else { opaque }.clone();
     let material = part
         .texture
         .and_then(|t| textures.get(t, mode))
@@ -472,7 +630,7 @@ fn switch_lighting(
     if !mode.is_changed() && !textures.is_changed() {
         return;
     }
-    for part in &shown.parts {
+    for part in shown.main.parts.iter().chain(&shown.compare.parts) {
         if let Ok((mut m, mut mat)) = q.get_mut(part.entity) {
             let (mesh, material) = handles(&shown, part, *mode, &textures);
             m.0 = mesh;
@@ -610,6 +768,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Overlays>()
         .init_resource::<Shown>()
         .init_resource::<TextureMaterials>()
+        .init_resource::<Compare>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -618,6 +777,7 @@ pub fn plugin(app: &mut App) {
                 orbit_keys.run_if(not(egui_wants_any_keyboard_input)),
                 orbit_mouse.run_if(not(egui_wants_any_pointer_input)),
                 apply_orbit,
+                sync_compare_camera,
                 build_texture_materials,
                 show_selection,
                 switch_lighting,

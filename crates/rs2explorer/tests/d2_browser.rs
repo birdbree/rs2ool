@@ -120,13 +120,9 @@ fn definitions_draw_their_models() {
                 && !l.is_loading()
         });
         let loaded = app.world().resource::<Loaded>();
-        let Some(data) = &loaded.data else {
-            panic!("{t} {id}: {:?}", loaded.error)
-        };
-        let rs2explorer::selection::LoadedData::Record { preview, .. } = &**data else {
-            panic!()
-        };
-        let faces = preview.as_ref().map_or(0, |m| m.faces.len());
+        assert!(loaded.data.is_some(), "{t} {id}: {:?}", loaded.error);
+        let model = loaded.renderable.as_ref().and_then(|r| r.model());
+        let faces = model.map_or(0, |m| m.faces.len());
         assert!(faces >= min_faces, "{t} {id} draws {faces} faces");
     }
 }

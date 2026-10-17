@@ -1,6 +1,7 @@
 //! What is selected, and its decoded form. Selecting spawns a decode on the
 //! compute pool; the result lands in [`Loaded`].
 
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,6 +9,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use rs2intermediate::record::{Meta, Record, RecordType};
 
+use crate::renderable::{Renderable, load_renderable};
 use crate::sources::{Source, Sources, detach};
 
 /// One selectable thing within a source.
@@ -27,14 +29,32 @@ pub struct Selected {
     pub sel: Option<Sel>,
 }
 
+/// The right-hand pane's selection in compare mode.
+#[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct CompareSelected(pub Selected);
+
+/// A selection resource that a [`Loaded`] follows.
+pub trait Slot: Resource {
+    fn selection(&self) -> &Selected;
+}
+
+impl Slot for Selected {
+    fn selection(&self) -> &Selected {
+        self
+    }
+}
+
+impl Slot for CompareSelected {
+    fn selection(&self) -> &Selected {
+        &self.0
+    }
+}
+
 /// A decoded selection.
 pub enum LoadedData {
     Record {
         record: Box<Record>,
         meta: Box<Meta>,
-        /// The model the record describes, assembled as the client draws
-        /// it (`rs2convert::preview`), for the viewers.
-        preview: Option<Box<rs2intermediate::model::Model>>,
     },
     Pack {
         kind: rs2pack::Kind,
@@ -49,18 +69,36 @@ pub enum LoadedData {
     },
 }
 
-type LoadTask = Task<Result<LoadedData, String>>;
+type LoadTask = Task<Result<(LoadedData, Option<Renderable>), String>>;
 
-#[derive(Resource, Default)]
-pub struct Loaded {
+/// The decoded form of the selection in slot `S` (the main selection by
+/// default; [`CompareSelected`] for compare mode's right pane).
+#[derive(Resource)]
+pub struct Loaded<S = Selected> {
     /// The selection the current data belongs to.
     pub for_sel: Option<(usize, Sel)>,
     pub data: Option<Arc<LoadedData>>,
+    /// What the viewports draw for it, if anything.
+    pub renderable: Option<Arc<Renderable>>,
     pub error: Option<String>,
     pending: Option<((usize, Sel), LoadTask)>,
+    slot: PhantomData<fn() -> S>,
 }
 
-impl Loaded {
+impl<S> Default for Loaded<S> {
+    fn default() -> Self {
+        Self {
+            for_sel: None,
+            data: None,
+            renderable: None,
+            error: None,
+            pending: None,
+            slot: PhantomData,
+        }
+    }
+}
+
+impl<S> Loaded<S> {
     pub fn is_loading(&self) -> bool {
         self.pending.is_some()
     }
@@ -107,18 +145,25 @@ pub fn describe_pack_record(kind: rs2pack::Kind, id: u32, bytes: &[u8]) -> Strin
     r.unwrap_or_else(|e| format!("cannot decode: {e}"))
 }
 
-fn load(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
+/// Decode a selection for the inspector and resolve what it draws.
+pub fn load(source: &Source, sel: &Sel) -> Result<(LoadedData, Option<Renderable>), String> {
+    let data = decode(source, sel)?;
+    let record = match &data {
+        LoadedData::Record { record, .. } => Some(&**record),
+        _ => None,
+    };
+    let renderable = load_renderable(source, sel, record)?;
+    Ok((data, renderable))
+}
+
+fn decode(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
     match (source, sel) {
         (Source::Cache { records, .. }, Sel::Record(t, id)) => {
             let record = records.decode(*t, *id).map_err(|e| e.to_string())?;
             let meta = records.meta(*t, *id).map_err(|e| e.to_string())?;
-            let preview = rs2convert::preview::model_for(records, &record)
-                .map_err(|e| e.to_string())?
-                .map(Box::new);
             Ok(LoadedData::Record {
                 record: Box::new(record),
                 meta: Box::new(meta),
-                preview,
             })
         }
         (Source::Pack { reader, .. }, Sel::PackRecord(id)) => {
@@ -151,10 +196,11 @@ fn load(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
     }
 }
 
-fn start(selected: Res<Selected>, sources: Res<Sources>, mut loaded: ResMut<Loaded>) {
+fn start<S: Slot>(selected: Res<S>, sources: Res<Sources>, mut loaded: ResMut<Loaded<S>>) {
     if !selected.is_changed() {
         return;
     }
+    let selected = selected.selection();
     let (Some(si), Some(sel)) = (selected.source, selected.sel.clone()) else {
         return;
     };
@@ -170,7 +216,7 @@ fn start(selected: Res<Selected>, sources: Res<Sources>, mut loaded: ResMut<Load
     loaded.pending = Some((key, task));
 }
 
-fn poll(mut loaded: ResMut<Loaded>) {
+fn poll<S: Slot>(mut loaded: ResMut<Loaded<S>>) {
     // Poll without marking `Loaded` changed: systems that react to a new
     // selection must only see a change when the result lands.
     let Some((_, task)) = &mut loaded.bypass_change_detection().pending else {
@@ -182,12 +228,14 @@ fn poll(mut loaded: ResMut<Loaded>) {
     let (key, _) = loaded.pending.take().expect("pending");
     loaded.for_sel = Some(key);
     match result {
-        Ok(d) => {
+        Ok((d, r)) => {
             loaded.data = Some(Arc::new(d));
+            loaded.renderable = r.map(Arc::new);
             loaded.error = None;
         }
         Err(e) => {
             loaded.data = None;
+            loaded.renderable = None;
             loaded.error = Some(e);
         }
     }
@@ -196,5 +244,13 @@ fn poll(mut loaded: ResMut<Loaded>) {
 pub fn plugin(app: &mut App) {
     app.init_resource::<Selected>()
         .init_resource::<Loaded>()
-        .add_systems(Update, (start, poll).chain());
+        .init_resource::<CompareSelected>()
+        .init_resource::<Loaded<CompareSelected>>()
+        .add_systems(
+            Update,
+            (
+                (start::<Selected>, poll::<Selected>).chain(),
+                (start::<CompareSelected>, poll::<CompareSelected>).chain(),
+            ),
+        );
 }

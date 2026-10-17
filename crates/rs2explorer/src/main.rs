@@ -8,30 +8,39 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-use rs2explorer::selection::{Sel, Selected};
-use rs2explorer::sources::{Kind, Sources};
+use rs2explorer::renderable::find_match;
+use rs2explorer::selection::{CompareSelected, Sel, Selected};
+use rs2explorer::sources::{Kind, Source, Sources};
+use rs2explorer::viewport3d::Compare;
 use rs2explorer::{classic, jobs, map_view, selection, sources, tree, ui, viewport3d};
 use rs2intermediate::record::RecordType;
 
-/// `rs2explorer [cache-dir] [--select type:id] [--classic]`: open a cache at startup
-/// (default `RS2_CACHE`) and optionally select a record in it.
+/// `rs2explorer [cache-dir] [--pack file]... [--select type:id] [--compare]
+/// [--classic]`: open a cache (default `RS2_CACHE`) and any packs at
+/// startup, optionally select a record in the cache, and with `--compare`
+/// show its match from another source beside it.
 #[derive(Resource, Default)]
 struct Startup {
     cache: Option<PathBuf>,
+    packs: Vec<PathBuf>,
     select: Option<(RecordType, u32)>,
+    compare: bool,
     classic: bool,
 }
 
 fn parse_args() -> Startup {
     let mut st = Startup {
         cache: std::env::var_os("RS2_CACHE").map(PathBuf::from),
-        select: None,
-        classic: false,
+        ..Default::default()
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         if a == "--classic" {
             st.classic = true;
+        } else if a == "--compare" {
+            st.compare = true;
+        } else if a == "--pack" {
+            st.packs.extend(args.next().map(PathBuf::from));
         } else if a == "--select" {
             st.select = args.next().and_then(|v| {
                 let (t, id) = v.split_once(':')?;
@@ -55,24 +64,48 @@ fn open_startup(
     if let Some(c) = &st.cache {
         sources.open_path(Kind::Cache, c.clone());
     }
+    for p in &st.packs {
+        sources.open_path(Kind::Pack, p.clone());
+    }
 }
 
+/// Once every startup source is open (sources open in parallel, so the
+/// cache is found by kind), select the record and, with `--compare`, its
+/// match.
 fn select_startup(
     st: Res<Startup>,
     sources: Res<Sources>,
     mut selected: ResMut<Selected>,
+    mut compare: ResMut<Compare>,
+    mut right: ResMut<CompareSelected>,
     mut done: Local<bool>,
 ) {
-    if *done || sources.list.is_empty() {
+    let expected = usize::from(st.cache.is_some()) + st.packs.len();
+    if *done || sources.pending() > 0 || sources.list.len() + sources.errors.len() < expected {
         return;
     }
     *done = true;
-    if let Some((t, id)) = st.select {
-        *selected = Selected {
-            source: Some(0),
-            sel: Some(Sel::Record(t, id)),
+    let cache = sources
+        .list
+        .iter()
+        .position(|s| matches!(s, Source::Cache { .. }));
+    let (Some((t, id)), Some(si)) = (st.select, cache) else {
+        return;
+    };
+    let sel = Sel::Record(t, id);
+    if st.compare
+        && let Some((ri, rsel)) = find_match(&sources.list, si, &sel)
+    {
+        compare.enabled = true;
+        right.0 = Selected {
+            source: Some(ri),
+            sel: Some(rsel),
         };
     }
+    *selected = Selected {
+        source: Some(si),
+        sel: Some(sel),
+    };
 }
 
 fn main() {

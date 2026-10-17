@@ -150,6 +150,7 @@ fn lighting_switch_reuses_meshes() {
         texture,
         client: meshes.add(empty()),
         real: meshes.add(empty()),
+        blend: false,
     };
     let (plain, textured) = (part(None), part(Some(3)));
     let shown = Shown {

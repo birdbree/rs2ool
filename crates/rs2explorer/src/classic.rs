@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
@@ -12,10 +13,10 @@ use rs2intermediate::record::{Record, RecordType};
 use rs2render::{Camera, Framebuffer, LitModel, Textures, light};
 
 use crate::map_view::{ClassicScene, RegionScene};
-use crate::selection::{Loaded, LoadedData};
+use crate::selection::Loaded;
 use crate::sources::{Source, Sources};
 use crate::ui::ViewportRect;
-use crate::viewport3d::{OrbitCamera, Shown};
+use crate::viewport3d::{Compare, OrbitCamera, Shown};
 
 /// Which renderer draws the model.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -121,11 +122,8 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
     if !loaded.is_changed() {
         return;
     }
-    let Some(data) = &loaded.data else { return };
-    let LoadedData::Record { preview, .. } = &**data else {
-        return;
-    };
-    view.model = preview.as_ref().map(|m| {
+    let model = loaded.renderable.as_ref().and_then(|r| r.model());
+    view.model = model.map(|m| {
         (
             Arc::new(light(m, &rs2render::light::NPC)),
             centred(&m.vertices),
@@ -133,11 +131,27 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
     });
 }
 
+/// Whether the classic renderer is drawing.
+#[derive(SystemParam)]
+pub struct ClassicOn<'w> {
+    mode: Res<'w, RenderMode>,
+    compare: Res<'w, Compare>,
+}
+
+impl ClassicOn<'_> {
+    /// Classic mode is chosen and compare mode is off: compare mode draws
+    /// both panes with the modern renderer (pack models have no classic
+    /// form).
+    pub fn active(&self) -> bool {
+        *self.mode == RenderMode::Classic && !self.compare.enabled
+    }
+}
+
 /// Hide the Bevy model while the classic renderer is showing.
-fn visibility(mode: Res<RenderMode>, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
-    let Some(e) = shown.entity else { return };
+fn visibility(on: ClassicOn, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
+    let Some(e) = shown.main.entity else { return };
     if let Ok(mut v) = q.get_mut(e) {
-        let want = if *mode == RenderMode::Classic {
+        let want = if on.active() {
             Visibility::Hidden
         } else {
             Visibility::Inherited
@@ -202,7 +216,7 @@ pub fn render_scene(
 
 fn draw(
     mut contexts: EguiContexts,
-    mode: Res<RenderMode>,
+    on: ClassicOn,
     mut view: ResMut<ClassicView>,
     region: Res<RegionScene>,
     rect: Res<ViewportRect>,
@@ -210,7 +224,7 @@ fn draw(
     window: Single<&Window, With<PrimaryWindow>>,
 ) -> Result {
     let scene = region.classic.clone().filter(|_| view.model.is_none());
-    if *mode != RenderMode::Classic || (view.model.is_none() && scene.is_none()) {
+    if !on.active() || (view.model.is_none() && scene.is_none()) {
         return Ok(());
     }
     let ctx = contexts.ctx_mut()?.clone();

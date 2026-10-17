@@ -11,10 +11,11 @@ use rs2intermediate::record::RecordType;
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
-use crate::selection::{Loaded, Sel, Selected};
+use crate::renderable::find_match;
+use crate::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
 use crate::tree::{self, ListKey, Lists};
-use crate::viewport3d::{LightingMode, Overlays};
+use crate::viewport3d::{Compare, LightingMode, Overlays};
 
 /// The layout system, for ordering painters that draw over the viewport.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -193,6 +194,73 @@ fn grid(
     clicked
 }
 
+/// A short label for a selection.
+fn sel_label(sources: &Sources, s: &Selected) -> String {
+    let src = s
+        .source
+        .and_then(|i| sources.list.get(i))
+        .map_or_else(String::new, |s| s.label());
+    match &s.sel {
+        None => "nothing".into(),
+        Some(Sel::Record(t, id)) => format!("{t} {id} ({src})"),
+        Some(Sel::PackRecord(id)) => format!("record {id:#x} ({src})"),
+        Some(Sel::DumpFile(p)) => format!("{} ({src})", p.display()),
+    }
+}
+
+/// Compare mode's controls: the toggle, which pane tree clicks pick for,
+/// and "Match", which fills the right pane with the same model from
+/// another source.
+fn compare_ui(
+    ui: &mut egui::Ui,
+    compare: &mut Compare,
+    right: &mut Selected,
+    main: &Selected,
+    sources: &Sources,
+    loaded: &Loaded<CompareSelected>,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.checkbox(&mut compare.enabled, "Compare");
+        let matched = main
+            .source
+            .zip(main.sel.as_ref())
+            .and_then(|(si, sel)| find_match(&sources.list, si, sel));
+        if ui
+            .add_enabled(matched.is_some(), egui::Button::new("Match"))
+            .on_hover_text("show the same model from another source on the right")
+            .on_disabled_hover_text("no other open source has this model")
+            .clicked()
+            && let Some((si, sel)) = matched
+        {
+            *right = Selected {
+                source: Some(si),
+                sel: Some(sel),
+            };
+            compare.enabled = true;
+        }
+    });
+    if !compare.enabled {
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label("Tree picks:");
+        ui.radio_value(&mut compare.pick_right, false, "left");
+        ui.radio_value(&mut compare.pick_right, true, "right");
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Right:");
+        ui.add(egui::Label::new(sel_label(sources, right)).truncate());
+        if loaded.is_loading() {
+            ui.spinner();
+        }
+    });
+    if let Some(e) = &loaded.error {
+        ui.colored_label(egui::Color32::LIGHT_RED, e);
+    } else if right.sel.is_some() && !loaded.is_loading() && loaded.renderable.is_none() {
+        ui.weak("(nothing to draw)");
+    }
+}
+
 fn inspector_ui(
     ui: &mut egui::Ui,
     loaded: &Loaded,
@@ -272,6 +340,9 @@ struct UiState<'w> {
     classic: ResMut<'w, ClassicView>,
     nav: ResMut<'w, Nav>,
     world: ResMut<'w, crate::map_view::WorldMap>,
+    compare: ResMut<'w, Compare>,
+    compare_sel: ResMut<'w, CompareSelected>,
+    compare_loaded: Res<'w, Loaded<CompareSelected>>,
 }
 
 fn layout(
@@ -332,7 +403,13 @@ fn layout(
         .response
         .rect
         .height();
-    let mut sel = st.selected.clone();
+    // Tree clicks go to the right pane while compare mode picks for it.
+    let pick_right = st.compare.enabled && st.compare.pick_right;
+    let mut sel = if pick_right {
+        st.compare_sel.0.clone()
+    } else {
+        st.selected.clone()
+    };
     let mut reveal = st.nav.reveal.take();
     let left = egui::Panel::left("tree")
         .resizable(true)
@@ -354,7 +431,11 @@ fn layout(
         .rect
         .width();
     st.nav.reveal = reveal;
-    if sel != *st.selected {
+    if pick_right {
+        if sel != st.compare_sel.0 {
+            st.compare_sel.0 = sel;
+        }
+    } else if sel != *st.selected {
         let old = std::mem::replace(&mut *st.selected, sel);
         if old.sel.is_some() {
             st.nav.back.push(old);
@@ -366,6 +447,23 @@ fn layout(
         .default_size(340.0)
         .size_range(200.0..=480.0)
         .show(&mut root, |ui| {
+            let mut c = *st.compare;
+            let mut right = st.compare_sel.0.clone();
+            compare_ui(
+                ui,
+                &mut c,
+                &mut right,
+                &st.selected,
+                &st.sources,
+                &st.compare_loaded,
+            );
+            if c != *st.compare {
+                *st.compare = c;
+            }
+            if right != st.compare_sel.0 {
+                st.compare_sel.0 = right;
+            }
+            ui.separator();
             clicked = inspector_ui(ui, &st.loaded, &st.nav, &mut back);
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         })
