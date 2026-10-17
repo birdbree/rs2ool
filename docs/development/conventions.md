@@ -59,13 +59,13 @@ The same input must produce the same bytes. In practice:
 - Parallel work (with `rayon`) either collects into an ordered `Vec` before results are combined, or writes one file per record and sorts the dump's `manifest.json` before writing it.
 - Algorithms that could depend on seeding are made deterministic: the palette's k-means seeds from the heaviest colour, and its entries are sorted afterwards.
 
-Packs are named by the SHA-256 of their index and blob, so a determinism break shows up as a different file name. `rs2ool/tests/c_determinism.rs` checks this; see [testing](testing.md) and [determinism](../conversion/determinism.md).
+Packs are named by the SHA-256 of their index and blob, so a determinism break shows up as a different file name. `tests/c_determinism.rs` checks this; see [testing](testing.md) and [determinism](../conversion/determinism.md).
 
 ## The explorer
 
 **It never blocks the UI thread.** Every cache read, decode, conversion and export runs on Bevy's `AsyncComputeTaskPool`, through `Jobs::spawn_job` in `explorer::jobs` or the source-opening tasks in `explorer::sources`. UI systems only poll for finished tasks. If you add something slow, make it a job.
 
-**It has no decoders or converters of its own.** It calls `rs2cache`, `rs2convert`, `contentpack` and `rs2ool::cache` exactly as the CLI does, so anything it writes is byte-identical to the CLI's output. `rs2ool/tests/d8_actions.rs` checks that for conversion and export. If the explorer needs a new view of the data, add it to a library and call it from both sides.
+**It has no decoders or converters of its own.** It calls `rs2cache`, `rs2convert`, `contentpack` and `rs2ool::cache` exactly as the CLI does, so anything it writes is byte-identical to the CLI's output. `tests/d8_actions.rs` checks that for conversion and export. If the explorer needs a new view of the data, add it to a library and call it from both sides.
 
 ## Lints
 

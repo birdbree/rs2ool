@@ -26,14 +26,14 @@ k-means is deterministic by construction: the first centre is the heaviest point
 
 ## Same code path from the explorer
 
-The explorer's convert action ([`explorer/actions.rs`](../../crates/rs2ool/src/explorer/actions.rs)) computes the same source cache CRC, calls the same [`rs2convert::run`](../../crates/rs2convert/src/run.rs) function, and writes through the same `run::write` as `rs2ool pack`. Its packs are therefore byte-identical to the command line's. It doesn't take every command-line option. NPC and player-kit conversions always include animations, use no extra sequences and no overrides, and sprites always cover both archives.
+The explorer's convert action ([`explorer/actions.rs`](../../src/explorer/actions.rs)) computes the same source cache CRC, calls the same [`rs2convert::run`](../../crates/rs2convert/src/run.rs) function, and writes through the same `run::write` as `rs2ool pack`. Its packs are therefore byte-identical to the command line's. It doesn't take every command-line option. NPC and player-kit conversions always include animations, use no extra sequences and no overrides, and sprites always cover both archives.
 
 ## How it's checked
 
 | Test | Checks |
 | --- | --- |
-| [`rs2ool/tests/c_determinism.rs`](../../crates/rs2ool/tests/c_determinism.rs) | runs `rs2ool pack npc --id 1 --with-anims`, `pack materials` and `pack textures` twice each into fresh directories, and compares the sorted lists of pack paths. The names are content hashes, so equal lists mean equal index and blob bytes. |
-| [`rs2ool/tests/d8_actions.rs`](../../crates/rs2ool/tests/d8_actions.rs) | converts one NPC through the explorer's action and through the `rs2ool` binary, then requires the same pack paths, identical pack bytes and the same set of output files |
+| [`tests/c_determinism.rs`](../../tests/c_determinism.rs) | runs `rs2ool pack npc --id 1 --with-anims`, `pack materials` and `pack textures` twice each into fresh directories, and compares the sorted lists of pack paths. The names are content hashes, so equal lists mean equal index and blob bytes. |
+| [`tests/d8_actions.rs`](../../tests/d8_actions.rs) | converts one NPC through the explorer's action and through the `rs2ool` binary, then requires the same pack paths, identical pack bytes and the same set of output files |
 | `baking_is_deterministic_and_order_independent` in [`contentpack/src/pack.rs`](../../crates/contentpack/src/pack.rs) | the same records and extras, inserted in a different order, bake to the same bytes and name |
 | `kmeans_is_deterministic_and_separates_clusters` in [`contentpack/src/palette.rs`](../../crates/contentpack/src/palette.rs) | two k-means runs on the same points return identical centres |
 

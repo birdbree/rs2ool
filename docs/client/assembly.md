@@ -4,7 +4,7 @@
 
 How several cache models become the one model the original client draws: merging, recolouring, scaling, dressing a player from equipment slots, and shaping and placing objects. Read this to get the same vertices, labels and colours the client would have.
 
-Implemented in [`rs2convert::creature`](../../crates/rs2convert/src/creature.rs), [`rs2convert::object`](../../crates/rs2convert/src/object.rs) and [`rs2convert::preview`](../../crates/rs2convert/src/preview.rs). The explorer's player kit is [`kit.rs`](../../crates/rs2ool/src/explorer/kit.rs) and its map placement is [`map_view.rs`](../../crates/rs2ool/src/explorer/map_view.rs).
+Implemented in [`rs2convert::creature`](../../crates/rs2convert/src/creature.rs), [`rs2convert::object`](../../crates/rs2convert/src/object.rs) and [`rs2convert::preview`](../../crates/rs2convert/src/preview.rs). The explorer's player kit is [`kit.rs`](../../src/explorer/kit.rs) and its map placement is [`map_view.rs`](../../src/explorer/map_view.rs).
 
 ## Merging models
 

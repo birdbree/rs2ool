@@ -4,7 +4,7 @@
 
 `rs2ool` is the one binary in the workspace. `rs2ool cache …` reads a 317 cache, and `rs2ool pack …` converts its records into packs and works with packs. Both have an `explorer` subcommand that opens the GUI. This page is the map of commands; the pages below go through each group.
 
-The command line is [`main.rs`](../../crates/rs2ool/src/main.rs) and [`cli/`](../../crates/rs2ool/src/cli/); the cache commands themselves live in the `rs2ool` library under [`cache/`](../../crates/rs2ool/src/cache/), so the explorer runs the same code.
+The command line is [`main.rs`](../../src/main.rs) and [`cli/`](../../src/cli/); the cache commands themselves live in the `rs2ool` library under [`cache/`](../../src/cache/), so the explorer runs the same code.
 
 ## Command tree
 
@@ -79,6 +79,7 @@ That binary has no `cache explorer` or `pack explorer` subcommand; everything el
 
 ## Pages
 
+- [Examples](examples.md): one example per subcommand.
 - [Cache commands](cache-commands.md): `list`, `dump`, `decode`, `info` and `verify`, every selector and flag.
 - [Dump output](dump-output.md): where `dump` writes things, `manifest.json`, sidecars, `--xref`, groups.
 - [Pack commands](pack-commands.md): every `rs2ool pack` subcommand, what it writes, and the validation reports.

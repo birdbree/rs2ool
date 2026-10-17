@@ -1,6 +1,8 @@
-# rs2ool
+[Home](../README.md) › [Tools](README.md) › Examples
 
-Reads an RS2 revision-317 cache, converts its records into content packs, and browses both. It only reads the cache and writes to the output directory you give it. No cache is included in the repository; point it at your own copy.
+# Examples
+
+One example per `rs2ool` subcommand, to copy and adapt. [Cache commands](cache-commands.md), [pack commands](pack-commands.md) and [the explorer](explorer.md) have every flag. The tools only read the cache and write to the output directory you give them. No cache is included in the repository; point them at your own copy.
 
 - `rs2ool cache …` lists, extracts, decodes and verifies the cache.
 - `rs2ool pack …` converts records into packs, and inspects and builds packs.
@@ -201,3 +203,9 @@ Open the GUI on packs. The cache opens too when `--cache` or `RS2_CACHE` gives o
 ```
 rs2ool pack explorer packs/models/<hash>.pack packs/materials/<hash>.pack
 ```
+
+## See also
+
+- [Using rs2ool](README.md): the command tree and exit codes.
+- [Dump output](dump-output.md): what the cache commands write.
+- [Getting started](../getting-started.md): building and installing.

@@ -48,6 +48,7 @@ This wiki covers the tools and also the formats themselves. If you're here to un
 ## Tools and crates
 
 - [Using rs2ool](tools/README.md): the one binary.
+  - [Examples](tools/examples.md): one per subcommand.
   - [`rs2ool cache`](tools/cache-commands.md) and [what a dump writes](tools/dump-output.md).
   - [`rs2ool pack`](tools/pack-commands.md).
   - [The explorer](tools/explorer.md).

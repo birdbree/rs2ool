@@ -4,7 +4,7 @@
 
 Where `rs2ool cache dump` and `decode` put things, and what is in `manifest.json`, the `.meta.json` sidecars, `xref.json` and `interface/tree.json`. Read this when you script against a dump directory or open one in the explorer.
 
-The writer is [`cache/output.rs`](../../crates/rs2ool/src/cache/output.rs) and the paths come from [`cache/dump.rs`](../../crates/rs2ool/src/cache/dump.rs). Sidecars are `rs2cache::types::record::Meta` ([`types/record.rs`](../../crates/rs2cache/src/types/record.rs)). All paths below are relative to the `-o` directory and use `/`.
+The writer is [`cache/output.rs`](../../src/cache/output.rs) and the paths come from [`cache/dump.rs`](../../src/cache/dump.rs). Sidecars are `rs2cache::types::record::Meta` ([`types/record.rs`](../../crates/rs2cache/src/types/record.rs)). All paths below are relative to the `-o` directory and use `/`.
 
 ## Output paths
 

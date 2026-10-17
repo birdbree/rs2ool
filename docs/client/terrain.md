@@ -4,7 +4,7 @@
 
 How a region's tile file turns into ground: explicit and derived heights, planes, overlay shapes and tile flags, plus what the explorer's region viewer simplifies. Read this to rebuild the original client's heights exactly, noise and all.
 
-Heights are computed in [`rs2cache::map`](../../crates/rs2cache/src/map.rs), which decodes the tile file (layout on [Map regions](../records/map.md)). The viewer is [`map_view.rs`](../../crates/rs2ool/src/explorer/map_view.rs).
+Heights are computed in [`rs2cache::map`](../../crates/rs2cache/src/map.rs), which decodes the tile file (layout on [Map regions](../records/map.md)). The viewer is [`map_view.rs`](../../src/explorer/map_view.rs).
 
 ## Tiles and planes
 

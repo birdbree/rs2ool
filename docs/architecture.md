@@ -56,8 +56,8 @@ Conversion is one direction only: cache to packs. `contentpack` knows nothing ab
 | A pack record's bytes | `crates/contentpack/src/records/` ([Packs](pack/README.md)) |
 | How a record is converted | `crates/rs2convert/src/` ([Conversion](conversion/README.md)) |
 | How the classic renderer draws | `crates/rs2classic/src/` ([Rasteriser](client/rasteriser.md)) |
-| A command or flag | `crates/rs2ool/src/cli/` and `crates/rs2ool/src/cache/` |
-| The GUI | `crates/rs2ool/src/explorer/` |
+| A command or flag | `src/cli/` and `src/cache/` |
+| The GUI | `src/explorer/` |
 
 Adding a record type touches a short, fixed list of places; [Conventions](development/conventions.md#adding-a-record-type) has it.
 

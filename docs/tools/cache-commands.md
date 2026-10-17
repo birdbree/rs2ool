@@ -4,7 +4,7 @@
 
 Every `rs2ool cache` subcommand with its selectors and flags, and the rules for combining them. The files `dump` writes are on [Dump output](dump-output.md).
 
-The definitions are in [`cli/cache.rs`](../../crates/rs2ool/src/cli/cache.rs) and the commands in [`cache/`](../../crates/rs2ool/src/cache/). The examples assume `RS2_CACHE` is set (see [Tools](README.md#pointing-at-a-cache)).
+The definitions are in [`cli/cache.rs`](../../src/cli/cache.rs) and the commands in [`cache/`](../../src/cache/). The examples assume `RS2_CACHE` is set (see [Tools](README.md#pointing-at-a-cache)).
 
 ## list
 
