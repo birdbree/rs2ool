@@ -64,6 +64,28 @@ The same `gamma` function is applied to texture palettes when [texture pages](ra
 
 The original client reserves RGB 0 for transparency, so a colour that comes out as pure black is replaced with 1 (`0x000001`). That happens exactly when the lightness is 0. Every one of the 65,536 HSL values therefore maps to a non-zero 24-bit colour.
 
+## From RGB: floor colours
+
+Floor definitions store 24-bit RGB (see [Flo](../records/flo.md)). The original client turns each one into HSL once, when it loads the floors, and the ground is coloured from that. Implemented in [`rs2classic::terrain::FloorColour`](../../crates/rs2classic/src/terrain.rs). The arithmetic is in double precision until the final truncations:
+
+1. Each channel is divided by **256**, not 255, so white comes out just under 1.
+2. `lo` and `hi` are the smallest and largest channel; lightness `L = (lo + hi) / 2`.
+3. If `lo = hi` the colour is grey: hue and saturation are 0. Otherwise saturation is `(hi − lo) / (hi + lo)` when `L < 0.5`, else `(hi − lo) / (2 − hi − lo)`. The hue is `(g − b) / (hi − lo)` when red is largest, else `2 + (b − r) / (hi − lo)` when green is, else `4 + (r − g) / (hi − lo)`, and then divided by 6. Red is checked first, so ties go to red, then green. A red leaning towards blue gives a slightly negative hue, down to −1/6; it isn't wrapped.
+
+From those, each floor keeps five integers (truncated towards zero):
+
+| Term | Value |
+| --- | --- |
+| hue | `hue × 256`, not clamped: −42 to 255 |
+| saturation | `saturation × 256`, clamped to 0–255 |
+| lightness | `L × 256`, clamped to 0–255 |
+| chroma | `(1 − L) × saturation × 512` when `L > 0.5`, else `L × saturation × 512`, then at least 1 |
+| hue weight | the hue as a fraction of a turn, times chroma |
+
+A floor with no RGB has all five at 0, chroma included.
+
+Packing 0–255 hue, saturation and lightness into the 16-bit layout above halves the saturation once for each of the lightness thresholds it's over (179, 192, 217 and 243, so up to four times), then takes `((hue / 4) << 10) + ((saturation / 32) << 7) + lightness / 2`. Light colours wash out that way. A negative hue makes the packed value negative, but its low 16 bits still hold the right fields, and everything downstream masks them. How the ground blends and lights these colours is on [Terrain](terrain.md#floor-colours).
+
 ## Startup jitter
 
 At startup, the original client adds a small random amount, uniform between −0.015 and +0.015, to the brightness before building the table. Every session's colours are therefore very slightly different. The tools leave this out and always use exactly 0.8, so their colours are the centre of that range and are the same on every run.
@@ -71,6 +93,7 @@ At startup, the original client adds a small random amount, uniform between −0
 ## See also
 
 - [Lighting](lighting.md): how lit colours change the lightness bits.
+- [Terrain](terrain.md): how floor colours are blended and lit on the ground.
 - [Rasteriser](rasteriser.md): where the table is used, and texture pages.
 - [Primitives](../cache/primitives.md): 16-bit HSL among the cache's basic types.
 - [Palette conversion](../conversion/palette.md): turning these colours into pack materials.

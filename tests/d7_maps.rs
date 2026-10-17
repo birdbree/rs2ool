@@ -1,5 +1,6 @@
-//! A region builds terrain for planes 0–2 and models for its locations,
-//! including those on upper planes.
+//! A region builds ground for planes 0–2 and models for its locations,
+//! including those on upper planes. The ground is blended and lit: its
+//! corners take many more colours than the region has floors.
 
 #![cfg(feature = "explorer")]
 
@@ -7,7 +8,7 @@ use std::path::PathBuf;
 
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
-use rs2ool::explorer::map_view::{build, plane_mesh, world_image};
+use rs2ool::explorer::map_view::{build, ground_parts, world_image};
 
 #[test]
 fn region_with_upper_floors_builds_every_plane() {
@@ -40,10 +41,52 @@ fn region_with_upper_floors_builds_every_plane() {
         .expect("a region with locations and floors on upper planes");
     let (rx, ry) = (region.x, region.y);
     let built = build(&records, region).unwrap();
-    for plane in 0..3 {
-        let m = plane_mesh(&built.region, plane, &built.floors)
-            .unwrap_or_else(|| panic!("region {rx}_{ry}: plane {plane} has no terrain"));
-        assert!(m.count_vertices() > 0);
+    for plane in 0..4 {
+        // Ground exactly where a floor shows: any underlay, or an overlay
+        // that isn't the invisible floor.
+        let p = &built.region.planes[plane];
+        let shows = |&(&u, &o): &(&u8, &u8)| {
+            u != 0
+                || usize::from(o)
+                    .checked_sub(1)
+                    .and_then(|f| built.floors.terrain.get(f))
+                    .is_some_and(|f| !f.hidden)
+        };
+        let visible = p.underlays.iter().zip(&p.overlays).any(|t| shows(&t));
+        assert_eq!(
+            built.ground[plane].is_some(),
+            visible,
+            "region {rx}_{ry}: plane {plane}"
+        );
+        let Some(g) = &built.ground[plane] else {
+            continue;
+        };
+        let parts = ground_parts(g);
+        assert!(parts.iter().map(|p| p.mesh.count_vertices()).sum::<usize>() > 0);
+        // Every corner of a gouraud face is a 16-bit HSL colour.
+        let m = &g.model;
+        let plain = (0..m.faces.len()).filter(|&f| m.kinds[f] == 0);
+        assert!(
+            plain
+                .clone()
+                .all(|f| m.colours[f].iter().all(|c| (0..65536).contains(c)))
+        );
+        if plane == 0 {
+            let floors: std::collections::BTreeSet<u8> = built.region.planes[0]
+                .underlays
+                .iter()
+                .chain(&built.region.planes[0].overlays)
+                .copied()
+                .collect();
+            let colours: std::collections::BTreeSet<i32> =
+                plain.flat_map(|f| m.colours[f]).collect();
+            assert!(
+                colours.len() > 4 * floors.len(),
+                "region {rx}_{ry}: {} corner colours from {} floors",
+                colours.len(),
+                floors.len()
+            );
+        }
     }
     // Each placed location has a model exactly when its definition draws
     // one for its type.

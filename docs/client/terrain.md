@@ -2,9 +2,9 @@
 
 # Terrain
 
-How a region's tile file turns into ground: explicit and derived heights, planes, overlay shapes and tile flags, plus what the explorer's region viewer simplifies. Read this to rebuild the original client's heights exactly, noise and all.
+How a region's tile file turns into ground: explicit and derived heights, planes, blended underlay colours, ground lighting and shadows, overlay shapes, textured and invisible floors, and tile flags, plus what the explorer's region viewer still leaves out. Read this to rebuild the original client's ground exactly, noise and all.
 
-Heights are computed in [`rs2cache::map`](../../crates/rs2cache/src/map.rs), which decodes the tile file (layout on [Map regions](../records/map.md)). The viewer is [`map_view.rs`](../../src/explorer/map_view.rs).
+Heights are computed in [`rs2cache::map`](../../crates/rs2cache/src/map.rs), which decodes the tile file (layout on [Map regions](../records/map.md)). The ground itself is built by [`rs2classic::terrain`](../../crates/rs2classic/src/terrain.rs), and the viewer is [`map_view.rs`](../../src/explorer/map_view.rs). Unless it says otherwise, every division below truncates towards zero and `>>` is an arithmetic shift.
 
 ## Tiles and planes
 
@@ -86,36 +86,158 @@ A tile's height is the height of its `(x, y)` corner. A tile's four corners are 
 
 ## Overlays and underlays
 
-Underlay and overlay ids are `flo` ids plus one, with 0 meaning none (see [Floors](../records/flo.md)). An overlay comes with a shape from 0 to 11 and a rotation from 0 to 3 quarter turns, both packed into its opcode. The decoder stores the shape and rotation as numbers and doesn't expand them into tile masks.
+Underlay and overlay ids are `flo` ids plus one, with 0 meaning none (see [Floors](../records/flo.md)). An overlay comes with a shape from 0 to 11 and a rotation from 0 to 3 quarter turns, both packed into its opcode. The decoder stores the shape and rotation as numbers; the ground builder cuts the tile with them (see [Tile shapes](#tile-shapes)).
+
+A tile with neither an underlay nor an overlay gets no ground at all. Two kinds of floor draw differently as overlays:
+
+- **Textured floors** (a `flo` with a texture) are drawn with that texture, shaded by the ground light.
+- **The invisible floor**, RGB `0xFF00FF`, draws nothing: the overlay's part of the tile is a hole. Any underlay part of a shaped tile still draws.
+
+Underlays are never textured. A floor's hide-underlay flag has no effect; an overlay hides the underlay only where its shape covers the tile.
+
+## Floor colours
+
+Each floor's RGB becomes a hue, saturation, lightness, chroma and hue weight when the floors load (the conversion is on [Colour](colour.md#from-rgb-floor-colours)). An overlay that isn't textured or invisible draws in its own floor's colour, packed to 16-bit HSL. An underlay draws in a colour blended from the floors around it.
+
+## Underlay blending
+
+Each tile with an underlay takes its colour from the underlays of a 10 × 10 window of tiles: from 4 tiles before it to 5 tiles after it on each axis, so the window sits half a tile off centre towards +x and +y. Tiles without an underlay contribute nothing; they don't count as black. With `n` underlay tiles in the window:
+
+```text
+hue        = Σ hue weight × 256 / Σ chroma
+saturation = Σ saturation / n
+lightness  = Σ lightness / n
+colour     = pack(hue, saturation, lightness)
+```
+
+The hue is a chroma-weighted average, so grey floors barely pull it. It can come out slightly negative, which packing tolerates. The original client reads the window across region boundaries, because it blends over its whole loaded scene. Its ground colours carry no random offset: the same map always draws the same ground.
+
+## Ground lighting
+
+Every tile corner (grid point) gets a light value from the slope of the ground around it, minus the shadow near it. With `h(x, y)` the corner heights (negative is up):
+
+```text
+dx  = h(x+1, y) − h(x−1, y)
+dy  = h(x, y+1) − h(x, y−1)
+len = floor(sqrt(dx² + 65536 + dy²))
+nx, ny, nz = (dx << 8) / len, 65536 / len, (dy << 8) / len
+lit = 96 + (−50·nx − 10·ny − 50·nz) / 213
+light = lit − shadow
+```
+
+That's the object light setup, direction (−50, −10, −50) with contrast 768 (|L| = 71, and 768 × 71 / 256 = 213; see [Lighting](lighting.md#the-two-standard-setups)). Level ground comes out at 84. Ground rising towards +x or +y faces the light and is brighter; ground falling away is darker. The shadow term is
+
+```text
+shadow = (S(x−1, y) >> 2) + (S(x+1, y) >> 3) + (S(x, y−1) >> 2) + (S(x, y+1) >> 3) + (S(x, y) >> 1)
+```
+
+over the plane's shadow grid `S`, so a point's own shadow counts half and its −x and −y neighbours count twice as much as its +x and +y ones. Nothing clamps the result here; colouring clamps it.
+
+A corner's colour is its tile's packed colour `c` with the lightness scaled by the light and clamped:
+
+```text
+corner = (c & 0xff80) + clamp(light × (c & 0x7f) / 128, 2, 126)
+```
+
+which is the [lit colour](lighting.md#lit-colour) rule for model faces. A textured corner takes the shade `127 − clamp(light, 0, 127)` instead.
+
+In the original client, the light is only worked out for the scene's inner grid points; the outermost ring stays at 0 and draws nearly black, but it's never in view.
+
+## Shadows
+
+Each plane has a grid of shadow values, 0 to 127, one per grid point, written as the region's locations are placed (in file order), and only by locations whose definition casts a shadow (see [Loc](../records/loc.md)):
+
+| Location type | Shadow |
+| --- | --- |
+| 0, straight wall | both ends of the edge it stands on set to 50: west edge at rotation 0, north at 1, east at 2, south at 3 |
+| 1 and 3, wall corners | the one corner it fills set to 50: north-west at rotation 0, north-east at 1, south-east at 2, south-west at 3 |
+| 10 and 11, scenery | every grid point of its footprint, edges included (so `width + 1` by `length + 1` points, turned with the location), raised to at least `min(30, radius / 4)` |
+
+Walls set their points outright, so a later wall wins; scenery only darkens. The radius is the model's horizontal radius, `sqrt(max(x² + z²)) + 0.99`, truncated. Other types cast nothing. In the original client, a whole missing region also darkens its plane 0 to 127.
+
+## Tile shapes
+
+A tile is drawn from points on its edges and inside it. Numbered 1–16, with offsets in units from the tile's south-west corner (x east, z north):
+
+| Point | Offset | Point | Offset |
+| --- | --- | --- | --- |
+| 1 | (0, 0) south-west | 9 | (64, 32) |
+| 2 | (64, 0) | 10 | (96, 64) |
+| 3 | (128, 0) south-east | 11 | (64, 96) |
+| 4 | (128, 64) | 12 | (32, 64) |
+| 5 | (128, 128) north-east | 13 | (32, 32) |
+| 6 | (64, 128) | 14 | (96, 32) |
+| 7 | (0, 128) north-west | 15 | (96, 96) |
+| 8 | (0, 64) | 16 | (32, 96) |
+
+Corners take their own height and colours. An edge midpoint (2, 4, 6, 8) takes the mean of its two corners, `(a + b) >> 1`; for colours that's done on the packed values, so a carry can cross into the next field. The inner points don't interpolate: 9–12 copy the edge midpoints 2, 4, 6 and 8, and 13–16 copy the corners 1, 3, 5 and 7. Each point carries both an underlay and an overlay colour.
+
+**Whole tiles.** A tile with only an underlay, or with an overlay of shape 0, is two triangles split along the south-east to north-west diagonal, whatever the heights: (north-east, north-west, south-east), then (south-west, south-east, north-west). Shape 0 ignores the rotation and draws only the overlay.
+
+**Shaped tiles.** Shapes 1–11 split the tile into underlay (U) and overlay (O) triangles. Corners are numbered 0 south-west, 1 south-east, 2 north-east and 3 north-west; 4 and 5 are the extra points listed:
+
+| Shape | Extra points | Triangles |
+| --- | --- | --- |
+| 1 | | U(1, 2, 3) O(0, 1, 3) |
+| 2 | 6 | U(0, 1, 2) U(0, 2, 4) O(0, 4, 3) |
+| 3 | 6 | U(0, 1, 4) U(0, 4, 3) O(1, 2, 4) |
+| 4 | 6 | U(0, 4, 3) O(0, 1, 2) O(0, 2, 4) |
+| 5 | 6 | U(1, 2, 4) O(0, 1, 4) O(0, 4, 3) |
+| 6 | 2, 6 | U(4, 1, 2) U(4, 2, 5) O(0, 4, 5) O(0, 5, 3) |
+| 7 | 2, 8 | U(4, 1, 2) U(4, 2, 3) U(4, 3, 5) O(0, 4, 5) |
+| 8 | 2, 8 | U(0, 4, 5) O(4, 1, 2) O(4, 2, 3) O(4, 3, 5) |
+| 9 | 11, 12 | U(0, 1, 5) U(1, 4, 5) U(1, 2, 4) O(0, 5, 3) O(5, 4, 3) O(4, 2, 3) |
+| 10 | 11, 12 | O(0, 1, 5) O(1, 4, 5) O(1, 2, 4) U(0, 5, 3) U(5, 4, 3) U(4, 2, 3) |
+| 11 | 13, 14 | O(0, 5, 4) O(0, 1, 5) U(0, 4, 3) U(4, 5, 3) U(5, 2, 3) U(1, 2, 5) |
+
+Every shape covers the whole tile, and every triangle is wound the same way as the whole-tile ones. Triangles are drawn in the order listed.
+
+**Rotation.** Each quarter turn rotates the shape about the tile centre so the south-west corner goes to the north-west one: `(x, z) → (z, −x)` about the centre. Every point moves with it, stepping backwards round its ring: two places round the outer ring 1–8, one place round 9–12 and round 13–16. The heights and colours are those of where the points land, so a turned shape still sits on the ground.
+
+**Textures.** A textured overlay lays its texture with the south-west corner as the origin, running towards the south-east corner (u) and the north-west corner (v), one texture per tile, when all four corners are level. On a sloping tile a shaped tile's triangles each use their own three corners instead, and a whole tile's north-east half uses (north-east, north-west, south-east) while its south-west half keeps the level layout.
+
+**What's skipped.** An underlay triangle is skipped when the tile has no underlay, and an overlay triangle when its floor is invisible. Textured triangles are always drawn.
+
+## Drawing
+
+The original client draws ground as part of its scene, which has no fog and draws far to near, lowest plane first; within a tile, the ground goes down before walls, decorations and objects. A tile is dropped whole if any of its points is nearer the camera than 50 units, and a triangle is drawn only if it faces the camera. Tiles more than 25 tiles from the camera aren't drawn.
+
+In its low-detail mode the original client also skips upper-plane tiles away from the player's plane, and draws textured ground untextured, in a fixed average colour per texture shaded by the same light. The tools always draw full detail.
 
 ## Tile flags
 
-Flags are `op − 49`, a value from 1 to 32, stored exactly as read. The two lowest bits mean:
+Flags are `op − 49`, a value from 1 to 32, stored exactly as read. The bits the ground cares about:
 
 | Bit | Meaning |
 | --- | --- |
 | 1 | blocked |
-| 2 | bridge: read on plane 1. The original client shifts that tile's planes down one level, so the plane-1 floor is what you stand on at ground level, and height lookups on that tile read the plane above |
+| 2 | bridge: read on plane 1. The original client shifts that tile's planes down one level, so the plane-1 floor is what you stand on at ground level, and height lookups on that tile read the plane above. The ground that was on plane 0 is drawn first, underneath, and each plane's ground keeps the heights of the plane it came from |
+| 8 | the tile counts as plane 0 for visibility, whatever plane it's on |
+
+For visibility, each tile counts as its plane, one lower under a bridge, or plane 0 with bit 8. When the original client hides the planes above you (indoors, say), a tile whose plane counts above the highest shown plane isn't drawn; that's how roofs disappear.
 
 The decoder doesn't act on any flag.
 
-## The region viewer's simplifications
+## The minimap
 
-The explorer draws a region to look at, not to match the original client pixel for pixel:
+The minimap (and nothing else) uses randomised colours. Each floor gets a second packed colour when it loads, with up to ±8 on the hue and ±24 on saturation and lightness. A floor with `secondary_rgb` takes that colour's version instead (see [Flo](../records/flo.md)). Each time a scene is built, the blended underlay hue and lightness drift by a small random offset too, kept within ±8 and ±16. Minimap colours are then lit at a fixed light of 96. A textured overlay shows its texture's average colour. With every random term at 0, the minimap's colours are the ground's colours at light 96.
 
-- **One region at a time.** Neighbouring regions aren't stitched. Corners on the far edge reuse the edge tile's own height instead of reading the next region.
-- **Flat colours.** A tile takes its `flo` record's RGB directly, with no blending, texturing or terrain lighting. A textured floor (water, for one) has no RGB, so it takes its texture's average colour instead, the way the original client colours a textured floor where it can't draw the texture: the mean of the texture's palette after the brightness curve, then a further brightness curve of 1.4. The modern view uses the underlay colour (or the overlay's when there's no underlay). The classic view and the world map use the overlay colour, else the underlay's.
-- **Rough overlay shapes.** In the modern view, shape 0 covers the whole tile and any other shape covers one of the tile's two triangles with the overlay and the other with the base colour. Overlay rotation is ignored.
-- **Missing floors.** Plane 0 draws every tile, using a default ground colour where there's no floor. Planes 1–3 draw only tiles that have one.
-- **No flags.** Tile flags, bridges included, don't change what's drawn. Each plane can be toggled on and off instead.
+## What the region viewer draws
+
+The explorer builds each plane's ground with [`rs2classic::terrain`](../../crates/rs2classic/src/terrain.rs) exactly as above: blended underlays, lighting, shadows from the region's walls and scenery, every shape and rotation, textures and invisible floors. The classic view draws that model as it is. The modern view turns the same triangles into meshes in the same lit colours and textures, drawn unlit. What it doesn't do:
+
+- **One region at a time.** Neighbouring regions aren't stitched in. At the region's edges the blend window stops at the edge, and grid points past the last tile reuse the edge tile's height, so the far edge is lit as if level (the original client reads the next region for both).
+- **No flags.** Tile flags don't change what's drawn: no bridges, no roofs hidden by plane. Each plane can be toggled on and off instead. Locations on a bridge tile's plane still cast their shadow on that plane.
 - **Plain placement.** Locations sit at their footprint's centre at their tile's ground height, turned by quarter turns (see [Assembly](assembly.md#placement-rotation)). Models aren't fitted to sloping ground.
 
-The world map is plane 0 of every region at one pixel per tile, coloured the same way, with black where a tile has no floor.
+The world map is plane 0 of every region at one pixel per tile, coloured flat from each tile's overlay floor, else its underlay floor: a floor's RGB, or for a textured floor its texture's average colour (the mean of the texture's palette after the brightness curve, then a further brightness curve of 1.4). It's black where a tile has no floor. It isn't blended or lit.
 
 ## See also
 
 - [Map regions](../records/map.md): the tile and location file layouts.
 - [Floors](../records/flo.md): the `flo.dat` records overlays and underlays name.
+- [Colour](colour.md#from-rgb-floor-colours): how a floor's RGB becomes HSL.
+- [Lighting](lighting.md): the model lighting the ground lighting shares its light with.
 - [Coordinates](coordinates.md): units, the 240-unit storey and the axis directions.
 - [Assembly](assembly.md): how placed objects are shaped and turned.
 - [Explorer](../tools/explorer.md#maps-and-the-world-map): navigating regions in the GUI.

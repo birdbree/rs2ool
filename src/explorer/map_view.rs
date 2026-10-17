@@ -1,8 +1,8 @@
-//! Map regions as terrain: one mesh per plane from corner heights, tiles
-//! coloured from their `flo.dat` underlay and overlay, and locations placed
+//! Map regions: each plane's ground as the original client draws it
+//! (built by `rs2classic::terrain`, shadows and all), and locations placed
 //! as their models. A viewer only; neighbouring regions aren't stitched.
 //!
-//! The first half is plain geometry (testable without Bevy). The second
+//! The first half is plain data and geometry (testable without Bevy). The second
 //! builds a region off the UI thread, spawns it, keeps the camera inside
 //! it and draws the N/W/E/S overlay. The last part is the world map: plane
 //! 0 of every region as one image.
@@ -11,25 +11,28 @@
 //! the cache's y-down, z-along-tile-y space with y and z negated, so y is
 //! up and north (tile +y) is −z. Heights are indexed `x * 64 + y`.
 
-use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Mesh, PrimitiveTopology};
+use bevy::mesh::Mesh;
 use contentpack::palette::{DEFAULT_BRIGHTNESS, split};
 use rs2cache::types::config::{FloDef, LocDef};
-use rs2cache::types::map::{Location, Plane, REGION_SIZE, Region};
+use rs2cache::types::map::{Location, REGION_SIZE, Region};
 use rs2cache::types::sprite::SpriteSheet;
+use rs2classic::terrain::{FloorColour, Ground, Shadows, horizontal_radius};
 
 /// World units per tile.
 pub const TILE: f32 = 128.0;
 
-/// The colour each floor draws with, by floor definition id.
+/// The floors, by floor definition id: their colour terms for the ground,
+/// and the flat colour each draws with on the world map.
 ///
-/// A floor with an RGB colour uses it. A textured floor (water, for one)
+/// On the world map a floor with an RGB colour uses it. A textured floor (water, for one)
 /// has no RGB, so it uses its texture's average colour, as the original
 /// client does wherever it can't draw the texture itself. Without that,
 /// textured floors fell through to whatever was underneath.
 #[derive(Debug, Clone, Default)]
 pub struct Floors {
     colours: Vec<Option<[f32; 4]>>,
+    /// Each floor's colour terms for the ground builder, by floor id.
+    pub terrain: Vec<FloorColour>,
 }
 
 impl Floors {
@@ -51,7 +54,8 @@ impl Floors {
                 ])
             })
             .collect();
-        Self { colours }
+        let terrain = flos.iter().map(FloorColour::new).collect();
+        Self { colours, terrain }
     }
 
     /// Decodes every floor definition and texture and builds the table.
@@ -91,85 +95,49 @@ impl Floors {
     }
 }
 
-/// World position of a tile corner (y up; north is −z). `x` and `y` run
-/// 0–64; the far edge has no heights of its own, so it reuses the last
-/// row and column.
-pub fn corner(plane: &Plane, x: usize, y: usize) -> [f32; 3] {
-    // Clamp to the region's own heights rather than reading a neighbour's.
-    let (cx, cy) = (x.min(REGION_SIZE - 1), y.min(REGION_SIZE - 1));
-    let h = plane.heights[cx * REGION_SIZE + cy];
-    [x as f32 * TILE, -h as f32, -(y as f32) * TILE]
+/// The shadow every placed location casts on the ground, in file order,
+/// from the locations whose definition casts one. Scenery's shadow grows
+/// with its model's horizontal radius.
+pub fn shadows(
+    region: &Region,
+    defs: &BTreeMap<u16, LocDef>,
+    models: &BTreeMap<(u16, u8), Model>,
+) -> Shadows {
+    let mut s = Shadows::default();
+    for l in &region.locations {
+        let Some(d) = defs.get(&l.id).filter(|d| d.casts_shadow) else {
+            continue;
+        };
+        let radius = models
+            .get(&(l.id, l.kind))
+            .map_or(0, |m| horizontal_radius(&m.vertices));
+        s.add(
+            l.plane,
+            (l.x, l.y),
+            l.kind,
+            l.rotation,
+            (d.size_x, d.size_y),
+            radius,
+        );
+    }
+    s
 }
 
-/// The terrain mesh of one plane, or `None` when the plane has no floor
-/// tiles. Plane 0 draws every tile; upper planes only tiles with a floor.
-///
-/// Each tile is two triangles split corner to corner. An overlay with
-/// shape 0 covers both; a shaped one only paints the first, with the
-/// underlay in the other. That's a stand-in for the original client's
-/// real tile shapes.
-pub fn plane_mesh(region: &Region, plane: usize, floors: &Floors) -> Option<Mesh> {
-    let p = region.planes.get(plane)?;
-    let (mut pos, mut col) = (Vec::new(), Vec::new());
-    for x in 0..REGION_SIZE {
-        for y in 0..REGION_SIZE {
-            let i = x * REGION_SIZE + y;
-            let under = floors.colour(p.underlays[i]);
-            let over = floors.colour(p.overlays[i]);
-            if plane > 0 && under.is_none() && over.is_none() {
-                continue;
-            }
-            // Underlay first; a tile with neither gets a dull green.
-            let base = under.or(over).unwrap_or([0.25, 0.3, 0.2, 1.0]);
-            // Full overlays cover the tile; shaped ones cover one triangle.
-            let (first, second) = match (over, p.shapes[i]) {
-                (Some(o), 0) => (o, o),
-                (Some(o), _) => (o, base),
-                (None, _) => (base, base),
-            };
-            // The tile's corners, going round from (x, y).
-            let (a, b, c, d) = (
-                corner(p, x, y),
-                corner(p, x + 1, y),
-                corner(p, x + 1, y + 1),
-                corner(p, x, y + 1),
-            );
-            for (tri, colour) in [([a, b, c], first), ([a, c, d], second)] {
-                for v in tri {
-                    pos.push(v);
-                    col.push(colour);
-                }
-            }
-        }
-    }
-    if pos.is_empty() {
-        return None;
-    }
-    // One flat normal per triangle (e1 × e2), copied to its three corners.
-    let normals = pos
-        .chunks(3)
-        .flat_map(|t| {
-            let e1 = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
-            let e2 = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
-            let n = [
-                e1[1] * e2[2] - e1[2] * e2[1],
-                e1[2] * e2[0] - e1[0] * e2[2],
-                e1[0] * e2[1] - e1[1] * e2[0],
-            ];
-            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
-            let n = [n[0] / l, n[1] / l, n[2] / l];
-            [n, n, n]
-        })
-        .collect::<Vec<_>>();
-    Some(
-        Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col),
-    )
+/// Each plane's ground, blended, lit and shaped as the original client
+/// draws it (see [`rs2classic::terrain`]); `None` for a plane with
+/// nothing on it.
+pub fn grounds(region: &Region, floors: &Floors, shadows: &Shadows) -> Vec<Option<Ground>> {
+    region
+        .planes
+        .iter()
+        .zip(&shadows.planes)
+        .map(|(p, s)| rs2classic::terrain::ground(p, &floors.terrain, Some(s)))
+        .collect()
+}
+
+/// A plane's ground as meshes for the modern view, split by texture.
+pub fn ground_parts(ground: &Ground) -> Vec<mesh::Part> {
+    mesh::lit_model_parts(&ground.model, &ground.vertices)
 }
 
 /// Where a location sits: the centre of its footprint at the ground height
@@ -224,6 +192,8 @@ pub struct Built {
     pub region: Region,
     /// The colour each floor draws with.
     pub floors: Floors,
+    /// Each plane's ground.
+    pub ground: Vec<Option<Ground>>,
     /// The definition of each location id placed in the region that
     /// decodes.
     pub defs: BTreeMap<u16, LocDef>,
@@ -236,8 +206,8 @@ pub struct Built {
 /// A region prepared for the classic renderer, in cache coordinates (y
 /// down, z along the tile y axis).
 pub struct ClassicScene {
-    /// One flat-RGB terrain model per plane that has tiles: its plane, the
-    /// model and its vertices.
+    /// One ground model per plane that has any: its plane, the model and
+    /// its vertices.
     pub terrain: Vec<(u8, rs2classic::LitModel, Vec<[i32; 3]>)>,
     /// Each placed object: its plane, lit model and vertices already
     /// turned and moved into place.
@@ -260,51 +230,25 @@ fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
     [x, y, z]
 }
 
-/// Prepares a built region for the classic renderer.
-///
-/// Terrain is simpler than the modern mesh: one colour per tile, overlay
-/// first. Objects are lit with the object lighting.
+/// Prepares a built region for the classic renderer: each plane's ground
+/// as it is, and objects lit with the object lighting.
 pub fn classic_scene(
     region: &Region,
-    floors: &Floors,
+    ground: &[Option<Ground>],
     defs: &BTreeMap<u16, LocDef>,
     models: &BTreeMap<(u16, u8), Model>,
 ) -> ClassicScene {
-    let mut terrain = Vec::new();
-    for (pi, p) in region.planes.iter().enumerate() {
-        let (mut verts, mut faces, mut rgb) = (Vec::new(), Vec::new(), Vec::new());
-        for x in 0..REGION_SIZE {
-            for y in 0..REGION_SIZE {
-                let i = x * REGION_SIZE + y;
-                let colour = floors
-                    .colour(p.overlays[i])
-                    .or_else(|| floors.colour(p.underlays[i]));
-                if pi > 0 && colour.is_none() {
-                    continue;
-                }
-                let c = colour.unwrap_or([0.25, 0.3, 0.2, 1.0]);
-                // Back to `0xRRGGBB` for the flat-colour model.
-                let packed = ((c[0] * 255.0) as u32) << 16
-                    | ((c[1] * 255.0) as u32) << 8
-                    | (c[2] * 255.0) as u32;
-                // Corner height, clamped at the far edge like `corner`.
-                let h = |cx: usize, cy: usize| {
-                    p.heights[cx.min(REGION_SIZE - 1) * REGION_SIZE + cy.min(REGION_SIZE - 1)]
-                };
-                // Four corners per tile, two triangles on them.
-                let base = verts.len() as u16;
-                for (cx, cy) in [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)] {
-                    verts.push([cx as i32 * 128, h(cx, cy), cy as i32 * 128]);
-                }
-                faces.push([base, base + 1, base + 2]);
-                faces.push([base, base + 2, base + 3]);
-                rgb.extend([packed, packed]);
-            }
-        }
-        if !faces.is_empty() {
-            terrain.push((pi as u8, rs2classic::LitModel::flat_rgb(faces, rgb), verts));
-        }
-    }
+    let terrain = ground
+        .iter()
+        .enumerate()
+        .filter_map(|(p, g)| {
+            Some((
+                p as u8,
+                g.as_ref()?.model.clone(),
+                g.as_ref()?.vertices.clone(),
+            ))
+        })
+        .collect();
     // Light each distinct model once; placements share it.
     let lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> = models
         .iter()
@@ -377,11 +321,13 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
             models.insert((id, kind), m);
         }
     }
-    let classic = Arc::new(classic_scene(&region, &floors, &defs, &models));
+    let ground = grounds(&region, &floors, &shadows(&region, &defs, &models));
+    let classic = Arc::new(classic_scene(&region, &ground, &defs, &models));
     Ok(Built {
         classic,
         region,
         floors,
+        ground,
         defs,
         models,
     })
@@ -500,29 +446,30 @@ fn spawn(
     scene.error = None;
     scene.region = Some(id);
     scene.classic = Some(built.classic.clone());
-    let material = materials.add(StandardMaterial {
-        perceptual_roughness: 1.0,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
     let unlit = materials.add(StandardMaterial {
         unlit: true,
         double_sided: true,
         cull_mode: None,
         ..default()
     });
-    for plane in 0..4u8 {
-        if let Some(m) = plane_mesh(&built.region, plane.into(), &built.floors) {
-            let e = commands
-                .spawn((
-                    Mesh3d(meshes.add(m)),
-                    MeshMaterial3d(material.clone()),
-                    Transform::IDENTITY,
-                    RegionPart { plane },
-                ))
-                .id();
-            scene.entities.push(e);
+    // The ground is lit already, so it's drawn unlit like the models.
+    for (plane, g) in built.ground.iter().enumerate() {
+        let Some(g) = g else { continue };
+        for part in ground_parts(g) {
+            let material = part
+                .texture
+                .and_then(|id| textures.get(id, LightingMode::Client))
+                .unwrap_or_else(|| unlit.clone());
+            let mut e = commands.spawn((
+                Mesh3d(meshes.add(part.mesh)),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                RegionPart { plane: plane as u8 },
+            ));
+            if let Some(id) = part.texture {
+                e.insert(RegionTexture(id));
+            }
+            scene.entities.push(e.id());
         }
     }
     // Meshes per distinct model, shared by every placement of it. Regions

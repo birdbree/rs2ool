@@ -25,6 +25,8 @@
 //! - [`raster`]: the three triangle fillers and alpha blending.
 //! - [`texture`]: texture pages prepared from the texture sprites.
 //! - [`tables`]: sine, cosine, reciprocal and HSL lookup tables.
+//! - [`terrain`]: map ground, blended, lit and shaped as the original
+//!   client draws it.
 //!
 //! # Example
 //!
@@ -50,6 +52,7 @@ pub mod light;
 pub mod raster;
 pub mod render;
 pub mod tables;
+pub mod terrain;
 pub mod texture;
 
 pub use light::{Lighting, LitModel, light};

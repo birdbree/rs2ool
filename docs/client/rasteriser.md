@@ -115,7 +115,7 @@ So the two high groups slot in behind the lower ones, as long as they're deeper 
 | 3 textured flat | textured filler, one shade at every corner |
 | 4 | flat filler, a 24-bit RGB colour used as is |
 
-Kind 4 isn't in the cache: the tools use it for terrain tiles, which are coloured straight from [floor](../records/flo.md) RGB with no lighting. A textured face whose texture triangle index is out of range isn't drawn; one whose texture isn't loaded is drawn flat in grey `0x808080`. The textured filler ignores transparency; the other fillers use the face's transparency (see [alpha blending](#alpha-blending)).
+Kind 4 isn't in the cache: it's a flat face in an exact 24-bit RGB colour, for the tools' own use. Map ground is drawn with kinds 0 and 2, like the original client's (see [Terrain](terrain.md)). A textured face whose texture triangle index is out of range isn't drawn; one whose texture isn't loaded is drawn flat in grey `0x808080`. The textured filler ignores transparency; the other fillers use the face's transparency (see [alpha blending](#alpha-blending)).
 
 ## The fillers
 
