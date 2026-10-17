@@ -7,6 +7,7 @@ use bevy::camera::{CameraOutputMode, Viewport};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::render::render_resource::BlendState;
+use bevy::window::PrimaryWindow;
 use bevy_egui::input::{egui_wants_any_keyboard_input, egui_wants_any_pointer_input};
 use bevy_egui::{EguiContext, EguiGlobalSettings, PrimaryEguiContext};
 use rs2intermediate::record::Record;
@@ -87,6 +88,12 @@ pub struct Shown {
     pub real: Handle<Mesh>,
     pub unlit: Handle<StandardMaterial>,
     pub lit: Handle<StandardMaterial>,
+    /// Blended variants, only for models with per-face alpha: the blended
+    /// pass does not write depth, so an opaque model drawn with it shows
+    /// its inner faces through its outer ones.
+    pub unlit_blend: Handle<StandardMaterial>,
+    pub lit_blend: Handle<StandardMaterial>,
+    pub blend: bool,
     pub labels: bool,
 }
 
@@ -110,20 +117,28 @@ fn setup(
         brightness: 400.0,
         ..default()
     });
-    shown.unlit = materials.add(StandardMaterial {
+    let unlit = StandardMaterial {
         unlit: true,
         double_sided: true,
         cull_mode: None,
-        alpha_mode: AlphaMode::Blend,
         ..default()
-    });
-    shown.lit = materials.add(StandardMaterial {
+    };
+    let lit = StandardMaterial {
         perceptual_roughness: 1.0,
         double_sided: true,
         cull_mode: None,
-        alpha_mode: AlphaMode::Blend,
         ..default()
+    };
+    shown.unlit_blend = materials.add(StandardMaterial {
+        alpha_mode: AlphaMode::Blend,
+        ..unlit.clone()
     });
+    shown.lit_blend = materials.add(StandardMaterial {
+        alpha_mode: AlphaMode::Blend,
+        ..lit.clone()
+    });
+    shown.unlit = materials.add(unlit);
+    shown.lit = materials.add(lit);
     commands.spawn((
         PrimaryEguiContext,
         Camera2d,
@@ -183,18 +198,41 @@ pub fn orbit_keys(
     }
 }
 
-/// Dragging orbits, scrolling zooms.
+/// Whether a physical cursor position lies in the viewport rect. The
+/// panels are drawn on egui's background layer, so egui's "wants pointer"
+/// flag does not cover them; the rect is the reliable test.
+pub fn in_viewport(cursor: Option<Vec2>, rect: &ViewportRect) -> bool {
+    let Some(p) = cursor else { return false };
+    let (lo, hi) = (
+        rect.position.as_vec2(),
+        (rect.position + rect.size).as_vec2(),
+    );
+    p.x >= lo.x && p.y >= lo.y && p.x < hi.x && p.y < hi.y
+}
+
+/// Dragging orbits and scrolling zooms, only with the cursor over the
+/// viewport; a drag that starts there may continue past its edge.
 fn orbit_mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    rect: Res<ViewportRect>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut dragging: Local<bool>,
     mut q: Query<&mut OrbitCamera>,
 ) {
+    let inside = in_viewport(window.physical_cursor_position(), &rect);
+    if buttons.just_pressed(MouseButton::Left) {
+        *dragging = inside;
+    }
+    if !buttons.pressed(MouseButton::Left) {
+        *dragging = false;
+    }
     for mut o in &mut q {
-        if buttons.pressed(MouseButton::Left) && motion.delta != Vec2::ZERO {
+        if *dragging && motion.delta != Vec2::ZERO {
             o.turn(-motion.delta.x * DRAG_SPEED, motion.delta.y * DRAG_SPEED);
         }
-        if scroll.delta.y != 0.0 {
+        if inside && scroll.delta.y != 0.0 {
             o.distance = (o.distance * (1.0 - scroll.delta.y * 0.1)).clamp(20.0, 20_000.0);
         }
     }
@@ -245,6 +283,10 @@ fn show_selection(
     shown.client = meshes.add(client);
     shown.real = meshes.add(real);
     shown.labels = overlays.labels;
+    shown.blend = m
+        .face_alphas
+        .as_ref()
+        .is_some_and(|a| a.iter().any(|&x| x != 0));
     let (mesh, mat) = handles(&shown, *mode);
     shown.entity = Some(
         commands
@@ -255,10 +297,14 @@ fn show_selection(
 
 /// The mesh and material for a lighting mode.
 pub fn handles(shown: &Shown, mode: LightingMode) -> (Handle<Mesh>, Handle<StandardMaterial>) {
-    match mode {
-        LightingMode::Client => (shown.client.clone(), shown.unlit.clone()),
-        LightingMode::Real => (shown.real.clone(), shown.lit.clone()),
-    }
+    let (mesh, opaque, blend) = match mode {
+        LightingMode::Client => (&shown.client, &shown.unlit, &shown.unlit_blend),
+        LightingMode::Real => (&shown.real, &shown.lit, &shown.lit_blend),
+    };
+    (
+        mesh.clone(),
+        if shown.blend { blend } else { opaque }.clone(),
+    )
 }
 
 fn switch_lighting(
@@ -322,4 +368,27 @@ pub fn plugin(app: &mut App) {
             )
                 .chain(),
         );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn viewport_hit_test() {
+        let rect = ViewportRect {
+            position: UVec2::new(100, 50),
+            size: UVec2::new(200, 100),
+        };
+        assert!(in_viewport(Some(Vec2::new(150.0, 60.0)), &rect));
+        assert!(
+            !in_viewport(Some(Vec2::new(50.0, 60.0)), &rect),
+            "over the left panel"
+        );
+        assert!(
+            !in_viewport(Some(Vec2::new(150.0, 160.0)), &rect),
+            "over the bottom panel"
+        );
+        assert!(!in_viewport(None, &rect));
+    }
 }
