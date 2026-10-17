@@ -140,7 +140,7 @@ pub struct IndexEntry {
 
 impl IndexEntry {
     // Two big-endian u24s, padded to u32 with a leading zero byte.
-    fn parse(b: &[u8]) -> Self {
+    fn parse(b: &[u8; INDEX_RECORD]) -> Self {
         Self {
             size: u32::from_be_bytes([0, b[0], b[1], b[2]]),
             sector: u32::from_be_bytes([0, b[3], b[4], b[5]]),
@@ -231,8 +231,11 @@ impl Cache {
         let indices = indices
             .iter()
             .map(|raw| {
-                // A trailing partial record is ignored.
-                raw.chunks_exact(INDEX_RECORD)
+                // A trailing partial record is ignored (as_chunks hands it
+                // back separately).
+                raw.as_chunks::<INDEX_RECORD>()
+                    .0
+                    .iter()
                     .map(IndexEntry::parse)
                     .collect()
             })

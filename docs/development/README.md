@@ -11,7 +11,7 @@ This section is for working on the workspace itself: building, testing, linting,
 
 ## Commands
 
-Run these from the repository root. The workspace builds on stable Rust (edition 2024).
+Run these from the repository root. The workspace uses edition 2024, on the Rust version [`rust-toolchain.toml`](../../rust-toolchain.toml) pins. CI uses the same file, so a new Rust release (and its new lints) can't break the build unannounced. To move to a newer Rust, bump the version there and fix whatever the new clippy flags in the same PR.
 
 Cache-gated tests read the cache from `RS2_CACHE`. Set it to an absolute path: `cargo test` runs each crate's tests from that crate's directory, so a relative path points somewhere else. No cache is included in the repository; point it at your own copy.
 
@@ -52,6 +52,16 @@ cargo insta review
 `cargo insta` comes from the separate `cargo-insta` tool (`cargo install cargo-insta`). See [testing](testing.md) for where snapshots fit in.
 
 Before you call a change done, `cargo fmt --check`, the clippy command above and `cargo test --workspace` should all pass. With `RS2_CACHE` set, the cache-gated tests run too; without it they print a skip note and pass.
+
+## CI
+
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on every pull request and every push to `main`, in three jobs:
+
+- `fmt`: `cargo fmt --check`.
+- `cli`: clippy and the tests built with `--no-default-features`, with no system libraries installed, which proves the command line builds without Bevy.
+- `full`: Bevy's Linux libraries (ALSA, udev, Wayland, xkbcommon), then clippy with `-D warnings`, `cargo doc` with warnings as errors, and the full test suite.
+
+CI has no cache, so the cache-gated tests skip there. Run them locally with `RS2_CACHE` set before you merge anything that touches a decoder or a converter.
 
 ## The GitHub wiki
 

@@ -200,8 +200,7 @@ pub fn gouraud(fb: &mut Framebuffer, st: State, y: [i32; 3], x: [i32; 3], colour
         let (mut c, end) = (ca >> 7, cb >> 7);
         let row = (yy * w) as usize;
         // Colour step per 4-pixel run.
-        let step;
-        if st.clip {
+        let step = if st.clip {
             // s: colour step per pixel, by real division. Too-short spans
             // don't step at all.
             let s = if r.wrapping_sub(l) > 3 {
@@ -219,7 +218,7 @@ pub fn gouraud(fb: &mut Framebuffer, st: State, y: [i32; 3], x: [i32; 3], colour
             if l >= r {
                 return;
             }
-            step = s << 2;
+            s << 2
         } else {
             if l >= r {
                 return;
@@ -227,12 +226,12 @@ pub fn gouraud(fb: &mut Framebuffer, st: State, y: [i32; 3], x: [i32; 3], colour
             // Divide by the run count through the reciprocal table:
             // x · (32768 / runs) >> 15 is x / runs.
             let runs = (r - l) >> 2;
-            step = if runs > 0 {
+            if runs > 0 {
                 (end - c).wrapping_mul(recip(runs)) >> 15
             } else {
                 0
-            };
-        }
+            }
+        };
         let px = &mut fb.pixels[row..row + w as usize];
         let mut i = l as isize;
         // Write one pixel, blended if the face is transparent. Out-of-row
