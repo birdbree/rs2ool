@@ -3,9 +3,11 @@
 //! lighting swaps prebuilt meshes without building new ones.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
+use bevy::time::TimeUpdateStrategy;
 use rs2cache::{Cache, Records};
 use rs2explorer::mesh::{self, NPC_LIGHTING, Shading};
 use rs2explorer::viewport3d::{
@@ -54,7 +56,12 @@ fn arrow_keys_orbit() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<ButtonInput<KeyCode>>()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            16,
+        )))
         .add_systems(Update, viewport3d::orbit_keys);
+    // The first update has no elapsed time.
+    app.update();
     let cam = app.world_mut().spawn(OrbitCamera::default()).id();
     let before = *app.world().get::<OrbitCamera>(cam).unwrap();
     app.world_mut()
@@ -79,7 +86,12 @@ fn wasd_flies_and_the_camera_stays_bounded() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<ButtonInput<KeyCode>>()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            16,
+        )))
         .add_systems(Update, viewport3d::orbit_keys);
+    // The first update has no elapsed time.
+    app.update();
     let mut start = OrbitCamera {
         yaw: 0.0,
         target: Vec3::splat(500.0),
@@ -99,6 +111,14 @@ fn wasd_flies_and_the_camera_stays_bounded() {
     assert!(after.target.z < before.target.z, "W moves forward");
     assert!(after.target.y > before.target.y, "Space moves up");
     assert_eq!(after.yaw, before.yaw, "flying does not turn");
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release_all();
+        keys.press(KeyCode::ShiftLeft);
+    }
+    app.update();
+    let lower = *app.world().get::<OrbitCamera>(cam).unwrap();
+    assert!(lower.target.y < after.target.y, "left Shift moves down");
 
     let mut o = after;
     o.fly(1e9, -1e9, -1e9);

@@ -9,9 +9,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::BlendState;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::{egui_wants_any_keyboard_input, egui_wants_any_pointer_input};
-use bevy_egui::{
-    EguiContext, EguiGlobalSettings, EguiInput, EguiPreUpdateSet, PrimaryEguiContext, egui,
-};
+use bevy_egui::{EguiContext, EguiGlobalSettings, PrimaryEguiContext};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
@@ -91,10 +89,10 @@ impl Default for OrbitCamera {
 }
 
 pub const PITCH_LIMIT: f32 = 85.0 * std::f32::consts::PI / 180.0;
-const KEY_SPEED: f32 = 1.5;
+const KEY_SPEED: f32 = 1.0;
 const DRAG_SPEED: f32 = 0.008;
 /// Fly speed, in multiples of the orbit distance per second.
-const FLY_SPEED: f32 = 0.8;
+const FLY_SPEED: f32 = 0.4;
 /// Zoom per scroll line, and per pixel for trackpads.
 const ZOOM_PER_LINE: f32 = 0.04;
 const ZOOM_PER_PIXEL: f32 = 0.0015;
@@ -257,21 +255,22 @@ fn follow_rect(
 }
 
 /// Arrow keys orbit: left/right yaw, up/down pitch. W/A/S/D move the
-/// target across the ground relative to the view, Space raises it and Tab
-/// lowers it.
+/// target across the ground relative to the view, Space raises it and left
+/// Shift lowers it.
 pub fn orbit_keys(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut q: Query<&mut OrbitCamera>,
 ) {
-    let dt = time.delta_secs().max(1.0 / 120.0);
+    // Real elapsed time, capped so a stalled frame doesn't jump the camera.
+    let dt = time.delta_secs().min(0.05);
     let axis = |pos: KeyCode, neg: KeyCode| {
         f32::from(u8::from(keys.pressed(pos))) - f32::from(u8::from(keys.pressed(neg)))
     };
     let (right, forward, up) = (
         axis(KeyCode::KeyD, KeyCode::KeyA),
         axis(KeyCode::KeyW, KeyCode::KeyS),
-        axis(KeyCode::Space, KeyCode::Tab),
+        axis(KeyCode::Space, KeyCode::ShiftLeft),
     );
     if right != 0.0 || forward != 0.0 || up != 0.0 {
         for mut o in &mut q {
@@ -606,36 +605,12 @@ fn furniture(mut gizmos: Gizmos) {
     gizmos.axes(Transform::IDENTITY, 64.0);
 }
 
-/// Tab lowers the camera, so egui only sees it while a widget has focus;
-/// otherwise its first press would focus a search box and take the keys.
-fn keep_tab_for_camera(mut q: Query<(&mut EguiContext, &mut EguiInput)>) {
-    for (mut ctx, mut input) in &mut q {
-        if ctx.get_mut().memory(|m| m.focused().is_none()) {
-            input.events.retain(|e| {
-                !matches!(
-                    e,
-                    egui::Event::Key {
-                        key: egui::Key::Tab,
-                        ..
-                    }
-                )
-            });
-        }
-    }
-}
-
 pub fn plugin(app: &mut App) {
     app.init_resource::<LightingMode>()
         .init_resource::<Overlays>()
         .init_resource::<Shown>()
         .init_resource::<TextureMaterials>()
         .add_systems(Startup, setup)
-        .add_systems(
-            PreUpdate,
-            keep_tab_for_camera
-                .after(EguiPreUpdateSet::ProcessInput)
-                .before(EguiPreUpdateSet::BeginPass),
-        )
         .add_systems(
             Update,
             (
