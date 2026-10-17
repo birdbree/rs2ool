@@ -8,6 +8,7 @@ pub mod cache;
 pub mod compress;
 pub mod config;
 pub mod io;
+pub mod map;
 pub mod model;
 pub mod sprite;
 
@@ -38,6 +39,10 @@ pub enum Error {
     Model { id: u32, source: model::ModelError },
     #[error("frame pack {id}: {source}")]
     Anim { id: u32, source: anim::FrameError },
+    #[error("region {x}_{y}: {source}")]
+    Map { x: u8, y: u8, source: map::MapError },
+    #[error("no region {x}_{y} in map_index")]
+    NoRegion { x: u8, y: u8 },
 }
 
 impl Cache {
@@ -70,6 +75,41 @@ impl Cache {
         }
         anim::FrameIndex::build(packs.iter().map(|(id, d)| (*id, d.as_slice())))
             .map_err(|(id, source)| Error::Anim { id, source })
+    }
+
+    /// The versionlist's `map_index`.
+    pub fn map_index(&self) -> Result<Vec<map::MapIndexEntry>, Error> {
+        let v = self.archive(archive::VERSIONLIST)?;
+        map::map_index(v.require(archive::VERSIONLIST, "map_index")?).map_err(|source| Error::Map {
+            x: 0,
+            y: 0,
+            source,
+        })
+    }
+
+    /// Decode the region a `map_index` entry names.
+    pub fn region_for(
+        &self,
+        e: &map::MapIndexEntry,
+    ) -> Result<rs2intermediate::map::Region, Error> {
+        let tiles = self.read(4, e.tile_file.into())?;
+        let locs = self.read(4, e.location_file.into())?;
+        map::decode(e, &tiles, &locs).map_err(|source| Error::Map {
+            x: e.x(),
+            y: e.y(),
+            source,
+        })
+    }
+
+    /// Decode region `(x, y)`.
+    pub fn region(&self, x: u8, y: u8) -> Result<rs2intermediate::map::Region, Error> {
+        let id = u16::from(x) << 8 | u16::from(y);
+        let e = self
+            .map_index()?
+            .into_iter()
+            .find(|e| e.region == id)
+            .ok_or(Error::NoRegion { x, y })?;
+        self.region_for(&e)
     }
 
     /// Read and decode archive `archive` of index 0.
