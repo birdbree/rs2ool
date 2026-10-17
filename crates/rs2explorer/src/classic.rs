@@ -11,6 +11,7 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2intermediate::record::{Record, RecordType};
 use rs2render::{Camera, Framebuffer, LitModel, Textures, light};
 
+use crate::map_view::{ClassicScene, RegionScene};
 use crate::selection::{Loaded, LoadedData};
 use crate::sources::{Source, Sources};
 use crate::ui::ViewportRect;
@@ -36,6 +37,7 @@ pub struct ClassicView {
     pub background: u32,
     loading: Option<Task<Option<Textures>>>,
     texture: Option<egui::TextureHandle>,
+    last: Option<FrameKey>,
 }
 
 impl Default for ClassicView {
@@ -47,6 +49,7 @@ impl Default for ClassicView {
             background: 0x000000,
             loading: None,
             texture: None,
+            last: None,
         }
     }
 }
@@ -146,17 +149,68 @@ fn visibility(mode: Res<RenderMode>, shown: Res<Shown>, mut q: Query<&mut Visibi
 }
 
 /// Render and paint the classic view over the viewport.
+/// The classic world camera for an orbit state around a region: the eye
+/// and target in cache coordinates (Bevy's y and z are negated), with yaw
+/// and pitch pointing the eye at the target.
+pub fn scene_view(o: &OrbitCamera) -> rs2render::View {
+    let to_cache = |v: Vec3| {
+        [
+            v.x.round() as i32,
+            (-v.y).round() as i32,
+            (-v.z).round() as i32,
+        ]
+    };
+    let eye = to_cache(o.transform().translation);
+    let target = to_cache(o.target);
+    let d = [
+        f64::from(target[0] - eye[0]),
+        f64::from(target[1] - eye[1]),
+        f64::from(target[2] - eye[2]),
+    ];
+    let units = |r: f64| (r / std::f64::consts::TAU * 2048.0).round() as i32;
+    let yaw = units((-d[0]).atan2(d[2]));
+    let pitch = units(d[1].atan2((d[0] * d[0] + d[2] * d[2]).sqrt()));
+    rs2render::View { eye, yaw, pitch }
+}
+
+/// Draw a region scene: terrain planes, then objects far to near.
+pub fn render_scene(
+    fb: &mut Framebuffer,
+    scene: &ClassicScene,
+    planes: [bool; 4],
+    view: &rs2render::View,
+    textures: &Textures,
+) {
+    for (plane, lit, verts) in &scene.terrain {
+        if planes[usize::from(*plane)] {
+            rs2render::render_in_view(fb, lit, verts, view, textures);
+        }
+    }
+    let mut order: Vec<(i32, usize)> = scene
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, (plane, _, _))| planes[usize::from(*plane)])
+        .map(|(i, (_, _, v))| (v.first().map_or(0, |p| view.to_camera(*p)[2]), i))
+        .collect();
+    order.sort_by_key(|&(d, i)| (std::cmp::Reverse(d), i));
+    for (_, i) in order {
+        let (_, lit, verts) = &scene.objects[i];
+        rs2render::render_in_view(fb, lit, verts, view, textures);
+    }
+}
+
 fn draw(
     mut contexts: EguiContexts,
     mode: Res<RenderMode>,
     mut view: ResMut<ClassicView>,
+    region: Res<RegionScene>,
     rect: Res<ViewportRect>,
     orbit: Query<&OrbitCamera>,
     window: Single<&Window, With<PrimaryWindow>>,
 ) -> Result {
-    // Without a single model to draw (a map region, say), leave the
-    // viewport to the Bevy renderer.
-    if *mode != RenderMode::Classic || view.model.is_none() {
+    let scene = region.classic.clone().filter(|_| view.model.is_none());
+    if *mode != RenderMode::Classic || (view.model.is_none() && scene.is_none()) {
         return Ok(());
     }
     let ctx = contexts.ctx_mut()?.clone();
@@ -165,25 +219,58 @@ fn draw(
         (rect.size.x / scale).max(1) as usize,
         (rect.size.y / scale).max(1) as usize,
     );
+    let Some(o) = orbit.iter().next().copied() else {
+        return Ok(());
+    };
+    // Redraw only when something that affects the frame changed.
+    let key = Some(FrameKey {
+        size: (w, h),
+        orbit: [
+            o.yaw, o.pitch, o.distance, o.target.x, o.target.y, o.target.z,
+        ]
+        .map(f32::to_bits),
+        planes: region.planes,
+        scene: scene.as_ref().map(|s| Arc::as_ptr(s) as usize),
+        model: view.model.as_ref().map(|m| Arc::as_ptr(&m.0) as usize),
+        textures: view.textures.is_some(),
+    });
+    if key == view.last && view.texture.is_some() {
+        paint(&ctx, &view, &rect, &window, w, h, scale);
+        return Ok(());
+    }
+    view.last = key;
     let mut fb = Framebuffer::new(w, h);
     fb.clear(view.background);
-    if let (Some((lit, verts)), Some(o)) = (&view.model, orbit.iter().next()) {
-        let empty = Textures::default();
-        let tex = view.textures.as_deref().unwrap_or(&empty);
-        rs2render::render(&mut fb, lit, verts, &camera(o), tex);
+    let empty = Textures::default();
+    let tex = view.textures.clone();
+    let tex = tex.as_deref().unwrap_or(&empty);
+    if let Some((lit, verts)) = &view.model {
+        rs2render::render(&mut fb, lit, verts, &camera(&o), tex);
+    } else if let Some(scene) = &scene {
+        render_scene(&mut fb, scene, region.planes, &scene_view(&o), tex);
     }
     let image = egui::ColorImage::from_rgba_unmultiplied([w, h], &fb.to_rgba());
-    let handle = match &mut view.texture {
-        Some(t) => {
-            t.set(image, egui::TextureOptions::NEAREST);
-            t.clone()
-        }
+    match &mut view.texture {
+        Some(t) => t.set(image, egui::TextureOptions::NEAREST),
         None => {
-            let t = ctx.load_texture("classic", image, egui::TextureOptions::NEAREST);
-            view.texture = Some(t.clone());
-            t
+            view.texture = Some(ctx.load_texture("classic", image, egui::TextureOptions::NEAREST))
         }
-    };
+    }
+    paint(&ctx, &view, &rect, &window, w, h, scale);
+    Ok(())
+}
+
+/// Paint the classic frame over the viewport.
+fn paint(
+    ctx: &egui::Context,
+    view: &ClassicView,
+    rect: &ViewportRect,
+    window: &Window,
+    w: usize,
+    h: usize,
+    scale: u32,
+) {
+    let Some(handle) = &view.texture else { return };
     let s = window.scale_factor();
     let min = egui::pos2(rect.position.x as f32 / s, rect.position.y as f32 / s);
     let size = egui::vec2((w as u32 * scale) as f32 / s, (h as u32 * scale) as f32 / s);
@@ -197,7 +284,17 @@ fn draw(
         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
         egui::Color32::WHITE,
     );
-    Ok(())
+}
+
+/// What a classic frame depends on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameKey {
+    size: (usize, usize),
+    orbit: [u32; 6],
+    planes: [bool; 4],
+    scene: Option<usize>,
+    model: Option<usize>,
+    textures: bool,
 }
 
 pub fn plugin(app: &mut App) {

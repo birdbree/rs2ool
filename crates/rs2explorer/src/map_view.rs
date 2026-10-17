@@ -143,6 +143,106 @@ pub struct Built {
     pub defs: BTreeMap<u16, LocDef>,
     /// The model each `(location id, type)` draws, where it draws one.
     pub models: BTreeMap<(u16, u8), Model>,
+    /// The same scene prepared for the classic renderer.
+    pub classic: Arc<ClassicScene>,
+}
+
+/// A region prepared for the classic renderer, in cache coordinates (y
+/// down, z along the tile y axis).
+pub struct ClassicScene {
+    /// One flat-RGB terrain model per plane, with its vertices.
+    pub terrain: Vec<(u8, rs2render::LitModel, Vec<[i32; 3]>)>,
+    /// Each placed object: its plane, lit model and world vertices.
+    pub objects: Vec<(u8, Arc<rs2render::LitModel>, Vec<[i32; 3]>)>,
+    /// The region's centre, for the camera target.
+    pub centre: [i32; 3],
+}
+
+/// Rotate a vertex by `steps` quarter turns as the client places objects
+/// (`Model.method473`: x' = z, z' = −x per step).
+fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
+    let [mut x, y, mut z] = v;
+    for _ in 0..steps & 3 {
+        let t = x;
+        x = z;
+        z = -t;
+    }
+    [x, y, z]
+}
+
+/// Prepare a built region for the classic renderer.
+pub fn classic_scene(
+    region: &Region,
+    flos: &[FloDef],
+    defs: &BTreeMap<u16, LocDef>,
+    models: &BTreeMap<(u16, u8), Model>,
+) -> ClassicScene {
+    let mut terrain = Vec::new();
+    for (pi, p) in region.planes.iter().enumerate() {
+        let (mut verts, mut faces, mut rgb) = (Vec::new(), Vec::new(), Vec::new());
+        for x in 0..REGION_SIZE {
+            for y in 0..REGION_SIZE {
+                let i = x * REGION_SIZE + y;
+                let colour =
+                    flo_colour(flos, p.overlays[i]).or_else(|| flo_colour(flos, p.underlays[i]));
+                if pi > 0 && colour.is_none() {
+                    continue;
+                }
+                let c = colour.unwrap_or([0.25, 0.3, 0.2, 1.0]);
+                let packed = ((c[0] * 255.0) as u32) << 16
+                    | ((c[1] * 255.0) as u32) << 8
+                    | (c[2] * 255.0) as u32;
+                let h = |cx: usize, cy: usize| {
+                    p.heights[cx.min(REGION_SIZE - 1) * REGION_SIZE + cy.min(REGION_SIZE - 1)]
+                };
+                let base = verts.len() as u16;
+                for (cx, cy) in [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)] {
+                    verts.push([cx as i32 * 128, h(cx, cy), cy as i32 * 128]);
+                }
+                faces.push([base, base + 1, base + 2]);
+                faces.push([base, base + 2, base + 3]);
+                rgb.extend([packed, packed]);
+            }
+        }
+        if !faces.is_empty() {
+            terrain.push((pi as u8, rs2render::LitModel::flat_rgb(faces, rgb), verts));
+        }
+    }
+    let lit: BTreeMap<(u16, u8), Arc<rs2render::LitModel>> = models
+        .iter()
+        .map(|(k, m)| (*k, Arc::new(rs2render::light(m, &rs2render::light::OBJECT))))
+        .collect();
+    let mut objects = Vec::new();
+    for l in &region.locations {
+        let (Some(m), Some(lm)) = (models.get(&(l.id, l.kind)), lit.get(&(l.id, l.kind))) else {
+            continue;
+        };
+        let (w, h) = defs.get(&l.id).map_or((1, 1), |d| {
+            if l.rotation & 1 == 1 {
+                (d.size_y, d.size_x)
+            } else {
+                (d.size_x, d.size_y)
+            }
+        });
+        let i = usize::from(l.x) * REGION_SIZE + usize::from(l.y);
+        let ground = region.planes[usize::from(l.plane)].heights[i];
+        let (ox, oz) = (
+            i32::from(l.x) * 128 + i32::from(w) * 64,
+            i32::from(l.y) * 128 + i32::from(h) * 64,
+        );
+        let verts = m.vertices.iter().map(|v| {
+            let r = quarter_turns(*v, l.rotation);
+            [r[0] + ox, r[1] + ground, r[2] + oz]
+        });
+        objects.push((l.plane, lm.clone(), verts.collect()));
+    }
+    let half = (REGION_SIZE as i32 * 128) / 2;
+    let mid = region.planes[0].heights[REGION_SIZE * REGION_SIZE / 2 + REGION_SIZE / 2];
+    ClassicScene {
+        terrain,
+        objects,
+        centre: [half, mid, half],
+    }
 }
 
 /// Decode what a region scene needs.
@@ -175,7 +275,9 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
             models.insert((id, kind), m);
         }
     }
+    let classic = Arc::new(classic_scene(&region, &flos, &defs, &models));
     Ok(Built {
+        classic,
         region,
         flos,
         defs,
@@ -197,6 +299,8 @@ pub struct RegionScene {
     entities: Vec<Entity>,
     pending: Option<(u16, Task<Result<Built, String>>)>,
     pub error: Option<String>,
+    /// The region prepared for the classic renderer.
+    pub classic: Option<Arc<ClassicScene>>,
 }
 
 impl Default for RegionScene {
@@ -207,6 +311,7 @@ impl Default for RegionScene {
             entities: Vec::new(),
             pending: None,
             error: None,
+            classic: None,
         }
     }
 }
@@ -232,6 +337,7 @@ fn start(
         }
         scene.region = None;
         scene.pending = None;
+        scene.classic = None;
         return;
     };
     let Some(Source::Cache { records, .. }) = selected.source.and_then(|s| sources.list.get(s))
@@ -271,6 +377,7 @@ fn spawn(
     };
     scene.error = None;
     scene.region = Some(id);
+    scene.classic = Some(built.classic.clone());
     let material = materials.add(StandardMaterial {
         perceptual_roughness: 1.0,
         double_sided: true,

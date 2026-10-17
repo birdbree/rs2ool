@@ -40,3 +40,7 @@ all = { level = "warn", priority = -1 }
 # Bevy is unusably slow unoptimised; optimise dependencies in dev builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# The software renderer draws whole regions per frame; keep it fast in dev.
+[profile.dev.package.rs2render]
+opt-level = 3

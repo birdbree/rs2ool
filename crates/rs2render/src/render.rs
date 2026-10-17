@@ -1,7 +1,7 @@
 //! Projection, face ordering and drawing, as the client's model-viewer
 //! path does it.
 
-use crate::light::LitModel;
+use crate::light::{LitModel, kind};
 use crate::raster::{self, State, TexSpace};
 use crate::tables::{cos, hsl, sin};
 use crate::texture::Textures;
@@ -81,9 +81,44 @@ fn extent(vertices: &[[i32; 3]]) -> (i32, i32) {
     (near, range)
 }
 
+/// A model's vertices projected to the screen.
+pub struct Projected {
+    pub sx: Vec<i32>,
+    pub sy: Vec<i32>,
+    /// Depth relative to the model's origin, for the depth buckets.
+    pub depth: Vec<i32>,
+    /// Camera-space positions (for texture mapping).
+    pub camv: Vec<[i32; 3]>,
+    /// Whether the vertex is in front of the camera.
+    pub ok: Vec<bool>,
+}
+
+impl Projected {
+    fn with_capacity(n: usize) -> Self {
+        Self {
+            sx: vec![0; n],
+            sy: vec![0; n],
+            depth: vec![0; n],
+            camv: vec![[0; 3]; n],
+            ok: vec![true; n],
+        }
+    }
+
+    fn set(&mut self, i: usize, c: [i32; 3], origin_depth: i32, centre: (i32, i32), near: i32) {
+        self.depth[i] = c[2] - origin_depth;
+        self.camv[i] = c;
+        if c[2] >= near {
+            self.sx[i] = centre.0 + c[0].wrapping_shl(9) / c[2];
+            self.sy[i] = centre.1 + c[1].wrapping_shl(9) / c[2];
+        } else {
+            self.ok[i] = false;
+        }
+    }
+}
+
 /// Draw `model` with `vertices` (its rest pose or an animated pose) into
-/// `fb`. Faces that cross behind the camera are skipped (the client's
-/// viewer path never places a model there).
+/// `fb` with the model-viewer camera. Faces that cross behind the camera
+/// are skipped (the client's viewer path never places a model there).
 pub fn render(
     fb: &mut Framebuffer,
     model: &LitModel,
@@ -91,15 +126,12 @@ pub fn render(
     cam: &Camera,
     textures: &Textures,
 ) {
-    let (cx, cy) = (fb.width as i32 / 2, fb.height as i32 / 2);
+    let centre = (fb.width as i32 / 2, fb.height as i32 / 2);
     let (sy, cyw) = (sin(cam.yaw), cos(cam.yaw));
     let (sr, cr) = (sin(cam.roll), cos(cam.roll));
     let (sp, cp) = (sin(cam.pitch), cos(cam.pitch));
     let origin_depth = (cam.y.wrapping_mul(sp).wrapping_add(cam.z.wrapping_mul(cp))) >> 16;
-    let n = vertices.len();
-    let (mut sx, mut syv, mut depth) = (vec![0i32; n], vec![0i32; n], vec![0i32; n]);
-    let mut camv = vec![[0i32; 3]; n];
-    let mut ok = vec![true; n];
+    let mut p = Projected::with_capacity(vertices.len());
     for (i, v) in vertices.iter().enumerate() {
         let [mut x, mut y, mut z] = *v;
         if cam.roll != 0 {
@@ -118,18 +150,99 @@ pub fn render(
         let t = (y.wrapping_mul(cp).wrapping_sub(z.wrapping_mul(sp))) >> 16;
         z = (y.wrapping_mul(sp).wrapping_add(z.wrapping_mul(cp))) >> 16;
         y = t;
-        depth[i] = z - origin_depth;
-        camv[i] = [x, y, z];
-        if z > 0 {
-            sx[i] = cx + x.wrapping_shl(9) / z;
-            syv[i] = cy + y.wrapping_shl(9) / z;
-        } else {
-            ok[i] = false;
-        }
+        p.set(i, [x, y, z], origin_depth, centre, 1);
     }
-
-    // Visible faces into depth buckets.
     let (near, range) = extent(vertices);
+    draw_projected(fb, model, &p, near, range, textures);
+}
+
+/// A world camera, as the client's scene renderer uses: the eye position
+/// (cache coordinates, y down), yaw about y and pitch about x.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct View {
+    pub eye: [i32; 3],
+    pub yaw: i32,
+    pub pitch: i32,
+}
+
+/// The client clips scene geometry closer than this to the camera.
+pub const NEAR: i32 = 50;
+
+impl View {
+    /// Camera-space position of a world point.
+    pub fn to_camera(&self, v: [i32; 3]) -> [i32; 3] {
+        let (sy, cy) = (sin(self.yaw), cos(self.yaw));
+        let (sp, cp) = (sin(self.pitch), cos(self.pitch));
+        let (x, y, z) = (v[0] - self.eye[0], v[1] - self.eye[1], v[2] - self.eye[2]);
+        let (x, z) = (
+            (z.wrapping_mul(sy).wrapping_add(x.wrapping_mul(cy))) >> 16,
+            (z.wrapping_mul(cy).wrapping_sub(x.wrapping_mul(sy))) >> 16,
+        );
+        let (y, z) = (
+            (y.wrapping_mul(cp).wrapping_sub(z.wrapping_mul(sp))) >> 16,
+            (y.wrapping_mul(sp).wrapping_add(z.wrapping_mul(cp))) >> 16,
+        );
+        [x, y, z]
+    }
+}
+
+/// Draw a model placed in the world (`vertices` in world space) through a
+/// world camera. Returns false when it is wholly behind the camera.
+pub fn render_in_view(
+    fb: &mut Framebuffer,
+    model: &LitModel,
+    vertices: &[[i32; 3]],
+    view: &View,
+    textures: &Textures,
+) -> bool {
+    if vertices.is_empty() {
+        return false;
+    }
+    let centre = (fb.width as i32 / 2, fb.height as i32 / 2);
+    let n = vertices.len() as i64;
+    let sum = vertices.iter().fold([0i64; 3], |a, v| {
+        [
+            a[0] + i64::from(v[0]),
+            a[1] + i64::from(v[1]),
+            a[2] + i64::from(v[2]),
+        ]
+    });
+    let mid = sum.map(|c| (c / n) as i32);
+    let origin_depth = view.to_camera(mid)[2];
+    let mut p = Projected::with_capacity(vertices.len());
+    for (i, v) in vertices.iter().enumerate() {
+        p.set(i, view.to_camera(*v), origin_depth, centre, NEAR);
+    }
+    if !p.ok.iter().any(|&o| o) {
+        return false;
+    }
+    let local: Vec<[i32; 3]> = vertices
+        .iter()
+        .map(|v| [v[0] - mid[0], v[1] - mid[1], v[2] - mid[2]])
+        .collect();
+    let (near, range) = extent(&local);
+    draw_projected(fb, model, &p, near, range, textures);
+    true
+}
+
+/// Sort a projected model's visible faces and draw them.
+pub fn draw_projected(
+    fb: &mut Framebuffer,
+    model: &LitModel,
+    p: &Projected,
+    near: i32,
+    range: i32,
+    textures: &Textures,
+) {
+    let (cx, cy) = (fb.width as i32 / 2, fb.height as i32 / 2);
+    let Projected {
+        sx,
+        sy: syv,
+        depth,
+        camv,
+        ok,
+    } = p;
+    // Visible faces into depth buckets.
     let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); range.max(1) as usize];
     let mut clip = vec![false; model.faces.len()];
     for (f, face) in model.faces.iter().enumerate() {
@@ -161,6 +274,7 @@ pub fn render(
         match model.kinds[f] {
             0 => raster::gouraud(fb, st, ys, xs, col),
             1 => raster::flat(fb, st, ys, xs, hsl(col[0])),
+            kind::FLAT_RGB => raster::flat(fb, st, ys, xs, col[0] as u32),
             kind => {
                 let Some(&[p, m, nn]) = model.textured_faces.get(model.texture_triple[f]) else {
                     return;

@@ -18,5 +18,5 @@ pub mod tables;
 pub mod texture;
 
 pub use light::{Lighting, LitModel, light};
-pub use render::{Camera, Framebuffer, render};
+pub use render::{Camera, Framebuffer, View, render, render_in_view};
 pub use texture::Textures;

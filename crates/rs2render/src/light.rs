@@ -25,6 +25,13 @@ pub const OBJECT: Lighting = Lighting {
     direction: [-50, -10, -50],
 };
 
+/// Face kinds beyond the client's four.
+pub mod kind {
+    /// A flat face whose colour is 24-bit RGB rather than HSL (terrain
+    /// tiles coloured straight from `flo.dat`).
+    pub const FLAT_RGB: u8 = 4;
+}
+
 /// A lit model, ready to render with any vertex positions (the client
 /// lights the rest pose and keeps the colours while animating).
 #[derive(Debug, Clone)]
@@ -123,5 +130,22 @@ pub fn light(m: &Model, l: &Lighting) -> LitModel {
         textured_faces: m.textured_faces.clone(),
         alphas: m.face_alphas.clone().unwrap_or_else(|| vec![0; n]),
         priorities: m.face_priorities.clone(),
+    }
+}
+
+impl LitModel {
+    /// A model of flat RGB triangles (no lighting), for terrain.
+    pub fn flat_rgb(faces: Vec<[u16; 3]>, rgb: Vec<u32>) -> Self {
+        let n = faces.len();
+        Self {
+            faces,
+            kinds: vec![kind::FLAT_RGB; n],
+            colours: rgb.into_iter().map(|c| [c as i32, 0, 0]).collect(),
+            base: vec![0; n],
+            texture_triple: vec![0; n],
+            textured_faces: Vec::new(),
+            alphas: vec![0; n],
+            priorities: None,
+        }
     }
 }
