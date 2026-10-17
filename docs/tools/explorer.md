@@ -4,7 +4,7 @@
 
 The explorer is the GUI for browsing a cache, dump directories and packs side by side: decode a record, look at it in 3D or 2D, play its animations, compare it with its converted version, and run the same dumps and conversions as the command line. This page goes through the window and every control.
 
-The code is the [`explorer`](../../crates/rs2ool/src/explorer/) module of the `rs2ool` crate, built with the default `explorer` feature (see [Tools](README.md#building-without-the-explorer)). Every cache read, decode and conversion runs on a background task pool, so the window never waits on one; a spinner shows while something is loading.
+The code is the [`explorer`](../../src/explorer/) module of the `rs2ool` crate, built with the default `explorer` feature (see [Tools](README.md#building-without-the-explorer)). Every cache read, decode and conversion runs on a background task pool, so the window never waits on one; a spinner shows while something is loading.
 
 ## Opening it
 

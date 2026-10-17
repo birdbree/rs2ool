@@ -4,7 +4,7 @@
 
 Interface components are the 2D widgets the original client builds its screens from: layers, rectangles, text, sprites, models and item grids. All of them are stored in one archive entry. This page gives the full byte layout and the tree the dump builds from it.
 
-Implemented in [`rs2cache::interface`](../../crates/rs2cache/src/interface.rs), with the types in [`rs2cache::types::interface`](../../crates/rs2cache/src/types/interface.rs). The tree output is written by [`rs2ool`'s dump](../../crates/rs2ool/src/cache/dump.rs).
+Implemented in [`rs2cache::interface`](../../crates/rs2cache/src/interface.rs), with the types in [`rs2cache::types::interface`](../../crates/rs2cache/src/types/interface.rs). The tree output is written by [`rs2ool`'s dump](../../src/cache/dump.rs).
 
 ## The `data` entry
 

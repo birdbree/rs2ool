@@ -70,19 +70,19 @@ Some `rs2ool` integration tests run the built binary, as you would, through `Com
 
 | File | Checks |
 | --- | --- |
-| `rs2ool/tests/b_cache.rs` | `cache list` output, raw dumps (the manifest is identical across two runs, every file has the size the manifest gives, and a one-id dump matches the full one), decoded output, `--meta-only` writing only sidecars, region and image dumps, `interface/tree.json`, a dependency group listing each dependency once, and `verify`. Contradictory selectors exit 1. |
-| `rs2ool/tests/c_determinism.rs` | The determinism test, below. |
-| `rs2ool/tests/d8_actions.rs` | The explorer's convert action yields packs byte-identical to `rs2ool pack npc --id 1 --with-anims`, and its export writes the same files as `rs2ool cache dump`. |
+| `tests/b_cache.rs` | `cache list` output, raw dumps (the manifest is identical across two runs, every file has the size the manifest gives, and a one-id dump matches the full one), decoded output, `--meta-only` writing only sidecars, region and image dumps, `interface/tree.json`, a dependency group listing each dependency once, and `verify`. Contradictory selectors exit 1. |
+| `tests/c_determinism.rs` | The determinism test, below. |
+| `tests/d8_actions.rs` | The explorer's convert action yields packs byte-identical to `rs2ool pack npc --id 1 --with-anims`, and its export writes the same files as `rs2ool cache dump`. |
 
 The `verify` test also builds a damaged cache: it copies the index files into the temp directory, writes a truncated copy of the data file next to them, and checks that `verify` on the copy exits 3 and names what's truncated. The real cache is never touched.
 
 ## The determinism test
 
-`rs2ool/tests/c_determinism.rs` runs `rs2ool pack npc --id 1 --with-anims`, `rs2ool pack materials` and `rs2ool pack textures` twice each, into separate directories, and compares the sorted lists of pack paths. Packs are named by the SHA-256 of their index and blob, so equal names mean byte-identical records. In `contentpack`, the unit test `baking_is_deterministic_and_order_independent` checks the same thing at the container level: inserting records and manifest extras in a different order bakes the same bytes. See [determinism](../conversion/determinism.md) for what makes the output stable.
+`tests/c_determinism.rs` runs `rs2ool pack npc --id 1 --with-anims`, `rs2ool pack materials` and `rs2ool pack textures` twice each, into separate directories, and compares the sorted lists of pack paths. Packs are named by the SHA-256 of their index and blob, so equal names mean byte-identical records. In `contentpack`, the unit test `baking_is_deterministic_and_order_independent` checks the same thing at the container level: inserting records and manifest extras in a different order bakes the same bytes. See [determinism](../conversion/determinism.md) for what makes the output stable.
 
 ## Headless explorer tests
 
-The explorer tests (`rs2ool/tests/d1_skeleton.rs` to `d7_maps.rs`, plus `d8_actions.rs`) build a Bevy `App` with `MinimalPlugins` and the explorer's own plugins, then call `app.update()` in a loop until background tasks finish. There's no window and no GPU. The camera tests set `TimeUpdateStrategy::ManualDuration` so each update advances a fixed 16 ms. Each file starts with `#![cfg(feature = "explorer")]`, so with `--no-default-features` they compile to empty test binaries.
+The explorer tests (`tests/d1_skeleton.rs` to `d7_maps.rs`, plus `d8_actions.rs`) build a Bevy `App` with `MinimalPlugins` and the explorer's own plugins, then call `app.update()` in a loop until background tasks finish. There's no window and no GPU. The camera tests set `TimeUpdateStrategy::ManualDuration` so each update advances a fixed 16 ms. Each file starts with `#![cfg(feature = "explorer")]`, so with `--no-default-features` they compile to empty test binaries.
 
 | File | Checks |
 | --- | --- |

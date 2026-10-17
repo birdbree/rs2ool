@@ -4,7 +4,7 @@
 
 Every `rs2ool pack` subcommand: what it converts, which packs it writes and where, and the side files and reports that come with them. The record layouts inside the packs are in the [Pack](../pack/README.md) section.
 
-The definitions are in [`cli/pack.rs`](../../crates/rs2ool/src/cli/pack.rs) and [`cli/convert.rs`](../../crates/rs2ool/src/cli/convert.rs), which are thin wrappers over [`rs2convert::run`](../../crates/rs2convert/src/run.rs). The explorer's Actions menu calls the same functions, so a conversion from the GUI writes the same bytes.
+The definitions are in [`cli/pack.rs`](../../src/cli/pack.rs) and [`cli/convert.rs`](../../src/cli/convert.rs), which are thin wrappers over [`rs2convert::run`](../../crates/rs2convert/src/run.rs). The explorer's Actions menu calls the same functions, so a conversion from the GUI writes the same bytes.
 
 ## Where packs go
 

@@ -4,7 +4,7 @@
 
 How a frame deforms a model, vertex for vertex, as the original client does it, and how sequences time their frames. Read this to reproduce a posed mesh exactly or to check a converted clip against the original.
 
-The reference deformation is [`rs2convert::deform`](../../crates/rs2convert/src/deform.rs). It runs in the same integer arithmetic as the original client, and clip validation and the explorer's cache playback both use it. Frames come from [`rs2cache::anim`](../../crates/rs2cache/src/anim.rs) (layout on [Frame packs](../records/frame-pack.md)), and the explorer's clock is in [`playback.rs`](../../crates/rs2ool/src/explorer/playback.rs).
+The reference deformation is [`rs2convert::deform`](../../crates/rs2convert/src/deform.rs). It runs in the same integer arithmetic as the original client, and clip validation and the explorer's cache playback both use it. Frames come from [`rs2cache::anim`](../../crates/rs2cache/src/anim.rs) (layout on [Frame packs](../records/frame-pack.md)), and the explorer's clock is in [`playback.rs`](../../src/explorer/playback.rs).
 
 ## Vertex groups
 

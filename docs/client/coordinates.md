@@ -4,7 +4,7 @@
 
 How the 317 cache lays out space and angles, and how the tools map that frame into pack space and the explorer's world. Read this before you move a vertex, a bone or a camera between the two, because the mistakes here look like art problems rather than code problems.
 
-Implemented in [`rs2convert::space`](../../crates/rs2convert/src/space.rs), the explorer's `world` in [`mesh.rs`](../../crates/rs2ool/src/explorer/mesh.rs), and the angle tables in [`rs2convert::deform`](../../crates/rs2convert/src/deform.rs).
+Implemented in [`rs2convert::space`](../../crates/rs2convert/src/space.rs), the explorer's `world` in [`mesh.rs`](../../src/explorer/mesh.rs), and the angle tables in [`rs2convert::deform`](../../crates/rs2convert/src/deform.rs).
 
 ## The cache frame
 

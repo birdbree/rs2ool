@@ -14,7 +14,19 @@ Every command that needs the cache takes `--cache <dir>`, or reads the `RS2_CACH
 export RS2_CACHE="/absolute/path/to/cache"
 ```
 
+## Install
+
+To get `rs2ool` on your `PATH`, install it from the checkout. The binary is the workspace's root package, so this works from the top of the repository:
+
+```sh
+cargo install --path . --locked
+```
+
+`--locked` builds with the committed `Cargo.lock`, which pins Bevy and everything else to the versions the tests ran against. You can also install straight from GitHub with `cargo install --git https://github.com/birdbree/rs2ool --locked rs2ool`.
+
 ## Build
+
+To work on it rather than just use it:
 
 ```sh
 cargo build --workspace
@@ -26,6 +38,7 @@ If you only want the command line, leave the explorer out:
 
 ```sh
 cargo build -p rs2ool --no-default-features
+cargo install --path . --locked --no-default-features
 ```
 
 That build has no Bevy in it at all, and the two `explorer` subcommands don't exist.
@@ -46,7 +59,7 @@ rs2ool cache list --type npc           # NPC ids, with names
 rs2ool cache info --type model --id 0  # one record's metadata sidecar
 ```
 
-(`rs2ool` here means `cargo run -p rs2ool --`, or the built binary in `target/`.)
+(`rs2ool` here means the installed binary, or `cargo run --` from the checkout.)
 
 ## Dump and decode
 

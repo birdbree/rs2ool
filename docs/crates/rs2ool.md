@@ -4,17 +4,22 @@
 
 `rs2ool` is the workspace's one binary. It's also a library, which holds the `rs2ool cache` command code and, behind a cargo feature, the GUI explorer. This page covers how the crate is laid out and why. For using the commands, see the [tools section](../tools/README.md).
 
-Sources: [`src/main.rs`](../../crates/rs2ool/src/main.rs), [`src/lib.rs`](../../crates/rs2ool/src/lib.rs), [`src/cli/`](../../crates/rs2ool/src/cli/mod.rs), [`src/cache/`](../../crates/rs2ool/src/cache/mod.rs) and [`src/explorer/`](../../crates/rs2ool/src/explorer/mod.rs).
+Sources: [`src/main.rs`](../../src/main.rs), [`src/lib.rs`](../../src/lib.rs), [`src/cli/`](../../src/cli/mod.rs), [`src/cache/`](../../src/cache/mod.rs) and [`src/explorer/`](../../src/explorer/mod.rs).
 
 ## Layout
 
+`rs2ool` is the workspace's root package, so its sources sit at the top of the repository and `cargo install --path .` works from there. The four libraries live in `crates/`.
+
 ```text
-crates/rs2ool/src/
+Cargo.toml       the workspace, and the rs2ool package
+src/
   main.rs        the binary: argument parsing, logging, dispatch
   cli/           binary only: the clap definitions for `cache` and `pack`
   lib.rs         the library: `cache` and (with the feature) `explorer`
   cache/         list, dump, decode, verify, groups, xref, output layout
   explorer/      the Bevy + egui GUI, behind the `explorer` feature
+tests/           integration tests, CLI and explorer
+crates/          rs2cache, contentpack, rs2convert, rs2classic
 ```
 
 **The binary.** `main.rs` parses the command line with `clap`. `--cache <dir>` is a global option that falls back to the `RS2_CACHE` environment variable. There are two subcommand groups, `cache` and `pack`. Logging goes to stderr through `tracing-subscriber`, filtered by `RUST_LOG` and defaulting to `error`; the explorer sets up its own logging instead. Exit codes are 0 for success, 1 for a usage error, 2 for a cache or I/O error, and 3 for a partial failure.
@@ -31,7 +36,7 @@ crates/rs2ool/src/
 
 The explorer exports and converts through the same code the CLI runs. Its actions call `rs2ool::cache::dump::run`, `rs2convert::run` and `contentpack::loose` directly, so a dump or conversion started from the GUI writes files byte-identical to the command line's, and there's a test that checks it. For that to work the dump code has to be a library the explorer can call. The binary in turn opens the GUI by calling `explorer::app::run`.
 
-Making the explorer a public library module also lets the headless tests in `crates/rs2ool/tests/` add its plugins to a Bevy `App` under `MinimalPlugins` and drive them without a window. See [testing](../development/testing.md).
+Making the explorer a public library module also lets the headless tests in `tests/` add its plugins to a Bevy `App` under `MinimalPlugins` and drive them without a window. See [testing](../development/testing.md).
 
 ## The `explorer` feature
 
@@ -58,22 +63,22 @@ Every cache read and conversion runs on Bevy's `AsyncComputeTaskPool` through `j
 
 | Module | What it does |
 | --- | --- |
-| [`actions`](../../crates/rs2ool/src/explorer/actions.rs) | Export, dump, convert and bake through the same library calls the CLI makes, as jobs; remembers the output folder in `settings.json` in the platform config directory. |
-| [`app`](../../crates/rs2ool/src/explorer/app.rs) | The window, and the startup options the command line sets (`--select`, `--compare`, `--classic`). |
-| [`classic`](../../crates/rs2ool/src/explorer/classic.rs) | The classic renderer view: the selected model drawn by `rs2classic` into a pixel buffer, shown nearest-neighbour over the viewport. |
-| [`inspector`](../../crates/rs2ool/src/explorer/inspector.rs) | What the inspector shows (sidecar rows, decoded fields, hex dump), kept apart from egui so it can be tested. |
-| [`jobs`](../../crates/rs2ool/src/explorer/jobs.rs) | Background jobs on the `AsyncComputeTaskPool` (`Jobs::spawn_job`), with progress reported through atomics the bottom bar reads. |
-| [`kit`](../../crates/rs2ool/src/explorer/kit.rs) | The player kit: the default body from identity-kit parts with the stance sequences, dressed through the 12 equipment slots. |
-| [`map_view`](../../crates/rs2ool/src/explorer/map_view.rs) | Map regions as terrain: a mesh per plane from corner heights, tiles coloured from their floors, locations placed as their models. Neighbouring regions aren't stitched. |
-| [`mesh`](../../crates/rs2ool/src/explorer/mesh.rs) | Bevy meshes from decoded models and converted pack models, three vertices per face for hard normals. |
-| [`playback`](../../crates/rs2ool/src/explorer/playback.rs) | Animation playback: a frame clock driven by sequence delays (20 ms per cycle), shared by both compare panes so a cache creature and its conversion play in step. |
-| [`renderable`](../../crates/rs2ool/src/explorer/renderable.rs) | What the viewports draw, from any source: cache records as the original client assembles them, dumped model JSON, pack models, and 2D images. |
-| [`selection`](../../crates/rs2ool/src/explorer/selection.rs) | What is selected and its decoded form; selecting spawns a decode on the compute pool. |
-| [`sources`](../../crates/rs2ool/src/explorer/sources.rs) | Open sources (caches, dump directories, packs); opening runs as a task. |
-| [`tree`](../../crates/rs2ool/src/explorer/tree.rs) | The data behind the left-hand tree, kept apart from egui; id lists load on the compute pool when a node is first expanded. |
-| [`ui`](../../crates/rs2ool/src/explorer/ui.rs) | The egui layout: menu bar, tree, inspector, jobs and playback; publishes the remaining central rect for the cameras. |
-| [`viewport2d`](../../crates/rs2ool/src/explorer/viewport2d.rs) | Textures, sprites, fonts and interfaces painted with egui, nearest-filtered at an integer zoom, over a checkerboard. |
-| [`viewport3d`](../../crates/rs2ool/src/explorer/viewport3d.rs) | The world camera following the central rect, the orbit controller, the selected model and scale furniture. |
+| [`actions`](../../src/explorer/actions.rs) | Export, dump, convert and bake through the same library calls the CLI makes, as jobs; remembers the output folder in `settings.json` in the platform config directory. |
+| [`app`](../../src/explorer/app.rs) | The window, and the startup options the command line sets (`--select`, `--compare`, `--classic`). |
+| [`classic`](../../src/explorer/classic.rs) | The classic renderer view: the selected model drawn by `rs2classic` into a pixel buffer, shown nearest-neighbour over the viewport. |
+| [`inspector`](../../src/explorer/inspector.rs) | What the inspector shows (sidecar rows, decoded fields, hex dump), kept apart from egui so it can be tested. |
+| [`jobs`](../../src/explorer/jobs.rs) | Background jobs on the `AsyncComputeTaskPool` (`Jobs::spawn_job`), with progress reported through atomics the bottom bar reads. |
+| [`kit`](../../src/explorer/kit.rs) | The player kit: the default body from identity-kit parts with the stance sequences, dressed through the 12 equipment slots. |
+| [`map_view`](../../src/explorer/map_view.rs) | Map regions as terrain: a mesh per plane from corner heights, tiles coloured from their floors, locations placed as their models. Neighbouring regions aren't stitched. |
+| [`mesh`](../../src/explorer/mesh.rs) | Bevy meshes from decoded models and converted pack models, three vertices per face for hard normals. |
+| [`playback`](../../src/explorer/playback.rs) | Animation playback: a frame clock driven by sequence delays (20 ms per cycle), shared by both compare panes so a cache creature and its conversion play in step. |
+| [`renderable`](../../src/explorer/renderable.rs) | What the viewports draw, from any source: cache records as the original client assembles them, dumped model JSON, pack models, and 2D images. |
+| [`selection`](../../src/explorer/selection.rs) | What is selected and its decoded form; selecting spawns a decode on the compute pool. |
+| [`sources`](../../src/explorer/sources.rs) | Open sources (caches, dump directories, packs); opening runs as a task. |
+| [`tree`](../../src/explorer/tree.rs) | The data behind the left-hand tree, kept apart from egui; id lists load on the compute pool when a node is first expanded. |
+| [`ui`](../../src/explorer/ui.rs) | The egui layout: menu bar, tree, inspector, jobs and playback; publishes the remaining central rect for the cameras. |
+| [`viewport2d`](../../src/explorer/viewport2d.rs) | Textures, sprites, fonts and interfaces painted with egui, nearest-filtered at an integer zoom, over a checkerboard. |
+| [`viewport3d`](../../src/explorer/viewport3d.rs) | The world camera following the central rect, the orbit controller, the selected model and scale furniture. |
 
 ## See also
 

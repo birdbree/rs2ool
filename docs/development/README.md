@@ -53,6 +53,15 @@ cargo insta review
 
 Before you call a change done, `cargo fmt --check`, the clippy command above and `cargo test --workspace` should all pass. With `RS2_CACHE` set, the cache-gated tests run too; without it they print a skip note and pass.
 
+## The GitHub wiki
+
+The [wiki](https://github.com/birdbree/rs2ool/wiki) is generated from `docs/`, so edit the pages here, never there. [`scripts/wiki.py`](../../scripts/wiki.py) gives every page a unique wiki name, rewrites links between pages, points links to source files at GitHub, and adds a sidebar. A workflow republishes it whenever `docs/` changes on `main`. To check the output or publish by hand:
+
+```text
+python3 scripts/wiki.py build /tmp/wiki    # write the pages somewhere to look at
+python3 scripts/wiki.py publish            # build, commit and push to the wiki
+```
+
 ## See also
 
 - [Crates](../crates/README.md): what each crate holds and how they depend on each other.
