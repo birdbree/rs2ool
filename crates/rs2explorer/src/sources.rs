@@ -43,6 +43,22 @@ impl Source {
     }
 }
 
+/// A cheap copy of a source (its handles are shared), for handing to a
+/// task.
+pub fn detach(source: &Source) -> Source {
+    match source {
+        Source::Cache { path, records } => Source::Cache {
+            path: path.clone(),
+            records: records.clone(),
+        },
+        Source::DumpDir { path } => Source::DumpDir { path: path.clone() },
+        Source::Pack { path, reader } => Source::Pack {
+            path: path.clone(),
+            reader: reader.clone(),
+        },
+    }
+}
+
 /// Open a cache directory.
 pub fn open_cache(path: &Path) -> anyhow::Result<Source> {
     let cache: &'static Cache = Box::leak(Box::new(Cache::open(path)?));
