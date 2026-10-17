@@ -11,12 +11,14 @@ pub mod interface;
 pub mod io;
 pub mod map;
 pub mod model;
+pub mod record;
 pub mod sprite;
 pub mod versionlist;
 
 pub use archive::{Archive, ArchiveError, EntryName};
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
 pub use compress::CompressError;
+pub use record::{decode_any, ids, meta};
 
 use thiserror::Error;
 
@@ -45,6 +47,18 @@ pub enum Error {
     Map { x: u8, y: u8, source: map::MapError },
     #[error("no region {x}_{y} in map_index")]
     NoRegion { x: u8, y: u8 },
+    #[error("archive {archive} sprites: {source}")]
+    Sprite {
+        archive: u8,
+        source: sprite::SpriteError,
+    },
+    #[error(transparent)]
+    Interface(interface::InterfaceError),
+    #[error("there is no {kind} {id}")]
+    NoRecord {
+        kind: rs2intermediate::record::RecordType,
+        id: u32,
+    },
 }
 
 impl Cache {

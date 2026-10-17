@@ -6,5 +6,6 @@ pub mod config;
 pub mod interface;
 pub mod map;
 pub mod model;
+pub mod record;
 pub mod sprite;
 pub mod versionlist;
