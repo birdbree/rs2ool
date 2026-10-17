@@ -888,6 +888,7 @@ dependencies = [
  "anyhow",
  "clap",
  "image",
+ "rayon",
  "rs2cache",
  "rs2convert",
  "rs2intermediate",

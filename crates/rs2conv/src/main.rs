@@ -30,6 +30,13 @@ enum Cmd {
     Materials(Out),
     /// Pack the 50 textures into an atlas, with a material per texture.
     Textures(Out),
+    /// Convert models into a models pack.
+    Models {
+        #[command(flatten)]
+        ids: Ids,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Bake a directory of loose records (`pack.json` plus `<id>.bin`) into
     /// a hashed pack.
     Pack {
@@ -38,6 +45,18 @@ enum Cmd {
         #[arg(short = 'o', long = "out")]
         out: PathBuf,
     },
+}
+
+/// Which ids to convert.
+#[derive(clap::Args, Clone)]
+#[group(required = true, multiple = false)]
+pub struct Ids {
+    /// One id.
+    #[arg(long)]
+    pub id: Option<u32>,
+    /// Every id.
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(clap::Args)]
@@ -93,6 +112,7 @@ fn main() -> ExitCode {
             match cmd {
                 Cmd::Materials(o) => ctx.and_then(|c| c.materials(&o.dir)),
                 Cmd::Textures(o) => ctx.and_then(|c| c.textures(&o.dir)),
+                Cmd::Models { ids, out } => ctx.and_then(|c| c.models(&ids, &out.dir)),
                 Cmd::Inspect { .. } | Cmd::Pack { .. } => unreachable!(),
             }
         }

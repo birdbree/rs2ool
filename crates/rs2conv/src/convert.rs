@@ -3,10 +3,14 @@
 use std::path::Path;
 
 use anyhow::Context;
+use rayon::prelude::*;
 use rs2cache::{Cache, Records};
 use rs2convert::palette::{Palette, corpus};
 use rs2convert::texture::{TextureAtlas, images};
-use rs2pack::PackWriter;
+use rs2intermediate::record::{Record, RecordType};
+use rs2pack::{Kind, PackWriter};
+
+use crate::Ids;
 
 pub struct Ctx<'c> {
     pub records: Records<'c>,
@@ -60,6 +64,30 @@ impl<'c> Ctx<'c> {
             e.max
         );
         Ok(())
+    }
+
+    pub fn models(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
+        let (palette, _) = self.palette()?;
+        let list = match ids.id {
+            Some(id) => vec![id],
+            None => self.records.ids(RecordType::Model)?,
+        };
+        let converted: Vec<anyhow::Result<(u32, Vec<u8>)>> = list
+            .par_iter()
+            .map(|&id| {
+                let Record::Model(m) = self.records.decode(RecordType::Model, id)? else {
+                    unreachable!()
+                };
+                let p = rs2convert::model::convert(&m, &palette)?;
+                Ok((id, p.encode()?))
+            })
+            .collect();
+        let mut w = PackWriter::new(Kind::Models, self.crc);
+        for r in converted {
+            let (id, rec) = r?;
+            w.insert(id, rec);
+        }
+        write(&w, dir)
     }
 
     pub fn textures(&self, dir: &Path) -> anyhow::Result<()> {
