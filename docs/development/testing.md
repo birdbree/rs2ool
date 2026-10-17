@@ -72,6 +72,7 @@ Some `rs2ool` integration tests run the built binary, as you would, through `Com
 | --- | --- |
 | `tests/b_cache.rs` | `cache list` output, raw dumps (the manifest is identical across two runs, every file has the size the manifest gives, and a one-id dump matches the full one), decoded output, `--meta-only` writing only sidecars, region and image dumps, `interface/tree.json`, a dependency group listing each dependency once, and `verify`. Contradictory selectors exit 1. |
 | `tests/c_determinism.rs` | The determinism test, below. |
+| `tests/stdout_closed.rs` | Closing the reading end of the pipe early (like `head`) makes the command exit 0 without a panic. Builds its own pack, so it needs no cache. |
 | `tests/d8_actions.rs` | The explorer's convert action yields packs byte-identical to `rs2ool pack npc --id 1 --with-anims`, and its export writes the same files as `rs2ool cache dump`. |
 
 The `verify` test also builds a damaged cache: it copies the index files into the temp directory, writes a truncated copy of the data file next to them, and checks that `verify` on the copy exits 3 and names what's truncated. The real cache is never touched.

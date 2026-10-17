@@ -22,7 +22,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#21](https://github.com/birdbree/rs2ool/issues/21) Terrain colours disagree between views
 - [ ] [#22](https://github.com/birdbree/rs2ool/issues/22) Classic renderer: last column of clipped faces isn't drawn
 - [ ] [#23](https://github.com/birdbree/rs2ool/issues/23) Check engine lighting in the explorer after the normals fix
-- [ ] [#46](https://github.com/birdbree/rs2ool/issues/46) Commands panic when stdout is closed early
+- [x] [#46](https://github.com/birdbree/rs2ool/issues/46) Commands panic when stdout is closed early
 
 ## Fidelity gaps
 

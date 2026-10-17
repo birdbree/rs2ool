@@ -5,6 +5,7 @@
 //! a converting command; 2 any other error, cache or I/O; 3 a converted
 //! clip over the validation threshold (everything's still written).
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -128,11 +129,12 @@ pub struct Out {
 /// tab-separated row per index entry.
 fn inspect(path: &std::path::Path) -> anyhow::Result<()> {
     let r = PackReader::open(path)?;
-    println!("hash\t{}", r.hash);
-    println!("manifest\t{}", serde_json::to_string(&r.manifest)?);
-    println!("id\toffset\tlength\tcrc");
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "hash\t{}", r.hash)?;
+    writeln!(out, "manifest\t{}", serde_json::to_string(&r.manifest)?)?;
+    writeln!(out, "id\toffset\tlength\tcrc")?;
     for e in &r.index {
-        println!("{}\t{}\t{}\t{:08x}", e.id, e.offset, e.length, e.crc);
+        writeln!(out, "{}\t{}\t{}\t{:08x}", e.id, e.offset, e.length, e.crc)?;
     }
     Ok(())
 }
@@ -144,8 +146,8 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
         Cmd::Explorer { packs, view } => return view.open(cache, packs),
         Cmd::Inspect { pack } => inspect(&pack),
         Cmd::Build { dir, out } => contentpack::loose::bake(&dir, &out)
-            .map(|p| println!("{}", p.display()))
-            .map_err(Into::into),
+            .map_err(anyhow::Error::from)
+            .and_then(|p| Ok(writeln!(std::io::stdout(), "{}", p.display())?)),
         cmd => {
             let Some(dir) = cache else {
                 eprintln!("error: no cache directory; pass --cache <dir> or set RS2_CACHE");
@@ -188,6 +190,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     match result {
         Ok(()) if convert::FLAGGED.load(std::sync::atomic::Ordering::Relaxed) => ExitCode::from(3),
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) if super::broken_pipe(&e) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
             ExitCode::from(2)

@@ -5,6 +5,7 @@
 //! `rs2convert::run::write`, then prints a line per pack (kind, record
 //! count, path), the conversion's log, and a line per validated clip.
 
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::Context;
@@ -41,22 +42,24 @@ pub fn png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
 /// Writes a conversion's output under `dir` and prints the summary.
 fn finish(outcome: anyhow::Result<Outcome>, dir: &Path) -> anyhow::Result<()> {
     let outcome = outcome?;
+    let mut out = std::io::stdout().lock();
     for (kind, n, path) in run::write(&outcome, dir, png)? {
-        println!("{kind}\t{n} records\t{}", path.display());
+        writeln!(out, "{kind}\t{n} records\t{}", path.display())?;
     }
     for line in &outcome.log {
-        println!("{line}");
+        writeln!(out, "{line}")?;
     }
     // One line per validated clip: its id, source sequence and error.
     for (_, c) in &outcome.creatures {
         for (id, _, r) in &c.clips {
-            println!(
+            writeln!(
+                out,
                 "clip {id:#x} (seq {}): max {:.2} mean {:.2}{}",
                 r.sequence,
                 r.max,
                 r.mean,
                 if r.flagged { "  FLAGGED" } else { "" }
-            );
+            )?;
         }
     }
     if outcome.flagged() {
