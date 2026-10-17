@@ -3,6 +3,7 @@
 //! `rs2intermediate` struct.
 
 pub mod cache;
+pub mod compress;
 pub mod io;
 
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
