@@ -18,7 +18,7 @@ pub mod versionlist;
 pub use archive::{Archive, ArchiveError, EntryName};
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
 pub use compress::CompressError;
-pub use record::{decode_any, ids, meta};
+pub use record::{Records, decode_any, ids, meta};
 
 use thiserror::Error;
 

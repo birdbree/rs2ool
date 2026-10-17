@@ -5,45 +5,319 @@
 //! the region id `x << 8 | y`; config types the definition id; textures
 //! 0–49; fonts 0–3 in [`sprite::FONTS`] order; interfaces the component id;
 //! sprites a position in the media archive's sprite entries followed by the
-//! title archive's, in stored order.
+//! title archive's, in stored order, fonts excluded.
+//!
+//! [`Records`] memoises archives and decoded tables; the free functions are
+//! one-shot conveniences over it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
+use rs2intermediate::interface::{Content, Interface};
 use rs2intermediate::record::{FileMeta, Meta, Record, RecordType, Source, TypeSummary};
+use rs2intermediate::sprite::SpriteSheet;
 
-use crate::archive::{self, Archive, Entry};
+use crate::archive::{self, Archive, Entry, EntryName};
 use crate::config::{
     self, ConfigType, flo::Flo, idk::Idk, loc::Loc, npc::Npc, obj::Obj, seq::Seq,
     spotanim::SpotAnim, varbit::Varbit, varp::Varp,
 };
 use crate::{Cache, CacheError, Error, compress, interface, map, sprite};
 
-/// A sprite entry: which archive, and the entry.
-fn sprite_entries(cache: &Cache) -> Result<Vec<(u8, Archive, i32)>, Error> {
-    let mut out = Vec::new();
-    for n in [archive::MEDIA, archive::TITLE] {
-        let a = cache.archive(n)?;
-        let hashes: Vec<i32> = sprite::sprite_entries(&a)
-            .map_err(|e| sprite_error(n, e))?
-            .into_iter()
-            .map(|(e, _)| e.hash)
-            .collect();
-        // Keep the archive's stored order, skipping fonts (their own type).
+type Table = Arc<BTreeMap<u32, Record>>;
+
+/// A cache plus memoised archives and decoded tables, so decoding many
+/// records does each expensive step once. `Send + Sync`.
+pub struct Records<'c> {
+    cache: &'c Cache,
+    archives: Mutex<BTreeMap<u8, Arc<Archive>>>,
+    tables: Mutex<BTreeMap<RecordType, Table>>,
+    map_index: Mutex<Option<Arc<Vec<map::MapIndexEntry>>>>,
+}
+
+fn is_table(t: RecordType) -> bool {
+    matches!(
+        t,
+        RecordType::Loc
+            | RecordType::Npc
+            | RecordType::Obj
+            | RecordType::Idk
+            | RecordType::Seq
+            | RecordType::SpotAnim
+            | RecordType::Flo
+            | RecordType::Varp
+            | RecordType::Varbit
+            | RecordType::Interface
+    )
+}
+
+fn decode_table<T: ConfigType>(
+    a: &Archive,
+    wrap: fn(T::Def) -> Record,
+) -> Result<BTreeMap<u32, Record>, Error> {
+    Ok(config::decode_all::<T>(a)?
+        .into_iter()
+        .enumerate()
+        .map(|(i, d)| (i as u32, wrap(d)))
+        .collect())
+}
+
+impl<'c> Records<'c> {
+    pub fn new(cache: &'c Cache) -> Self {
+        Self {
+            cache,
+            archives: Mutex::default(),
+            tables: Mutex::default(),
+            map_index: Mutex::default(),
+        }
+    }
+
+    pub fn cache(&self) -> &'c Cache {
+        self.cache
+    }
+
+    /// Archive `n`, decoded once.
+    pub fn archive(&self, n: u8) -> Result<Arc<Archive>, Error> {
+        if let Some(a) = self.archives.lock().unwrap().get(&n) {
+            return Ok(a.clone());
+        }
+        let a = Arc::new(self.cache.archive(n)?);
+        self.archives.lock().unwrap().insert(n, a.clone());
+        Ok(a)
+    }
+
+    /// The versionlist's `map_index`, decoded once.
+    pub fn map_index(&self) -> Result<Arc<Vec<map::MapIndexEntry>>, Error> {
+        if let Some(m) = self.map_index.lock().unwrap().as_ref() {
+            return Ok(m.clone());
+        }
+        let m = Arc::new(self.cache.map_index()?);
+        *self.map_index.lock().unwrap() = Some(m.clone());
+        Ok(m)
+    }
+
+    /// Every record of a table type (config types and interfaces), decoded
+    /// once, by id.
+    fn table(&self, t: RecordType) -> Result<Table, Error> {
+        if let Some(v) = self.tables.lock().unwrap().get(&t) {
+            return Ok(v.clone());
+        }
+        let cfg = || self.archive(archive::CONFIG);
+        let v = match t {
+            RecordType::Loc => decode_table::<Loc>(&*cfg()?, Record::Loc)?,
+            RecordType::Npc => decode_table::<Npc>(&*cfg()?, Record::Npc)?,
+            RecordType::Obj => decode_table::<Obj>(&*cfg()?, Record::Obj)?,
+            RecordType::Idk => decode_table::<Idk>(&*cfg()?, Record::Idk)?,
+            RecordType::Seq => decode_table::<Seq>(&*cfg()?, Record::Seq)?,
+            RecordType::SpotAnim => decode_table::<SpotAnim>(&*cfg()?, Record::SpotAnim)?,
+            RecordType::Flo => decode_table::<Flo>(&*cfg()?, Record::Flo)?,
+            RecordType::Varp => decode_table::<Varp>(&*cfg()?, Record::Varp)?,
+            RecordType::Varbit => decode_table::<Varbit>(&*cfg()?, Record::Varbit)?,
+            RecordType::Interface => {
+                let a = self.archive(archive::INTERFACE)?;
+                let data = a.require(archive::INTERFACE, "data")?;
+                interface::decode(data)
+                    .map_err(Error::Interface)?
+                    .1
+                    .into_iter()
+                    .map(|i: Interface| (u32::from(i.id), Record::Interface(i)))
+                    .collect()
+            }
+            _ => unreachable!("{t} is not a table type"),
+        };
+        let v = Arc::new(v);
+        self.tables.lock().unwrap().insert(t, v.clone());
+        Ok(v)
+    }
+
+    /// Every valid id of a record type, ascending.
+    pub fn ids(&self, t: RecordType) -> Result<Vec<u32>, Error> {
+        if is_table(t) {
+            return Ok(self.table(t)?.keys().copied().collect());
+        }
+        Ok(match t {
+            RecordType::Model => present(self.cache, 1)?,
+            RecordType::Anim => present(self.cache, 2)?,
+            RecordType::Midi => present(self.cache, 3)?,
+            RecordType::Map => {
+                let mut v: Vec<u32> = self.map_index()?.iter().map(|e| e.region.into()).collect();
+                v.sort_unstable();
+                v
+            }
+            RecordType::Texture => (0..50).collect(),
+            RecordType::Font => (0..sprite::FONTS.len() as u32).collect(),
+            RecordType::Sprite => (0..self.sprite_entries()?.len() as u32).collect(),
+            _ => unreachable!(),
+        })
+    }
+
+    fn sprite_entries(&self) -> Result<Vec<(u8, Arc<Archive>, i32)>, Error> {
         let fonts: Vec<i32> = sprite::FONTS
             .iter()
             .map(|f| archive::jag_hash(&format!("{f}.dat")))
             .collect();
-        for e in &a.entries {
-            if hashes.contains(&e.hash) && !fonts.contains(&e.hash) {
-                out.push((n, a.clone(), e.hash));
+        let mut out = Vec::new();
+        for n in [archive::MEDIA, archive::TITLE] {
+            let a = self.archive(n)?;
+            let hashes: Vec<i32> = sprite::sprite_entries(&a)
+                .map_err(|e| sprite_error(n, e))?
+                .into_iter()
+                .map(|(e, _)| e.hash)
+                .collect();
+            for e in &a.entries {
+                if hashes.contains(&e.hash) && !fonts.contains(&e.hash) {
+                    out.push((n, a.clone(), e.hash));
+                }
             }
         }
+        Ok(out)
     }
-    Ok(out)
+
+    /// The archive and entry name of sprite `id`.
+    pub fn sprite_source(&self, id: u32) -> Result<(u8, EntryName), Error> {
+        let list = self.sprite_entries()?;
+        let (n, a, hash) = list
+            .get(id as usize)
+            .ok_or(missing(RecordType::Sprite, id))?;
+        let e = a
+            .entries
+            .iter()
+            .find(|e| e.hash == *hash)
+            .expect("listed entry");
+        Ok((*n, e.entry_name()))
+    }
+
+    /// The `map_index` entry of region `id`.
+    pub fn region_entry(&self, id: u32) -> Result<map::MapIndexEntry, Error> {
+        self.map_index()?
+            .iter()
+            .find(|e| u32::from(e.region) == id)
+            .copied()
+            .ok_or(missing(RecordType::Map, id))
+    }
+
+    /// Decode record `id` of type `t`.
+    pub fn decode(&self, t: RecordType, id: u32) -> Result<Record, Error> {
+        if is_table(t) {
+            return self.table(t)?.get(&id).cloned().ok_or(missing(t, id));
+        }
+        let cache = self.cache;
+        Ok(match t {
+            RecordType::Model => Record::Model(cache.model(id)?),
+            RecordType::Anim => Record::Anim(cache.frame_pack(id)?),
+            RecordType::Midi => Record::Midi(cache.midi(id)?),
+            RecordType::Map => Record::Map(cache.region_for(&self.region_entry(id)?)?),
+            RecordType::Texture => {
+                if id >= 50 {
+                    return Err(missing(t, id));
+                }
+                let a = self.archive(archive::TEXTURES)?;
+                let hash = archive::jag_hash(&format!("{id}.dat"));
+                Record::Texture(sheet_of(&a, archive::TEXTURES, hash)?)
+            }
+            RecordType::Sprite => {
+                let list = self.sprite_entries()?;
+                let (n, a, hash) = list.get(id as usize).ok_or(missing(t, id))?;
+                Record::Sprite(sheet_of(a, *n, *hash)?)
+            }
+            RecordType::Font => {
+                let name = sprite::FONTS.get(id as usize).ok_or(missing(t, id))?;
+                let a = self.archive(archive::TITLE)?;
+                let font =
+                    sprite::decode_font(&a, name).map_err(|e| sprite_error(archive::TITLE, e))?;
+                Record::Font(font)
+            }
+            _ => unreachable!(),
+        })
+    }
+
+    /// The archive and entries an archive-backed record lives in.
+    fn archive_entries(&self, t: RecordType, id: u32) -> Result<(u8, Vec<EntryName>), Error> {
+        let named = |s: &str| EntryName::Named(s.to_owned());
+        let cfg = |dat: &str, idx: Option<&str>| {
+            let mut v = vec![named(dat)];
+            v.extend(idx.map(named));
+            (archive::CONFIG, v)
+        };
+        Ok(match t {
+            RecordType::Loc => cfg(Loc::DAT, Loc::IDX),
+            RecordType::Npc => cfg(Npc::DAT, Npc::IDX),
+            RecordType::Obj => cfg(Obj::DAT, Obj::IDX),
+            RecordType::Idk => cfg(Idk::DAT, None),
+            RecordType::Seq => cfg(Seq::DAT, None),
+            RecordType::SpotAnim => cfg(SpotAnim::DAT, None),
+            RecordType::Flo => cfg(Flo::DAT, None),
+            RecordType::Varp => cfg(Varp::DAT, None),
+            RecordType::Varbit => cfg(Varbit::DAT, None),
+            RecordType::Texture => (
+                archive::TEXTURES,
+                vec![named(&format!("{id}.dat")), named("index.dat")],
+            ),
+            RecordType::Font => {
+                let name = sprite::FONTS.get(id as usize).ok_or(missing(t, id))?;
+                (
+                    archive::TITLE,
+                    vec![named(&format!("{name}.dat")), named("index.dat")],
+                )
+            }
+            RecordType::Sprite => {
+                let (n, entry) = self.sprite_source(id)?;
+                (n, vec![entry, named("index.dat")])
+            }
+            RecordType::Interface => (archive::INTERFACE, vec![named("data")]),
+            _ => unreachable!("{t} is not archive-backed"),
+        })
+    }
+
+    /// The stored files record `id` of type `t` was decoded from.
+    pub fn files(&self, t: RecordType, id: u32) -> Result<Vec<FileMeta>, Error> {
+        let cache = self.cache;
+        Ok(match t {
+            RecordType::Model => vec![index_file(cache, 1, id)?],
+            RecordType::Anim => vec![index_file(cache, 2, id)?],
+            RecordType::Midi => vec![index_file(cache, 3, id)?],
+            RecordType::Map => {
+                let e = self.region_entry(id)?;
+                vec![
+                    index_file(cache, 4, e.tile_file.into())?,
+                    index_file(cache, 4, e.location_file.into())?,
+                ]
+            }
+            _ => {
+                let (n, names) = self.archive_entries(t, id)?;
+                let a = self.archive(n)?;
+                names
+                    .iter()
+                    .map(|name| {
+                        let e = a.entry(name).ok_or_else(|| Error::MissingEntry {
+                            archive: n,
+                            entry: name.clone(),
+                        })?;
+                        Ok(entry_file(n, &a, e))
+                    })
+                    .collect::<Result<_, Error>>()?
+            }
+        })
+    }
+
+    /// The metadata sidecar for record `id` of type `t`.
+    pub fn meta(&self, t: RecordType, id: u32) -> Result<Meta, Error> {
+        let record = self.decode(t, id)?;
+        Ok(Meta {
+            record_type: t,
+            id,
+            files: self.files(t, id)?,
+            summary: summarize(&record),
+        })
+    }
 }
 
-fn sprite_error(archive: u8, e: sprite::SpriteError) -> Error {
-    Error::Sprite { archive, source: e }
+fn sprite_error(archive: u8, source: sprite::SpriteError) -> Error {
+    Error::Sprite { archive, source }
+}
+
+fn missing(kind: RecordType, id: u32) -> Error {
+    Error::NoRecord { kind, id }
 }
 
 fn present(cache: &Cache, index: u8) -> Result<Vec<u32>, Error> {
@@ -56,64 +330,7 @@ fn present(cache: &Cache, index: u8) -> Result<Vec<u32>, Error> {
         .collect())
 }
 
-/// Every valid id of a record type, ascending.
-pub fn ids(cache: &Cache, t: RecordType) -> Result<Vec<u32>, Error> {
-    let config_count = |n: usize| (0..n as u32).collect::<Vec<_>>();
-    let cfg = || cache.archive(archive::CONFIG);
-    Ok(match t {
-        RecordType::Model => present(cache, 1)?,
-        RecordType::Anim => present(cache, 2)?,
-        RecordType::Midi => present(cache, 3)?,
-        RecordType::Map => {
-            let mut v: Vec<u32> = cache.map_index()?.iter().map(|e| e.region.into()).collect();
-            v.sort_unstable();
-            v
-        }
-        RecordType::Loc => config_count(config::count::<Loc>(&cfg()?)?),
-        RecordType::Npc => config_count(config::count::<Npc>(&cfg()?)?),
-        RecordType::Obj => config_count(config::count::<Obj>(&cfg()?)?),
-        RecordType::Idk => config_count(config::count::<Idk>(&cfg()?)?),
-        RecordType::Seq => config_count(config::count::<Seq>(&cfg()?)?),
-        RecordType::SpotAnim => config_count(config::count::<SpotAnim>(&cfg()?)?),
-        RecordType::Flo => config_count(config::count::<Flo>(&cfg()?)?),
-        RecordType::Varp => config_count(config::count::<Varp>(&cfg()?)?),
-        RecordType::Varbit => config_count(config::count::<Varbit>(&cfg()?)?),
-        RecordType::Texture => (0..50).collect(),
-        RecordType::Font => (0..sprite::FONTS.len() as u32).collect(),
-        RecordType::Sprite => (0..sprite_entries(cache)?.len() as u32).collect(),
-        RecordType::Interface => {
-            let set: BTreeSet<u32> = interfaces(cache)?.iter().map(|i| u32::from(i.id)).collect();
-            set.into_iter().collect()
-        }
-    })
-}
-
-fn interfaces(cache: &Cache) -> Result<Vec<rs2intermediate::interface::Interface>, Error> {
-    let a = cache.archive(archive::INTERFACE)?;
-    let data = a.require(archive::INTERFACE, "data")?;
-    Ok(interface::decode(data).map_err(Error::Interface)?.1)
-}
-
-fn missing(t: RecordType, id: u32) -> Error {
-    Error::NoRecord { kind: t, id }
-}
-
-fn config_one<T: ConfigType>(cache: &Cache, id: u32) -> Result<T::Def, Error> {
-    Ok(config::decode_one::<T>(
-        &cache.archive(archive::CONFIG)?,
-        id,
-    )?)
-}
-
-fn region_entry(cache: &Cache, id: u32) -> Result<map::MapIndexEntry, Error> {
-    cache
-        .map_index()?
-        .into_iter()
-        .find(|e| u32::from(e.region) == id)
-        .ok_or(missing(RecordType::Map, id))
-}
-
-fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<rs2intermediate::sprite::SpriteSheet, Error> {
+fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<SpriteSheet, Error> {
     let index = a
         .get("index.dat")
         .ok_or(sprite_error(n, sprite::SpriteError::NoIndex))?;
@@ -123,108 +340,9 @@ fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<rs2intermediate::sprite::Sp
         .find(|(e, _)| e.hash == hash)
         .ok_or(Error::MissingEntry {
             archive: n,
-            entry: archive::EntryName::Hash(hash),
+            entry: EntryName::Hash(hash),
         })?;
     sprite::decode_block(&e.data, index, end).map_err(|e| sprite_error(n, e))
-}
-
-/// Decode record `id` of type `t`.
-pub fn decode_any(cache: &Cache, t: RecordType, id: u32) -> Result<Record, Error> {
-    Ok(match t {
-        RecordType::Model => Record::Model(cache.model(id)?),
-        RecordType::Anim => Record::Anim(cache.frame_pack(id)?),
-        RecordType::Midi => Record::Midi(cache.midi(id)?),
-        RecordType::Map => Record::Map(cache.region_for(&region_entry(cache, id)?)?),
-        RecordType::Loc => Record::Loc(config_one::<Loc>(cache, id)?),
-        RecordType::Npc => Record::Npc(config_one::<Npc>(cache, id)?),
-        RecordType::Obj => Record::Obj(config_one::<Obj>(cache, id)?),
-        RecordType::Idk => Record::Idk(config_one::<Idk>(cache, id)?),
-        RecordType::Seq => Record::Seq(config_one::<Seq>(cache, id)?),
-        RecordType::SpotAnim => Record::SpotAnim(config_one::<SpotAnim>(cache, id)?),
-        RecordType::Flo => Record::Flo(config_one::<Flo>(cache, id)?),
-        RecordType::Varp => Record::Varp(config_one::<Varp>(cache, id)?),
-        RecordType::Varbit => Record::Varbit(config_one::<Varbit>(cache, id)?),
-        RecordType::Texture => {
-            if id >= 50 {
-                return Err(missing(t, id));
-            }
-            let a = cache.archive(archive::TEXTURES)?;
-            Record::Texture(sheet_of(
-                &a,
-                archive::TEXTURES,
-                archive::jag_hash(&format!("{id}.dat")),
-            )?)
-        }
-        RecordType::Sprite => {
-            let list = sprite_entries(cache)?;
-            let (n, a, hash) = list.get(id as usize).ok_or(missing(t, id))?;
-            Record::Sprite(sheet_of(a, *n, *hash)?)
-        }
-        RecordType::Font => {
-            let name = sprite::FONTS.get(id as usize).ok_or(missing(t, id))?;
-            let a = cache.archive(archive::TITLE)?;
-            Record::Font(
-                sprite::decode_font(&a, name).map_err(|e| sprite_error(archive::TITLE, e))?,
-            )
-        }
-        RecordType::Interface => {
-            let id16 = u16::try_from(id).map_err(|_| missing(t, id))?;
-            Record::Interface(
-                interfaces(cache)?
-                    .into_iter()
-                    .find(|i| i.id == id16)
-                    .ok_or(missing(t, id))?,
-            )
-        }
-    })
-}
-
-/// The archive entry and archive number a record type's data lives in, for
-/// archive-backed types.
-fn archive_entries(
-    cache: &Cache,
-    t: RecordType,
-    id: u32,
-) -> Result<Option<(u8, Vec<String>)>, Error> {
-    let cfg = |dat: &str, idx: Option<&str>| {
-        let mut v = vec![dat.to_owned()];
-        v.extend(idx.map(str::to_owned));
-        Some((archive::CONFIG, v))
-    };
-    Ok(match t {
-        RecordType::Loc => cfg(Loc::DAT, Loc::IDX),
-        RecordType::Npc => cfg(Npc::DAT, Npc::IDX),
-        RecordType::Obj => cfg(Obj::DAT, Obj::IDX),
-        RecordType::Idk => cfg(Idk::DAT, None),
-        RecordType::Seq => cfg(Seq::DAT, None),
-        RecordType::SpotAnim => cfg(SpotAnim::DAT, None),
-        RecordType::Flo => cfg(Flo::DAT, None),
-        RecordType::Varp => cfg(Varp::DAT, None),
-        RecordType::Varbit => cfg(Varbit::DAT, None),
-        RecordType::Texture => Some((
-            archive::TEXTURES,
-            vec![format!("{id}.dat"), "index.dat".into()],
-        )),
-        RecordType::Font => {
-            let name = sprite::FONTS.get(id as usize).ok_or(missing(t, id))?;
-            Some((
-                archive::TITLE,
-                vec![format!("{name}.dat"), "index.dat".into()],
-            ))
-        }
-        RecordType::Sprite => {
-            let list = sprite_entries(cache)?;
-            let (n, a, hash) = list.get(id as usize).ok_or(missing(t, id))?;
-            let e = a
-                .entries
-                .iter()
-                .find(|e| e.hash == *hash)
-                .expect("listed entry");
-            Some((*n, vec![e.entry_name().to_string(), "index.dat".into()]))
-        }
-        RecordType::Interface => Some((archive::INTERFACE, vec!["data".into()])),
-        _ => None,
-    })
 }
 
 fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> {
@@ -263,6 +381,12 @@ fn entry_file(n: u8, a: &Archive, e: &Entry) -> FileMeta {
     }
 }
 
+fn distinct(labels: &Option<Vec<u8>>) -> usize {
+    labels
+        .as_ref()
+        .map_or(0, |l| l.iter().collect::<BTreeSet<_>>().len())
+}
+
 /// Summarise a decoded record. Cross-reference fields are left empty.
 pub fn summarize(record: &Record) -> TypeSummary {
     match record {
@@ -270,14 +394,8 @@ pub fn summarize(record: &Record) -> TypeSummary {
             vertex_count: m.vertices.len(),
             face_count: m.faces.len(),
             textured_face_count: m.textured_faces.len(),
-            vertex_label_count: m
-                .vertex_labels
-                .as_ref()
-                .map_or(0, |l| l.iter().collect::<BTreeSet<_>>().len()),
-            face_label_count: m
-                .face_labels
-                .as_ref()
-                .map_or(0, |l| l.iter().collect::<BTreeSet<_>>().len()),
+            vertex_label_count: distinct(&m.vertex_labels),
+            face_label_count: distinct(&m.face_labels),
             bounds: m.bounds(),
             textures: None,
         },
@@ -322,7 +440,7 @@ pub fn summarize(record: &Record) -> TypeSummary {
             width: i.width,
             height: i.height,
             children: match &i.content {
-                rs2intermediate::interface::Content::Layer { children, .. } => children.len(),
+                Content::Layer { children, .. } => children.len(),
                 _ => 0,
             },
         },
@@ -333,43 +451,19 @@ pub fn summarize(record: &Record) -> TypeSummary {
     }
 }
 
-/// The metadata sidecar for record `id` of type `t`.
+/// Every valid id of a record type. For many calls, use [`Records`].
+pub fn ids(cache: &Cache, t: RecordType) -> Result<Vec<u32>, Error> {
+    Records::new(cache).ids(t)
+}
+
+/// Decode one record. For many records, use [`Records`].
+pub fn decode_any(cache: &Cache, t: RecordType, id: u32) -> Result<Record, Error> {
+    Records::new(cache).decode(t, id)
+}
+
+/// The metadata sidecar for one record. For many records, use [`Records`].
 pub fn meta(cache: &Cache, t: RecordType, id: u32) -> Result<Meta, Error> {
-    let record = decode_any(cache, t, id)?;
-    let files = match t {
-        RecordType::Model => vec![index_file(cache, 1, id)?],
-        RecordType::Anim => vec![index_file(cache, 2, id)?],
-        RecordType::Midi => vec![index_file(cache, 3, id)?],
-        RecordType::Map => {
-            let e = region_entry(cache, id)?;
-            vec![
-                index_file(cache, 4, e.tile_file.into())?,
-                index_file(cache, 4, e.location_file.into())?,
-            ]
-        }
-        _ => {
-            let (n, names) = archive_entries(cache, t, id)?.expect("archive-backed type");
-            let a = cache.archive(n)?;
-            names
-                .iter()
-                .map(|name| {
-                    let e =
-                        a.entry(&archive::EntryName::parse(name))
-                            .ok_or(Error::MissingEntry {
-                                archive: n,
-                                entry: archive::EntryName::parse(name),
-                            })?;
-                    Ok(entry_file(n, &a, e))
-                })
-                .collect::<Result<_, Error>>()?
-        }
-    };
-    Ok(Meta {
-        record_type: t,
-        id,
-        files,
-        summary: summarize(&record),
-    })
+    Records::new(cache).meta(t, id)
 }
 
 /// Whether `err` means the record simply is not there (an absent file).
@@ -378,4 +472,15 @@ pub fn is_absent(err: &Error) -> bool {
         err,
         Error::Cache(CacheError::Absent { .. }) | Error::NoRecord { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_is_send_and_sync() {
+        fn check<T: Send + Sync>() {}
+        check::<Records<'static>>();
+    }
 }
