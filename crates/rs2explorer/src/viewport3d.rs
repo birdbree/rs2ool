@@ -624,6 +624,8 @@ pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<m
                 blend,
             )
         }
+        // Drawn by the 2D viewport.
+        _ => (Vec::new(), Vec::new(), false),
     }
 }
 
@@ -803,7 +805,9 @@ pub fn plugin(app: &mut App) {
             (
                 follow_rect,
                 orbit_keys.run_if(not(egui_wants_any_keyboard_input)),
-                orbit_mouse.run_if(not(egui_wants_any_pointer_input)),
+                orbit_mouse
+                    .run_if(not(egui_wants_any_pointer_input))
+                    .run_if(not(crate::viewport2d::active)),
                 apply_orbit,
                 sync_compare_camera,
                 follow_match,

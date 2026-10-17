@@ -187,6 +187,17 @@ impl<'c> Records<'c> {
         Ok((*n, e.entry_name()))
     }
 
+    /// The media sprite sheet an interface's `name,index` reference names:
+    /// entry `<name>.dat` of the media archive.
+    pub fn media_sprite(&self, name: &str) -> Result<SpriteSheet, Error> {
+        let a = self.archive(archive::MEDIA)?;
+        sheet_of(
+            &a,
+            archive::MEDIA,
+            archive::jag_hash(&format!("{name}.dat")),
+        )
+    }
+
     /// The `map_index` entry of region `id`.
     pub fn region_entry(&self, id: u32) -> Result<map::MapIndexEntry, Error> {
         self.map_index()?

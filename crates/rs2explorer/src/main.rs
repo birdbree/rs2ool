@@ -11,7 +11,7 @@ use bevy_egui::EguiPlugin;
 use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Source, Sources};
 use rs2explorer::viewport3d::Compare;
-use rs2explorer::{classic, jobs, map_view, selection, sources, tree, ui, viewport3d};
+use rs2explorer::{classic, jobs, map_view, selection, sources, tree, ui, viewport2d, viewport3d};
 use rs2intermediate::record::RecordType;
 
 /// `rs2explorer [cache-dir] [--pack file]... [--select type:id] [--compare]
@@ -115,6 +115,7 @@ fn main() {
             selection::plugin,
             tree::plugin,
             viewport3d::plugin,
+            viewport2d::plugin,
             classic::plugin,
             map_view::plugin,
             jobs::plugin,

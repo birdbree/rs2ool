@@ -10,4 +10,5 @@ pub mod selection;
 pub mod sources;
 pub mod tree;
 pub mod ui;
+pub mod viewport2d;
 pub mod viewport3d;

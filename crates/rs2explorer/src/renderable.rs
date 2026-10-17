@@ -1,6 +1,7 @@
 //! What the viewports draw, from any source kind: a cache record's model
-//! as the client assembles it, a model a dump directory holds as JSON, or
-//! a converted pack model with its pack palette.
+//! as the client assembles it, a model a dump directory holds as JSON, a
+//! converted pack model with its pack palette, and for the 2D viewport
+//! textures, sprites, fonts, interfaces and pack sprites.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,12 +9,16 @@ use std::sync::Arc;
 use rs2convert::pipeline::ids;
 use rs2intermediate::model::Model;
 use rs2intermediate::record::{Record, RecordType};
+use rs2intermediate::sprite::{Font, SpriteSheet};
 use rs2pack::records::material::{PALETTE_ID, decode_palette};
 use rs2pack::records::model::PackModel;
+use rs2pack::records::sprite::SpriteRecord;
+use rs2pack::records::texture::{ATLAS_BASE, Atlas};
 use rs2pack::{Kind, PackReader};
 
 use crate::selection::Sel;
 use crate::sources::Source;
+use crate::viewport2d::{InterfaceScene, Rgba, interface_scene};
 
 pub enum Renderable {
     CacheModel(Model),
@@ -24,6 +29,16 @@ pub enum Renderable {
         /// one is there.
         palette: Option<Arc<Vec<[u8; 3]>>>,
     },
+    /// A cache texture or sprite sheet; textures show on their untrimmed
+    /// canvas.
+    Sheet {
+        sheet: SpriteSheet,
+        untrimmed: bool,
+    },
+    Font(Font),
+    Interface(InterfaceScene),
+    /// A pack sprite or texture atlas.
+    Image(Rgba),
 }
 
 impl Renderable {
@@ -31,8 +46,19 @@ impl Renderable {
     pub fn model(&self) -> Option<&Model> {
         match self {
             Renderable::CacheModel(m) | Renderable::DumpedModel(m) => Some(m),
-            Renderable::PackModel { .. } => None,
+            _ => None,
         }
+    }
+
+    /// Whether the 2D viewport draws it.
+    pub fn is_2d(&self) -> bool {
+        matches!(
+            self,
+            Renderable::Sheet { .. }
+                | Renderable::Font(_)
+                | Renderable::Interface(_)
+                | Renderable::Image(_)
+        )
     }
 }
 
@@ -48,6 +74,25 @@ pub fn load_renderable(
             let Some(record) = record else {
                 return Ok(None);
             };
+            match record {
+                Record::Texture(sheet) => {
+                    return Ok(Some(Renderable::Sheet {
+                        sheet: sheet.clone(),
+                        untrimmed: true,
+                    }));
+                }
+                Record::Sprite(sheet) => {
+                    return Ok(Some(Renderable::Sheet {
+                        sheet: sheet.clone(),
+                        untrimmed: false,
+                    }));
+                }
+                Record::Font(font) => return Ok(Some(Renderable::Font(font.clone()))),
+                Record::Interface(i) => {
+                    return Ok(Some(Renderable::Interface(interface_scene(records, i))));
+                }
+                _ => {}
+            }
             Ok(rs2convert::preview::model_for(records, record)
                 .map_err(|e| e.to_string())?
                 .map(Renderable::CacheModel))
@@ -61,13 +106,31 @@ pub fn load_renderable(
             Ok(Some(Renderable::DumpedModel(m)))
         }
         (Source::Pack { path, reader }, Sel::PackRecord(id)) => {
-            if reader.manifest.kind != Kind::Models {
-                return Ok(None);
-            }
             let bytes = reader
                 .get(*id)
                 .ok_or("no such record")?
                 .map_err(|e| e.to_string())?;
+            let image = |width: u16, height: u16, rgba: Vec<u8>| {
+                Some(Renderable::Image(Rgba {
+                    width: width.into(),
+                    height: height.into(),
+                    pixels: rgba,
+                }))
+            };
+            match reader.manifest.kind {
+                Kind::Models => {}
+                Kind::Sprites => {
+                    return Ok(SpriteRecord::decode(&bytes)
+                        .ok()
+                        .and_then(|s| image(s.width, s.height, s.rgba)));
+                }
+                Kind::Textures if id & ATLAS_BASE != 0 => {
+                    return Ok(Atlas::decode(&bytes)
+                        .ok()
+                        .and_then(|a| image(a.width, a.height, a.rgba)));
+                }
+                _ => return Ok(None),
+            }
             let model = PackModel::decode(&bytes).map_err(|e| e.to_string())?;
             Ok(Some(Renderable::PackModel {
                 model,
