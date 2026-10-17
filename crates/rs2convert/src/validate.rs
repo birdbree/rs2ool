@@ -3,7 +3,8 @@
 
 use glam::{DAffine3, DVec3};
 use rs2pack::records::anim::Clip;
-use rs2pack::records::rig::{NO_PARENT, Rig};
+use rs2pack::records::model::PackModel;
+use rs2pack::records::rig::{NO_PARENT, Rig, UNBOUND};
 use serde::Serialize;
 
 use crate::clip::local_from_key;
@@ -62,6 +63,27 @@ pub fn pose(rig: &Rig, clip: &Clip, t: u8) -> Vec<DAffine3> {
         world.push(parent * local);
     }
     world
+}
+
+/// A converted model's vertices (pack space) at frame `t` of a clip,
+/// skinned by the rig as the client will: each vertex follows the bone its
+/// label binds to (bone 0 when unbound).
+pub fn skinned(model: &PackModel, rig: &Rig, clip: &Clip, t: u8) -> Vec<[f32; 3]> {
+    let world = pose(rig, clip, t);
+    let pivots = rest_pivots(rig);
+    model
+        .vertices
+        .iter()
+        .enumerate()
+        .map(|(v, p)| {
+            let label = model.labels.as_ref().map_or(0, |l| l[v]);
+            let b = rig.label_bone[usize::from(label)];
+            let b = if b == UNBOUND { 0 } else { usize::from(b) };
+            let rest = DVec3::new(p[0].into(), p[1].into(), p[2].into());
+            let q = world[b].transform_point3(rest - pivots[b]);
+            [q.x as f32, q.y as f32, q.z as f32]
+        })
+        .collect()
 }
 
 /// Rest-pose world positions of the bones (the pivots), from the records.

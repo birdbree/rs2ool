@@ -11,6 +11,7 @@ use rs2intermediate::record::RecordType;
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
+use crate::playback::{Playback, playback_ui};
 use crate::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
 use crate::tree::{self, ListKey, Lists};
@@ -322,6 +323,7 @@ struct UiState<'w> {
     compare: ResMut<'w, Compare>,
     compare_sel: ResMut<'w, CompareSelected>,
     compare_loaded: Res<'w, Loaded<CompareSelected>>,
+    playback: ResMut<'w, Playback>,
 }
 
 fn layout(
@@ -448,6 +450,7 @@ fn layout(
         .resizable(true)
         .default_size(80.0)
         .show(&mut root, |ui| {
+            playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref());
             for job in st.jobs.list.iter().rev().take(4) {
                 ui.horizontal(|ui| {
                     ui.label(&job.name);

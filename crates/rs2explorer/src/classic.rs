@@ -33,6 +33,8 @@ pub struct ClassicView {
     /// The lit model and its vertices (cache space, where the modern
     /// view draws them too).
     pub model: Option<(Arc<LitModel>, Vec<[i32; 3]>)>,
+    /// The model at the playing animation frame, relit, when one plays.
+    pub pose: Option<(Arc<LitModel>, Vec<[i32; 3]>)>,
     pub textures: Option<Arc<Textures>>,
     /// Screen pixels per classic pixel.
     pub scale: u32,
@@ -46,6 +48,7 @@ impl Default for ClassicView {
     fn default() -> Self {
         Self {
             model: None,
+            pose: None,
             textures: None,
             scale: 2,
             background: 0x000000,
@@ -252,7 +255,11 @@ fn draw(
         .map(f32::to_bits),
         planes: region.planes,
         scene: scene.as_ref().map(|s| Arc::as_ptr(s) as usize),
-        model: view.model.as_ref().map(|m| Arc::as_ptr(&m.0) as usize),
+        model: view
+            .pose
+            .as_ref()
+            .or(view.model.as_ref())
+            .map(|m| Arc::as_ptr(&m.0) as usize),
         textures: view.textures.is_some(),
     });
     if key == view.last && view.texture.is_some() {
@@ -265,7 +272,7 @@ fn draw(
     let empty = Textures::default();
     let tex = view.textures.clone();
     let tex = tex.as_deref().unwrap_or(&empty);
-    if let Some((lit, verts)) = &view.model {
+    if let Some((lit, verts)) = view.pose.as_ref().or(view.model.as_ref()) {
         rs2render::render_in_view(&mut fb, lit, verts, &scene_view(&o), tex);
     } else if let Some(scene) = &scene {
         render_scene(&mut fb, scene, region.planes, &scene_view(&o), tex);

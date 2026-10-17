@@ -6,12 +6,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rs2convert::creature::{self, Creature};
 use rs2convert::pipeline::ids;
 use rs2intermediate::model::Model;
 use rs2intermediate::record::{Record, RecordType};
 use rs2intermediate::sprite::{Font, SpriteSheet};
+use rs2pack::records::anim::Clip;
 use rs2pack::records::material::{PALETTE_ID, decode_palette};
 use rs2pack::records::model::PackModel;
+use rs2pack::records::rig::Rig;
 use rs2pack::records::sprite::SpriteRecord;
 use rs2pack::records::texture::{ATLAS_BASE, Atlas};
 use rs2pack::{Kind, PackReader};
@@ -39,13 +42,28 @@ pub enum Renderable {
     Interface(InterfaceScene),
     /// A pack sprite or texture atlas.
     Image(Rgba),
+    /// A cache NPC with its sequences, for playback; `model` is its rest
+    /// pose with the scale applied.
+    Creature {
+        creature: Arc<Creature>,
+        model: Model,
+    },
+    /// A converted creature: its model, rig and clips (by clip id).
+    PackCreature {
+        model: PackModel,
+        palette: Option<Arc<Vec<[u8; 3]>>>,
+        rig: Box<Rig>,
+        clips: Vec<(u32, Clip)>,
+    },
 }
 
 impl Renderable {
     /// The decoded cache-format model, for the drawers that need one.
     pub fn model(&self) -> Option<&Model> {
         match self {
-            Renderable::CacheModel(m) | Renderable::DumpedModel(m) => Some(m),
+            Renderable::CacheModel(m)
+            | Renderable::DumpedModel(m)
+            | Renderable::Creature { model: m, .. } => Some(m),
             _ => None,
         }
     }
@@ -91,6 +109,23 @@ pub fn load_renderable(
                 Record::Interface(i) => {
                     return Ok(Some(Renderable::Interface(interface_scene(records, i))));
                 }
+                // An NPC whose sequences resolve plays them; otherwise it
+                // shows its preview like any definition.
+                Record::Npc(d) => {
+                    if let Some(c) = records
+                        .cache()
+                        .frame_index()
+                        .ok()
+                        .and_then(|index| creature::npc(records, &index, d.id, &[]).ok())
+                        .filter(|c| !c.sequences.is_empty())
+                    {
+                        let model = c.rest_model();
+                        return Ok(Some(Renderable::Creature {
+                            creature: Arc::new(c),
+                            model,
+                        }));
+                    }
+                }
                 _ => {}
             }
             Ok(rs2convert::preview::model_for(records, record)
@@ -132,10 +167,16 @@ pub fn load_renderable(
                 _ => return Ok(None),
             }
             let model = PackModel::decode(&bytes).map_err(|e| e.to_string())?;
-            Ok(Some(Renderable::PackModel {
-                model,
-                palette: sibling_palette(path).map(Arc::new),
-            }))
+            let palette = sibling_palette(path).map(Arc::new);
+            if let Some((rig, clips)) = creature_rig(*id).and_then(|r| sibling_rig(path, r)) {
+                return Ok(Some(Renderable::PackCreature {
+                    model,
+                    palette,
+                    rig: Box::new(rig),
+                    clips,
+                }));
+            }
+            Ok(Some(Renderable::PackModel { model, palette }))
         }
         _ => Ok(None),
     }
@@ -152,6 +193,56 @@ pub fn dumped_model_id(rel: &Path) -> Option<u32> {
         return None;
     }
     name.file_stem()?.to_str()?.parse().ok()
+}
+
+/// The rig a converted creature model is skinned by: NPC `n`'s model is
+/// skinned by rig `n`, the player body by the player rig.
+pub fn creature_rig(model: u32) -> Option<u32> {
+    match model & 0xF000_0000 {
+        ids::CREATURE_MODEL => Some(model & 0x0FFF_FFFF),
+        ids::PLAYER_MODEL => Some(ids::PLAYER_RIG),
+        _ => None,
+    }
+}
+
+/// The packs of `kind` written beside a pack (`<out>/<kind>/*.pack`),
+/// sorted.
+fn sibling_packs(pack: &Path, kind: Kind) -> Vec<PackReader> {
+    let Some(out) = pack.parent().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let Ok(dir) = std::fs::read_dir(out.join(kind.name())) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = dir
+        .filter_map(|e| Some(e.ok()?.path()))
+        .filter(|p| p.extension().is_some_and(|e| e == "pack"))
+        .collect();
+    paths.sort();
+    paths
+        .iter()
+        .filter_map(|p| PackReader::open(p).ok())
+        .collect()
+}
+
+/// Rig `rig` and its clips (anim ids `rig << 16 | seq`) from the rigs and
+/// anims packs beside a models pack.
+pub fn sibling_rig(pack: &Path, rig: u32) -> Option<(Rig, Vec<(u32, Clip)>)> {
+    let r = sibling_packs(pack, Kind::Rigs)
+        .iter()
+        .find_map(|p| Rig::decode(&p.get(rig)?.ok()?).ok())?;
+    let mut clips = Vec::new();
+    for p in sibling_packs(pack, Kind::Anims) {
+        for id in p.ids().filter(|id| id >> 16 == rig).collect::<Vec<_>>() {
+            if let Some(Ok(bytes)) = p.get(id)
+                && let Ok(c) = Clip::decode(&bytes)
+            {
+                clips.push((id, c));
+            }
+        }
+    }
+    clips.sort_by_key(|(id, _)| *id);
+    Some((r, clips))
 }
 
 /// The palette from a materials pack written beside a models pack: packs

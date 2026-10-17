@@ -158,6 +158,22 @@ impl Creature {
         Some((pack, pack.frames.iter().find(|f| f.id == id)?))
     }
 
+    /// The vertices at frame `i` of sequence `s`, deformed exactly as the
+    /// 317 client deforms them, scale applied (validation's reference).
+    pub fn posed(&self, s: usize, i: usize) -> Option<Vec<[i32; 3]>> {
+        let seq = self.sequences.get(s)?;
+        let (pack, frame) = self.frame(seq, i)?;
+        let groups =
+            crate::deform::Groups::new(self.model.vertex_labels.as_deref().unwrap_or_default());
+        Some(crate::deform::deformed(
+            &self.model,
+            &groups,
+            &pack.base,
+            frame,
+            self.scale,
+        ))
+    }
+
     /// Every label the merged mesh uses.
     pub fn mesh_labels(&self) -> BTreeSet<u8> {
         self.model.vertex_labels.iter().flatten().copied().collect()

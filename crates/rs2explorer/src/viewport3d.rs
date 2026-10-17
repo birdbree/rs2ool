@@ -24,6 +24,7 @@ use crate::renderable::find_match;
 use crate::selection::{CompareSelected, Loaded, Selected};
 use crate::sources::Sources;
 use crate::ui::ViewportRect;
+use rs2pack::records::model::PackModel;
 
 /// Marks the world camera(s).
 #[derive(Component)]
@@ -273,6 +274,10 @@ fn setup(
         },
     ));
 }
+
+/// The system that spawns the shown models; posing runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShowSet;
 
 /// The right pane's camera in compare mode.
 #[derive(Component)]
@@ -579,21 +584,46 @@ impl ShowContext<'_, '_, '_> {
     }
 }
 
+/// A renderable's parts at rest; see [`posed_parts`].
+pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
+    posed_parts(r, labels, Pose::Rest)
+}
+
+/// Which vertices to draw a renderable with.
+#[derive(Debug, Clone, Copy)]
+pub enum Pose<'a> {
+    Rest,
+    /// Cache-space vertices of a cache model (an animation frame).
+    Cache(&'a [[i32; 3]]),
+    /// Pack-space vertices of a pack model (a skinned clip frame).
+    Pack(&'a [[f32; 3]]),
+}
+
 /// A renderable's parts with client and raw shading (both shadings group
 /// faces the same way, so the parts pair up), and whether it has face
-/// alpha.
-pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
+/// alpha. A pose that does not fit the renderable draws it at rest.
+pub fn posed_parts(
+    r: &Renderable,
+    labels: bool,
+    pose: Pose,
+) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
     match r {
-        Renderable::CacheModel(m) | Renderable::DumpedModel(m) => {
+        Renderable::CacheModel(m)
+        | Renderable::DumpedModel(m)
+        | Renderable::Creature { model: m, .. } => {
+            let verts = match pose {
+                Pose::Cache(v) if v.len() == m.vertices.len() => v,
+                _ => &m.vertices,
+            };
             let parts = |shading| {
                 if labels {
-                    let mesh = mesh::mesh_from_model(m, &m.vertices, shading, true);
+                    let mesh = mesh::mesh_from_model(m, verts, shading, true);
                     vec![mesh::Part {
                         texture: None,
                         mesh,
                     }]
                 } else {
-                    mesh::model_parts(m, &m.vertices, shading)
+                    mesh::model_parts(m, verts, shading)
                 }
             };
             let blend = m
@@ -606,7 +636,19 @@ pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<m
                 blend,
             )
         }
-        Renderable::PackModel { model, palette } => {
+        Renderable::PackModel { model, palette }
+        | Renderable::PackCreature { model, palette, .. } => {
+            let posed;
+            let model = match pose {
+                Pose::Pack(v) if v.len() == model.vertices.len() => {
+                    posed = PackModel {
+                        vertices: v.iter().map(|p| p.map(|c| c.round() as i16)).collect(),
+                        ..model.clone()
+                    };
+                    &posed
+                }
+                _ => model,
+            };
             let palette = palette.as_deref().map(Vec::as_slice);
             let part = |shading| {
                 vec![mesh::Part {
@@ -812,7 +854,7 @@ pub fn plugin(app: &mut App) {
                 sync_compare_camera,
                 follow_match,
                 build_texture_materials,
-                show_selection,
+                show_selection.in_set(ShowSet),
                 switch_lighting,
                 furniture,
             )
