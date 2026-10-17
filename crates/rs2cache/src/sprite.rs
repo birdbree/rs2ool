@@ -147,11 +147,12 @@ pub fn sprite_entries(archive: &Archive) -> Result<Vec<(&Entry, usize)>, SpriteE
     Ok(out)
 }
 
+/// An archive entry and the result of decoding it as sprites.
+pub type DecodedEntry<'a> = (&'a Entry, Result<SpriteSheet, SpriteError>);
+
 /// Decode every sprite entry of an archive, by entry. Entries that do not
 /// decode as sprites (such as the title screen JPEG) are returned as errors.
-pub fn decode_archive(
-    archive: &Archive,
-) -> Result<Vec<(&Entry, Result<SpriteSheet, SpriteError>)>, SpriteError> {
+pub fn decode_archive(archive: &Archive) -> Result<Vec<DecodedEntry<'_>>, SpriteError> {
     let index = archive.get("index.dat").ok_or(SpriteError::NoIndex)?;
     Ok(sprite_entries(archive)?
         .into_iter()
@@ -208,7 +209,10 @@ pub const FONTS: [&str; 4] = ["p11_full", "p12_full", "b12_full", "q8_full"];
 mod tests {
     use super::*;
 
-    fn sheet_bytes(sprites: &[(u8, u8, u16, u16, u8, Vec<u8>)]) -> (Vec<u8>, Vec<u8>) {
+    /// `(x, y, width, height, type, stored pixels)`.
+    type Rec = (u8, u8, u16, u16, u8, Vec<u8>);
+
+    fn sheet_bytes(sprites: &[Rec]) -> (Vec<u8>, Vec<u8>) {
         let mut index = vec![0, 4, 0, 3, 3];
         index.extend([0xff, 0, 0, 0, 0x80, 0]);
         let mut data = vec![0, 0];
