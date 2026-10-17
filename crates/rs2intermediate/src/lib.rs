@@ -2,3 +2,4 @@
 //! every tool. No logic lives here beyond small accessors.
 
 pub mod config;
+pub mod model;

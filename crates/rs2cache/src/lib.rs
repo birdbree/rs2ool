@@ -7,6 +7,7 @@ pub mod cache;
 pub mod compress;
 pub mod config;
 pub mod io;
+pub mod model;
 
 pub use archive::{Archive, ArchiveError, EntryName};
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
@@ -31,6 +32,8 @@ pub enum Error {
     MissingEntry { archive: u8, entry: EntryName },
     #[error(transparent)]
     Config(#[from] config::ConfigError),
+    #[error("model {id}: {source}")]
+    Model { id: u32, source: model::ModelError },
 }
 
 impl Cache {
@@ -39,6 +42,11 @@ impl Cache {
     pub fn read(&self, index: u8, id: u32) -> Result<Vec<u8>, Error> {
         let raw = self.read_raw(index, id)?;
         compress::inflate(&raw).map_err(|source| Error::Compress { index, id, source })
+    }
+
+    /// Read and decode model `id` from index 1.
+    pub fn model(&self, id: u32) -> Result<rs2intermediate::model::Model, Error> {
+        model::decode(&self.read(1, id)?).map_err(|source| Error::Model { id, source })
     }
 
     /// Read and decode archive `archive` of index 0.
