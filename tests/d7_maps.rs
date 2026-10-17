@@ -41,7 +41,7 @@ fn region_with_upper_floors_builds_every_plane() {
     let (rx, ry) = (region.x, region.y);
     let built = build(&records, region).unwrap();
     for plane in 0..3 {
-        let m = plane_mesh(&built.region, plane, &built.flos)
+        let m = plane_mesh(&built.region, plane, &built.floors)
             .unwrap_or_else(|| panic!("region {rx}_{ry}: plane {plane} has no terrain"));
         assert!(m.count_vertices() > 0);
     }

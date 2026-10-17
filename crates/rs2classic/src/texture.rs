@@ -18,6 +18,31 @@
 use contentpack::palette::gamma;
 use rs2cache::types::sprite::SpriteSheet;
 
+/// The single colour the original client uses for a texture where it can't
+/// draw the texture itself, such as a textured floor on the minimap: the
+/// mean of the palette after the brightness curve (entry 0, the transparent
+/// one, included), then a further brightness curve of 1.4 on the mean. 0 is
+/// reserved for transparency, so a black result comes out as 1.
+pub fn average_colour(sheet: &SpriteSheet, brightness: f64) -> u32 {
+    let n = sheet.palette.len().max(1) as u32;
+    let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+    for (i, &c) in sheet.palette.iter().enumerate() {
+        // The same per-entry rule as the texture pages: anything but entry
+        // 0 that would mask to transparent becomes 1.
+        let c = match gamma(c, brightness) {
+            g if g & 0xf8f8ff == 0 && i != 0 => 1,
+            g => g,
+        };
+        r += (c >> 16) & 0xff;
+        g += (c >> 8) & 0xff;
+        b += c & 0xff;
+    }
+    match gamma(((r / n) << 16) | ((g / n) << 8) | (b / n), 1.4) {
+        0 => 1,
+        c => c,
+    }
+}
+
 /// One prepared texture: 4 × 16384 texels and whether it has no
 /// transparent (zero) texels.
 #[derive(Debug, Clone)]
@@ -104,5 +129,32 @@ impl Textures {
     /// The page for texture `id`, if it's loaded.
     pub fn page(&self, id: u16) -> Option<&TexturePage> {
         self.pages.get(usize::from(id)).and_then(Option::as_ref)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sheet(palette: Vec<u32>) -> SpriteSheet {
+        SpriteSheet {
+            max_width: 0,
+            max_height: 0,
+            palette,
+            sprites: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn average_colour_is_the_palette_mean_through_two_curves() {
+        // At brightness 1.0 the first curve leaves the palette alone, so the
+        // mean of [0, red, blue] is (85, 0, 85) before the 1.4 curve.
+        let s = sheet(vec![0, 0xff0000, 0x0000ff]);
+        assert_eq!(average_colour(&s, 1.0), gamma((85 << 16) | 85, 1.4));
+    }
+
+    #[test]
+    fn a_black_average_is_never_transparent() {
+        assert_eq!(average_colour(&sheet(vec![0, 0]), 0.8), 1);
     }
 }

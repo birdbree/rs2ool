@@ -13,29 +13,82 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
-use contentpack::palette::split;
+use contentpack::palette::{DEFAULT_BRIGHTNESS, split};
 use rs2cache::types::config::{FloDef, LocDef};
 use rs2cache::types::map::{Location, Plane, REGION_SIZE, Region};
+use rs2cache::types::sprite::SpriteSheet;
 
 /// World units per tile.
 pub const TILE: f32 = 128.0;
 
-/// A floor id's colour as RGBA floats. `None` for 0 (no floor), an id past
-/// the table, or a floor with no colour of its own.
-fn flo_colour(flos: &[FloDef], id: u8) -> Option<[f32; 4]> {
-    if id == 0 {
-        return None;
+/// The colour each floor draws with, by floor definition id.
+///
+/// A floor with an RGB colour uses it. A textured floor (water, for one)
+/// has no RGB, so it uses its texture's average colour, as the original
+/// client does wherever it can't draw the texture itself. Without that,
+/// textured floors fell through to whatever was underneath.
+#[derive(Debug, Clone, Default)]
+pub struct Floors {
+    colours: Vec<Option<[f32; 4]>>,
+}
+
+impl Floors {
+    /// Builds the table from the floor definitions and the textures.
+    pub fn new(flos: &[FloDef], textures: &BTreeMap<u8, SpriteSheet>) -> Self {
+        let colours = flos
+            .iter()
+            .map(|f| {
+                let rgb = f.rgb.or_else(|| {
+                    let t = textures.get(&f.texture?)?;
+                    Some(rs2classic::texture::average_colour(t, DEFAULT_BRIGHTNESS))
+                })?;
+                let [r, g, b] = split(rgb);
+                Some([
+                    f32::from(r) / 255.0,
+                    f32::from(g) / 255.0,
+                    f32::from(b) / 255.0,
+                    1.0,
+                ])
+            })
+            .collect();
+        Self { colours }
     }
-    // Map floor ids are 1-based; 0 means none.
-    let f = flos.get(usize::from(id) - 1)?;
-    let c = f.rgb?;
-    let [r, g, b] = split(c);
-    Some([
-        f32::from(r) / 255.0,
-        f32::from(g) / 255.0,
-        f32::from(b) / 255.0,
-        1.0,
-    ])
+
+    /// Decodes every floor definition and texture and builds the table.
+    /// A floor that won't decode is an error; a missing texture just leaves
+    /// its floors without a colour.
+    pub fn load(records: &Records) -> Result<Self, String> {
+        let e = |e: rs2cache::Error| e.to_string();
+        let flos = records
+            .ids(RecordType::Flo)
+            .map_err(e)?
+            .into_iter()
+            .map(|id| match records.decode(RecordType::Flo, id) {
+                Ok(Record::Flo(f)) => Ok(f),
+                Ok(_) => unreachable!(),
+                Err(x) => Err(e(x)),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let textures = records
+            .ids(RecordType::Texture)
+            .map_err(e)?
+            .into_iter()
+            .filter_map(|id| match records.decode(RecordType::Texture, id) {
+                Ok(Record::Texture(t)) => Some((id as u8, t)),
+                _ => None,
+            })
+            .collect();
+        Ok(Self::new(&flos, &textures))
+    }
+
+    /// The colour of map floor id `id` (an underlay or overlay byte).
+    /// `None` for 0 (no floor), an id past the table, or a floor with no
+    /// colour at all.
+    pub fn colour(&self, id: u8) -> Option<[f32; 4]> {
+        // Map floor ids are 1-based; 0 means none.
+        let i = usize::from(id).checked_sub(1)?;
+        *self.colours.get(i)?
+    }
 }
 
 /// World position of a tile corner (y up; north is −z). `x` and `y` run
@@ -55,14 +108,14 @@ pub fn corner(plane: &Plane, x: usize, y: usize) -> [f32; 3] {
 /// shape 0 covers both; a shaped one only paints the first, with the
 /// underlay in the other. That's a stand-in for the original client's
 /// real tile shapes.
-pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh> {
+pub fn plane_mesh(region: &Region, plane: usize, floors: &Floors) -> Option<Mesh> {
     let p = region.planes.get(plane)?;
     let (mut pos, mut col) = (Vec::new(), Vec::new());
     for x in 0..REGION_SIZE {
         for y in 0..REGION_SIZE {
             let i = x * REGION_SIZE + y;
-            let under = flo_colour(flos, p.underlays[i]);
-            let over = flo_colour(flos, p.overlays[i]);
+            let under = floors.colour(p.underlays[i]);
+            let over = floors.colour(p.overlays[i]);
             if plane > 0 && under.is_none() && over.is_none() {
                 continue;
             }
@@ -169,8 +222,8 @@ use crate::explorer::viewport3d::{LightingMode, Limits, OrbitCamera, TextureMate
 pub struct Built {
     /// The decoded region.
     pub region: Region,
-    /// Every floor definition, indexed by floor id − 1.
-    pub flos: Vec<FloDef>,
+    /// The colour each floor draws with.
+    pub floors: Floors,
     /// The definition of each location id placed in the region that
     /// decodes.
     pub defs: BTreeMap<u16, LocDef>,
@@ -213,7 +266,7 @@ fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
 /// first. Objects are lit with the object lighting.
 pub fn classic_scene(
     region: &Region,
-    flos: &[FloDef],
+    floors: &Floors,
     defs: &BTreeMap<u16, LocDef>,
     models: &BTreeMap<(u16, u8), Model>,
 ) -> ClassicScene {
@@ -223,8 +276,9 @@ pub fn classic_scene(
         for x in 0..REGION_SIZE {
             for y in 0..REGION_SIZE {
                 let i = x * REGION_SIZE + y;
-                let colour =
-                    flo_colour(flos, p.overlays[i]).or_else(|| flo_colour(flos, p.underlays[i]));
+                let colour = floors
+                    .colour(p.overlays[i])
+                    .or_else(|| floors.colour(p.underlays[i]));
                 if pi > 0 && colour.is_none() {
                     continue;
                 }
@@ -303,17 +357,7 @@ pub fn classic_scene(
 /// A floor that won't decode fails the build; a location that won't is
 /// skipped.
 pub fn build(records: &Records, region: Region) -> Result<Built, String> {
-    let e = |e: rs2cache::Error| e.to_string();
-    let flos = records
-        .ids(RecordType::Flo)
-        .map_err(e)?
-        .into_iter()
-        .map(|id| match records.decode(RecordType::Flo, id) {
-            Ok(Record::Flo(f)) => Ok(f),
-            Ok(_) => unreachable!(),
-            Err(x) => Err(e(x)),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let floors = Floors::load(records)?;
     let mut defs = BTreeMap::new();
     let mut models = BTreeMap::new();
     // Each distinct `(id, type)` once, however often it's placed.
@@ -333,11 +377,11 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
             models.insert((id, kind), m);
         }
     }
-    let classic = Arc::new(classic_scene(&region, &flos, &defs, &models));
+    let classic = Arc::new(classic_scene(&region, &floors, &defs, &models));
     Ok(Built {
         classic,
         region,
-        flos,
+        floors,
         defs,
         models,
     })
@@ -469,7 +513,7 @@ fn spawn(
         ..default()
     });
     for plane in 0..4u8 {
-        if let Some(m) = plane_mesh(&built.region, plane.into(), &built.flos) {
+        if let Some(m) = plane_mesh(&built.region, plane.into(), &built.floors) {
             let e = commands
                 .spawn((
                     Mesh3d(meshes.add(m)),
@@ -681,15 +725,7 @@ pub struct WorldImage {
 /// once, as a task. Regions that won't decode stay black.
 pub fn world_image(records: &Records) -> Result<WorldImage, String> {
     let e = |e: rs2cache::Error| e.to_string();
-    let flos: Vec<FloDef> = records
-        .ids(RecordType::Flo)
-        .map_err(e)?
-        .into_iter()
-        .filter_map(|id| match records.decode(RecordType::Flo, id) {
-            Ok(Record::Flo(f)) => Some(f),
-            _ => None,
-        })
-        .collect();
+    let floors = Floors::load(records)?;
     let ids: Vec<u16> = records
         .ids(RecordType::Map)
         .map_err(e)?
@@ -721,8 +757,9 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
         for x in 0..REGION_SIZE {
             for y in 0..REGION_SIZE {
                 let i = x * REGION_SIZE + y;
-                let c = flo_colour(&flos, p.overlays[i])
-                    .or_else(|| flo_colour(&flos, p.underlays[i]))
+                let c = floors
+                    .colour(p.overlays[i])
+                    .or_else(|| floors.colour(p.underlays[i]))
                     .unwrap_or([0.0, 0.0, 0.0, 1.0]);
                 // Flip vertically: image rows go down, tile y goes north.
                 let (px, py) = (rx * REGION_SIZE + x, h - 1 - (ry * REGION_SIZE + y));
@@ -926,6 +963,47 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn flo(id: u32, rgb: Option<u32>, texture: Option<u8>) -> FloDef {
+        FloDef {
+            id,
+            rgb,
+            texture,
+            hide_underlay: false,
+            occlude: true,
+            name: None,
+            secondary_rgb: None,
+            unknown_opcodes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn textured_floors_take_their_texture_average() {
+        let tex = SpriteSheet {
+            max_width: 0,
+            max_height: 0,
+            palette: vec![0, 0x3050a0],
+            sprites: Vec::new(),
+        };
+        let flos = [
+            flo(0, Some(0x00ff00), None),
+            flo(1, None, Some(7)),
+            flo(2, None, Some(9)),
+        ];
+        let floors = Floors::new(&flos, &BTreeMap::from([(7, tex.clone())]));
+        // Map ids are 1-based: 1 is flo 0.
+        assert_eq!(floors.colour(1), Some([0.0, 1.0, 0.0, 1.0]));
+        let want = split(rs2classic::texture::average_colour(
+            &tex,
+            DEFAULT_BRIGHTNESS,
+        ))
+        .map(|c| f32::from(c) / 255.0);
+        assert_eq!(floors.colour(2), Some([want[0], want[1], want[2], 1.0]));
+        // A texture that isn't loaded leaves the floor without a colour.
+        assert_eq!(floors.colour(3), None);
+        assert_eq!(floors.colour(0), None);
+        assert_eq!(floors.colour(4), None);
+    }
 
     #[test]
     fn world_tiles_stay_within_the_texture_limit() {
