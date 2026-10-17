@@ -5,7 +5,9 @@
 pub mod clip;
 pub mod creature;
 pub mod deform;
+pub mod floor;
 pub mod model;
+pub mod object;
 pub mod palette;
 pub mod pipeline;
 pub mod rig;

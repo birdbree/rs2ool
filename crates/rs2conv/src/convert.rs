@@ -228,6 +228,28 @@ impl<'c> Ctx<'c> {
         )
     }
 
+    pub fn objects(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
+        let (palette, _) = self.palette()?;
+        let list = match ids.id {
+            Some(id) => vec![id],
+            None => self.records.ids(RecordType::Loc)?,
+        };
+        let p = rs2convert::object::convert(&self.records, &list, &palette, self.crc)?;
+        for w in [&p.models, &p.objects, &p.kits, &p.strings] {
+            if !w.is_empty() {
+                write(w, dir)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn floors(&self, dir: &Path) -> anyhow::Result<()> {
+        let (palette, _) = self.palette()?;
+        let (materials, strings) = rs2convert::floor::packs(&self.records, &palette, self.crc)?;
+        write(&materials, dir)?;
+        write(&strings, dir)
+    }
+
     pub fn textures(&self, dir: &Path) -> anyhow::Result<()> {
         let atlas = TextureAtlas::build(&images(&self.records)?)?;
         write(&atlas.pack(self.crc)?, dir)?;

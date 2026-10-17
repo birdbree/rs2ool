@@ -63,6 +63,15 @@ enum Cmd {
         #[command(flatten)]
         out: Out,
     },
+    /// Convert floor types into floor materials and a string table.
+    Floors(Out),
+    /// Convert world objects: models, objects, wall kits and strings.
+    Objects {
+        #[command(flatten)]
+        ids: Ids,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -168,6 +177,8 @@ fn main() -> ExitCode {
                     all: _,
                     out,
                 } => ctx.and_then(|c| c.sprites(archive.as_deref(), &out.dir)),
+                Cmd::Objects { ids, out } => ctx.and_then(|c| c.objects(&ids, &out.dir)),
+                Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
                 Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
                 Cmd::Inspect { .. } | Cmd::Pack { .. } => unreachable!(),
             }

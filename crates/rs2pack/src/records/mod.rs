@@ -4,8 +4,10 @@
 pub mod anim;
 pub mod material;
 pub mod model;
+pub mod object;
 pub mod rig;
 pub mod sprite;
+pub mod strings;
 pub mod texture;
 
 use thiserror::Error;
