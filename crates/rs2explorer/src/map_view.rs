@@ -134,7 +134,7 @@ use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData, Sel, Selected};
 use crate::sources::{Source, Sources};
 use crate::ui::{Nav, ViewportRect};
-use crate::viewport3d::{Limits, OrbitCamera};
+use crate::viewport3d::{LightingMode, Limits, OrbitCamera, TextureMaterials};
 
 /// Everything a region scene needs, computed on the task pool.
 pub struct Built {
@@ -350,8 +350,17 @@ fn start(
     scene.pending = Some((id, task));
 }
 
+/// One part of a location's model: its texture (if any) and mesh.
+type TexturedMesh = (Option<u16>, Handle<Mesh>);
+
+/// A region location part drawn with a texture; its material is the
+/// texture's once the textures load.
+#[derive(Component)]
+pub struct RegionTexture(pub u16);
+
 fn spawn(
     mut scene: ResMut<RegionScene>,
+    textures: Res<TextureMaterials>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -403,37 +412,40 @@ fn spawn(
             scene.entities.push(e);
         }
     }
-    let handles: BTreeMap<(u16, u8), Handle<Mesh>> = built
+    let handles: BTreeMap<(u16, u8), Vec<TexturedMesh>> = built
         .models
         .iter()
         .map(|(k, m)| {
-            (
-                *k,
-                meshes.add(mesh::mesh_from_model(
-                    m,
-                    &m.vertices,
-                    Shading::Client(NPC_LIGHTING),
-                    false,
-                )),
-            )
+            let parts = mesh::model_parts(m, &m.vertices, Shading::Client(NPC_LIGHTING));
+            let parts = parts
+                .into_iter()
+                .map(|p| (p.texture, meshes.add(p.mesh)))
+                .collect();
+            (*k, parts)
         })
         .collect();
     for l in &built.region.locations {
-        let Some(h) = handles.get(&(l.id, l.kind)) else {
+        let Some(parts) = handles.get(&(l.id, l.kind)) else {
             continue;
         };
         let (pos, rot) = placement(&built.region, l, built.defs.get(&l.id));
         let t =
             Transform::from_translation(Vec3::from(pos)).with_rotation(Quat::from_rotation_y(-rot));
-        let e = commands
-            .spawn((
+        for (texture, h) in parts {
+            let material = texture
+                .and_then(|id| textures.get(id, LightingMode::Client))
+                .unwrap_or_else(|| unlit.clone());
+            let mut e = commands.spawn((
                 Mesh3d(h.clone()),
-                MeshMaterial3d(unlit.clone()),
+                MeshMaterial3d(material),
                 t,
                 RegionPart { plane: l.plane },
-            ))
-            .id();
-        scene.entities.push(e);
+            ));
+            if let Some(id) = texture {
+                e.insert(RegionTexture(*id));
+            }
+            scene.entities.push(e.id());
+        }
     }
     let half = REGION_SIZE as f32 * TILE / 2.0;
     let extent = REGION_SIZE as f32 * TILE;
@@ -455,6 +467,21 @@ fn spawn(
             far: 14_000.0,
             min_pitch: 0.08,
         });
+    }
+}
+
+/// Give textured parts spawned before the textures loaded their material.
+fn refresh_textures(
+    textures: Res<TextureMaterials>,
+    mut q: Query<(&RegionTexture, &mut MeshMaterial3d<StandardMaterial>)>,
+) {
+    if !textures.is_changed() {
+        return;
+    }
+    for (t, mut mat) in &mut q {
+        if let Some(h) = textures.get(t.0, LightingMode::Client) {
+            mat.0 = h;
+        }
     }
 }
 
@@ -785,7 +812,10 @@ fn world_window(
 pub fn plugin(app: &mut App) {
     app.init_resource::<RegionScene>()
         .init_resource::<WorldMap>()
-        .add_systems(Update, (start, spawn, plane_visibility).chain())
+        .add_systems(
+            Update,
+            (start, spawn, refresh_textures, plane_visibility).chain(),
+        )
         .add_systems(
             EguiPrimaryContextPass,
             (overlay, world_window).after(crate::ui::Layout),

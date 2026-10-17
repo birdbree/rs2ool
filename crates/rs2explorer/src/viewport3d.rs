@@ -13,6 +13,13 @@ use bevy_egui::{
     EguiContext, EguiGlobalSettings, EguiInput, EguiPreUpdateSet, PrimaryEguiContext, egui,
 };
 
+use bevy::asset::RenderAssetUsages;
+use bevy::ecs::system::SystemParam;
+use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use rs2render::texture::TexturePage;
+
+use crate::classic::ClassicView;
 use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::selection::{Loaded, LoadedData};
 use crate::ui::ViewportRect;
@@ -147,13 +154,23 @@ pub struct Overlays {
     pub bones: bool,
 }
 
-/// The model on screen: one mesh per lighting mode, built once, so
-/// switching mode swaps handles without rebuilding anything.
-#[derive(Resource, Default)]
-pub struct Shown {
-    pub entity: Option<Entity>,
+/// One drawn part of the shown model: the faces with one texture (or
+/// none), as a child entity of [`Shown::entity`].
+#[derive(Debug, Clone)]
+pub struct ShownPart {
+    pub entity: Entity,
+    pub texture: Option<u16>,
     pub client: Handle<Mesh>,
     pub real: Handle<Mesh>,
+}
+
+/// The model on screen: per part, one mesh per lighting mode, built once,
+/// so switching mode swaps handles without rebuilding anything.
+#[derive(Resource, Default)]
+pub struct Shown {
+    /// The parent of the parts' entities.
+    pub entity: Option<Entity>,
+    pub parts: Vec<ShownPart>,
     pub unlit: Handle<StandardMaterial>,
     pub lit: Handle<StandardMaterial>,
     /// Blended variants, only for models with per-face alpha: the blended
@@ -335,15 +352,28 @@ fn apply_orbit(mut q: Query<(&OrbitCamera, &mut Transform), Changed<OrbitCamera>
 
 /// Show the selected model (or the first model of a selected definition's
 /// list, decoded already by the selection) when it changes.
+/// What decides how the selection is drawn.
+#[derive(SystemParam)]
+struct ShowInputs<'w> {
+    loaded: Res<'w, Loaded>,
+    overlays: Res<'w, Overlays>,
+    mode: Res<'w, LightingMode>,
+    textures: Res<'w, TextureMaterials>,
+}
+
 fn show_selection(
-    loaded: Res<Loaded>,
-    overlays: Res<Overlays>,
-    mode: Res<LightingMode>,
+    input: ShowInputs,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut shown: ResMut<Shown>,
     mut cams: Query<&mut OrbitCamera>,
 ) {
+    let ShowInputs {
+        loaded,
+        overlays,
+        mode,
+        textures,
+    } = input;
     if !loaded.is_changed() && !overlays.is_changed() {
         return;
     }
@@ -354,16 +384,28 @@ fn show_selection(
     if let Some(e) = shown.entity.take() {
         commands.entity(e).despawn();
     }
+    shown.parts.clear();
     let Some(m) = preview else { return };
-    let client = mesh::mesh_from_model(
-        m,
-        &m.vertices,
-        Shading::Client(NPC_LIGHTING),
-        overlays.labels,
-    );
-    let real = mesh::mesh_from_model(m, &m.vertices, Shading::Raw, overlays.labels);
-    if let Some((lo, hi)) = mesh::bounds(&real) {
-        let (lo, hi) = (Vec3::from(lo), Vec3::from(hi));
+    let parts = |shading| {
+        if overlays.labels {
+            let mesh = mesh::mesh_from_model(m, &m.vertices, shading, true);
+            vec![mesh::Part {
+                texture: None,
+                mesh,
+            }]
+        } else {
+            mesh::model_parts(m, &m.vertices, shading)
+        }
+    };
+    // Both shadings group faces the same way, so the parts pair up.
+    let client = parts(Shading::Client(NPC_LIGHTING));
+    let real = parts(Shading::Raw);
+    let bounds = real
+        .iter()
+        .filter_map(|p| mesh::bounds(&p.mesh))
+        .map(|(lo, hi)| (Vec3::from(lo), Vec3::from(hi)))
+        .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)));
+    if let Some((lo, hi)) = bounds {
         for mut o in &mut cams {
             o.target = (lo + hi) / 2.0;
             o.distance = ((hi - lo).length() * 1.6).max(100.0);
@@ -371,47 +413,170 @@ fn show_selection(
             o.bound(Limits::around(lo, hi, margin, -PITCH_LIMIT));
         }
     }
-    shown.client = meshes.add(client);
-    shown.real = meshes.add(real);
     shown.labels = overlays.labels;
     shown.blend = m
         .face_alphas
         .as_ref()
         .is_some_and(|a| a.iter().any(|&x| x != 0));
-    let (mesh, mat) = handles(&shown, *mode);
-    shown.entity = Some(
-        commands
-            .spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY))
-            .id(),
-    );
+    let parent = commands
+        .spawn((Transform::IDENTITY, Visibility::default()))
+        .id();
+    for (c, r) in client.into_iter().zip(real) {
+        let mut part = ShownPart {
+            entity: Entity::PLACEHOLDER,
+            texture: c.texture,
+            client: meshes.add(c.mesh),
+            real: meshes.add(r.mesh),
+        };
+        let (mesh, mat) = handles(&shown, &part, *mode, &textures);
+        part.entity = commands
+            .spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(mat),
+                Transform::IDENTITY,
+                ChildOf(parent),
+            ))
+            .id();
+        shown.parts.push(part);
+    }
+    shown.entity = Some(parent);
 }
 
-/// The mesh and material for a lighting mode.
-pub fn handles(shown: &Shown, mode: LightingMode) -> (Handle<Mesh>, Handle<StandardMaterial>) {
+/// A part's mesh and material for a lighting mode: its texture's material
+/// once the textures are loaded, otherwise the plain one.
+pub fn handles(
+    shown: &Shown,
+    part: &ShownPart,
+    mode: LightingMode,
+    textures: &TextureMaterials,
+) -> (Handle<Mesh>, Handle<StandardMaterial>) {
     let (mesh, opaque, blend) = match mode {
-        LightingMode::Client => (&shown.client, &shown.unlit, &shown.unlit_blend),
-        LightingMode::Real => (&shown.real, &shown.lit, &shown.lit_blend),
+        LightingMode::Client => (&part.client, &shown.unlit, &shown.unlit_blend),
+        LightingMode::Real => (&part.real, &shown.lit, &shown.lit_blend),
     };
-    (
-        mesh.clone(),
-        if shown.blend { blend } else { opaque }.clone(),
-    )
+    let plain = || if shown.blend { blend } else { opaque }.clone();
+    let material = part
+        .texture
+        .and_then(|t| textures.get(t, mode))
+        .unwrap_or_else(plain);
+    (mesh.clone(), material)
 }
 
+/// Swap the parts' meshes and materials when the lighting mode changes or
+/// the textures finish loading.
 fn switch_lighting(
     mode: Res<LightingMode>,
     shown: Res<Shown>,
+    textures: Res<TextureMaterials>,
     mut q: Query<(&mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
-    if !mode.is_changed() {
+    if !mode.is_changed() && !textures.is_changed() {
         return;
     }
-    let Some(e) = shown.entity else { return };
-    if let Ok((mut m, mut mat)) = q.get_mut(e) {
-        let (mesh, material) = handles(&shown, *mode);
-        m.0 = mesh;
-        mat.0 = material;
+    for part in &shown.parts {
+        if let Ok((mut m, mut mat)) = q.get_mut(part.entity) {
+            let (mesh, material) = handles(&shown, part, *mode, &textures);
+            m.0 = mesh;
+            mat.0 = material;
+        }
     }
+}
+
+/// A material per texture and lighting mode, built once the classic view
+/// has loaded the textures. Empty until then.
+#[derive(Resource, Default)]
+pub struct TextureMaterials {
+    pub unlit: Vec<Option<Handle<StandardMaterial>>>,
+    pub lit: Vec<Option<Handle<StandardMaterial>>>,
+}
+
+impl TextureMaterials {
+    pub fn get(&self, id: u16, mode: LightingMode) -> Option<Handle<StandardMaterial>> {
+        let list = match mode {
+            LightingMode::Client => &self.unlit,
+            LightingMode::Real => &self.lit,
+        };
+        list.get(usize::from(id)).cloned().flatten()
+    }
+}
+
+/// A texture page's full-brightness copy as an image, sampled the way the
+/// client samples it: u clamped, v repeating, nearest texel. Zero texels
+/// are transparent unless the page is opaque.
+pub fn texture_image(page: &TexturePage) -> Image {
+    let data = page.texels[..TEXTURE_SIZE * TEXTURE_SIZE]
+        .iter()
+        .flat_map(|&t| {
+            let [_, r, g, b] = t.to_be_bytes();
+            let a = if page.opaque || t != 0 { 255 } else { 0 };
+            [r, g, b, a]
+        })
+        .collect();
+    let mut image = Image::new(
+        Extent3d {
+            width: TEXTURE_SIZE as u32,
+            height: TEXTURE_SIZE as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::Repeat,
+        ..ImageSamplerDescriptor::nearest()
+    });
+    image
+}
+
+const TEXTURE_SIZE: usize = 128;
+
+fn build_texture_materials(
+    view: Option<Res<ClassicView>>,
+    mut built: Local<bool>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut out: ResMut<TextureMaterials>,
+) {
+    let Some(textures) = view
+        .as_ref()
+        .and_then(|v| v.textures.as_ref())
+        .filter(|_| !*built)
+    else {
+        return;
+    };
+    *built = true;
+    let (mut unlit, mut lit) = (Vec::new(), Vec::new());
+    for page in &textures.pages {
+        let Some(page) = page else {
+            unlit.push(None);
+            lit.push(None);
+            continue;
+        };
+        let image = images.add(texture_image(page));
+        let base = StandardMaterial {
+            base_color_texture: Some(image),
+            alpha_mode: if page.opaque {
+                AlphaMode::Opaque
+            } else {
+                AlphaMode::Mask(0.5)
+            },
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        };
+        lit.push(Some(materials.add(StandardMaterial {
+            perceptual_roughness: 1.0,
+            ..base.clone()
+        })));
+        unlit.push(Some(materials.add(StandardMaterial {
+            unlit: true,
+            ..base
+        })));
+    }
+    *out = TextureMaterials { unlit, lit };
 }
 
 /// A 128-unit grid floor, a 128 × 240 × 128 box (one tile, one storey) and
@@ -463,6 +628,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<LightingMode>()
         .init_resource::<Overlays>()
         .init_resource::<Shown>()
+        .init_resource::<TextureMaterials>()
         .add_systems(Startup, setup)
         .add_systems(
             PreUpdate,
@@ -477,6 +643,7 @@ pub fn plugin(app: &mut App) {
                 orbit_keys.run_if(not(egui_wants_any_keyboard_input)),
                 orbit_mouse.run_if(not(egui_wants_any_pointer_input)),
                 apply_orbit,
+                build_texture_materials,
                 show_selection,
                 switch_lighting,
                 furniture,

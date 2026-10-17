@@ -202,3 +202,167 @@ pub fn bounds(mesh: &Mesh) -> Option<([f32; 3], [f32; 3])> {
         (lo, hi)
     }))
 }
+
+/// One part of a model: the faces drawn with one texture (or none).
+pub struct Part {
+    /// `None` for untextured faces.
+    pub texture: Option<u16>,
+    pub mesh: Mesh,
+}
+
+/// The client's shade for a textured face as a brightness factor: the
+/// shade picks one of four darker texture copies (1, ⅞, ¾, ⅝) and halves
+/// again past 64.
+pub fn texture_shade(shade: i32) -> f32 {
+    let level = [1.0, 0.875, 0.75, 0.625][((shade >> 4) & 3) as usize];
+    if shade >= 64 { level * 0.5 } else { level }
+}
+
+/// Texture coordinates for a textured face's corners from its P/M/N
+/// triangle: u along M − P and v along N − P (not clamped; the material
+/// clamps u and repeats v, as the client does).
+pub fn texture_uvs(corners: [[i32; 3]; 3], p: [i32; 3], m: [i32; 3], n: [i32; 3]) -> [[f32; 2]; 3] {
+    let f = |v: [i32; 3]| v.map(|c| c as f64);
+    let (pp, e1, e2) = (f(p), f(m), f(n));
+    let e1 = [e1[0] - pp[0], e1[1] - pp[1], e1[2] - pp[2]];
+    let e2 = [e2[0] - pp[0], e2[1] - pp[1], e2[2] - pp[2]];
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (a, b, c) = (dot(e1, e1), dot(e1, e2), dot(e2, e2));
+    let det = a * c - b * b;
+    corners.map(|v| {
+        let d = f(v);
+        let d = [d[0] - pp[0], d[1] - pp[1], d[2] - pp[2]];
+        let (d1, d2) = (dot(d, e1), dot(d, e2));
+        if det.abs() < 1e-9 {
+            [0.0, 0.0]
+        } else {
+            [
+                ((c * d1 - b * d2) / det) as f32,
+                ((a * d2 - b * d1) / det) as f32,
+            ]
+        }
+    })
+}
+
+/// A model split into parts by texture, with UVs on textured parts.
+pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Part> {
+    let mut groups: std::collections::BTreeMap<Option<u16>, Buffers> = Default::default();
+    for (i, f) in m.faces.iter().enumerate() {
+        let p = f.map(|v| vertices[usize::from(v)]);
+        let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+        let nrm = flat_normal(p.map(|q| [q[0] as f32, -q[1] as f32, q[2] as f32]));
+        let ty = m.face_types.as_ref().map_or(0, |t| t[i]);
+        let triple = m
+            .textured_faces
+            .get(usize::from(ty >> 2))
+            .filter(|_| ty & 2 != 0);
+        let alpha = m
+            .face_alphas
+            .as_ref()
+            .map_or(1.0, |a| 1.0 - f32::from(a[i]) / 255.0);
+        let (key, colour, uv, alpha) = match triple {
+            Some(&[tp, tm, tn]) if m.face_colours[i] < 50 => {
+                let at = |v: u16| vertices[usize::from(v)];
+                let shade = match shading {
+                    Shading::Raw => 1.0,
+                    Shading::Client(l) => {
+                        texture_shade(127 - face_lightness(normal, &l).clamp(0, 127))
+                    }
+                };
+                // The client draws textured faces without face alpha.
+                (
+                    Some(m.face_colours[i]),
+                    [shade; 3],
+                    texture_uvs(p, at(tp), at(tm), at(tn)),
+                    1.0,
+                )
+            }
+            _ => {
+                let hsl = m.face_colours[i];
+                let c = match shading {
+                    Shading::Raw => rgb(hsl_to_rgb(hsl)),
+                    Shading::Client(l) => rgb(hsl_to_rgb(lit_hsl(hsl, face_lightness(normal, &l)))),
+                };
+                (None, c, [[0.0; 2]; 3], alpha)
+            }
+        };
+        let g = groups.entry(key).or_default();
+        for (corner, q) in p.iter().enumerate() {
+            g.pos.push([q[0] as f32, -q[1] as f32, q[2] as f32]);
+            g.normals.push(nrm);
+            g.colors.push([colour[0], colour[1], colour[2], alpha]);
+            g.uvs.push(uv[corner]);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(texture, g)| Part {
+            texture,
+            mesh: build(g.pos, g.normals, g.colors)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs),
+        })
+        .collect()
+}
+
+/// Per-corner vertex data of one part while it is collected.
+#[derive(Default)]
+struct Buffers {
+    pos: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+    uvs: Vec<[f32; 2]>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn texture_uvs_put_m_along_u_and_n_along_v() {
+        let (p, m, n) = ([0, 0, 0], [128, 0, 0], [0, 0, 256]);
+        let uv = texture_uvs([p, m, [64, 0, 512]], p, m, n);
+        assert_eq!(uv[0], [0.0, 0.0]);
+        assert_eq!(uv[1], [1.0, 0.0]);
+        // Past N, v runs on so the repeating sampler wraps it.
+        assert_eq!(uv[2], [0.5, 2.0]);
+    }
+
+    #[test]
+    fn texture_shade_matches_the_four_copies() {
+        assert_eq!(texture_shade(0), 1.0);
+        assert_eq!(texture_shade(16), 0.875);
+        assert_eq!(texture_shade(63), 0.625);
+        assert_eq!(texture_shade(64), 0.5);
+    }
+
+    #[test]
+    fn parts_split_faces_by_texture() {
+        let m = Model {
+            vertices: vec![[0, 0, 0], [100, 0, 0], [0, 0, 100], [100, 0, 100]],
+            faces: vec![[0, 1, 2], [1, 3, 2], [0, 2, 1]],
+            face_colours: vec![7, 1000, 7],
+            face_types: Some(vec![2, 0, 3]),
+            face_alphas: Some(vec![128, 128, 128]),
+            textured_faces: vec![[0, 1, 2]],
+            priority: 0,
+            face_priorities: None,
+            face_labels: None,
+            vertex_labels: None,
+        };
+        let parts = model_parts(&m, &m.vertices, Shading::Client(NPC_LIGHTING));
+        let keys: Vec<_> = parts.iter().map(|p| p.texture).collect();
+        assert_eq!(keys, [None, Some(7)]);
+        assert_eq!(parts[1].mesh.count_vertices(), 6);
+        let Some(VertexAttributeValues::Float32x4(c)) =
+            parts[1].mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("vertex colours");
+        };
+        assert!(
+            c.iter().all(|c| c[3] == 1.0),
+            "textured faces ignore face alpha"
+        );
+        assert!(parts[1].mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some());
+    }
+}

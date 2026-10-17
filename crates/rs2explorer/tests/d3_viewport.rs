@@ -8,7 +8,9 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use rs2cache::{Cache, Records};
 use rs2explorer::mesh::{self, NPC_LIGHTING, Shading};
-use rs2explorer::viewport3d::{self, LightingMode, Limits, OrbitCamera, Shown};
+use rs2explorer::viewport3d::{
+    self, LightingMode, Limits, OrbitCamera, Shown, ShownPart, TextureMaterials,
+};
 
 #[test]
 fn man_mesh_is_upright_with_a_vertex_per_corner() {
@@ -116,21 +118,45 @@ fn wasd_flies_and_the_camera_stays_bounded() {
 #[test]
 fn lighting_switch_reuses_meshes() {
     let mut meshes = Assets::<Mesh>::default();
+    let mut materials = Assets::<StandardMaterial>::default();
     let empty = || {
         Mesh::new(
             bevy::mesh::PrimitiveTopology::TriangleList,
             Default::default(),
         )
     };
-    let shown = Shown {
+    let mut part = |texture| ShownPart {
+        entity: Entity::PLACEHOLDER,
+        texture,
         client: meshes.add(empty()),
         real: meshes.add(empty()),
+    };
+    let (plain, textured) = (part(None), part(Some(3)));
+    let shown = Shown {
+        unlit: materials.add(StandardMaterial::default()),
+        lit: materials.add(StandardMaterial::default()),
         ..Default::default()
     };
     let count = meshes.len();
-    let (a, _) = viewport3d::handles(&shown, LightingMode::Client);
-    let (b, _) = viewport3d::handles(&shown, LightingMode::Real);
+    let none = TextureMaterials::default();
+    let (a, _) = viewport3d::handles(&shown, &plain, LightingMode::Client, &none);
+    let (b, _) = viewport3d::handles(&shown, &plain, LightingMode::Real, &none);
     assert_ne!(a, b);
-    assert_eq!((a, b), (shown.client.clone(), shown.real.clone()));
+    assert_eq!((a, b), (plain.client.clone(), plain.real.clone()));
     assert_eq!(meshes.len(), count);
+
+    // A textured part uses the plain material until its texture loads.
+    let (_, before) = viewport3d::handles(&shown, &textured, LightingMode::Client, &none);
+    assert_eq!(before, shown.unlit);
+    let loaded = TextureMaterials {
+        unlit: vec![
+            None,
+            None,
+            None,
+            Some(materials.add(StandardMaterial::default())),
+        ],
+        lit: Vec::new(),
+    };
+    let (_, after) = viewport3d::handles(&shown, &textured, LightingMode::Client, &loaded);
+    assert_eq!(Some(after), loaded.unlit[3].clone());
 }
