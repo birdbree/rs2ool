@@ -95,7 +95,7 @@ A bone's pivot is the centroid of its vertices in the rest mesh (scale baked in)
 | --- | --- |
 | `nameHash` | FNV-1a (32-bit, offset `0x811c9dc5`, prime `0x01000193`) of the bone name's bytes |
 | `parent` | parent bone index, 255 for the root |
-| `restPos` | `to_pack(pivot − parent pivot)`: y and z negated, cast to `i16` without a range check |
+| `restPos` | `to_pack(pivot − parent pivot)`: y and z negated, as `i16`; a bone further from its parent than an `i16` reaches is an error |
 | `restRot` | `(0, 0, 0)` |
 | `labelBone` | as above |
 
