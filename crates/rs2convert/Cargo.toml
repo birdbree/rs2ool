@@ -10,6 +10,7 @@ publish.workspace = true
 rs2cache.workspace = true
 rs2intermediate.workspace = true
 rs2pack.workspace = true
+crc32fast.workspace = true
 glam.workspace = true
 rayon.workspace = true
 serde.workspace = true

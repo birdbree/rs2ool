@@ -85,3 +85,104 @@ mod tests {
         }
     }
 }
+
+/// Squared Euclidean distance between two colours in RGB.
+pub fn rgb_distance2(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (0..3).map(|i| (a[i] - b[i]).powi(2)).sum()
+}
+
+/// Euclidean distance between two colours in RGB units.
+pub fn rgb_distance(a: [u8; 3], b: [u8; 3]) -> f64 {
+    rgb_distance2(a.map(f64::from), b.map(f64::from)).sqrt()
+}
+
+/// Index of the entry of `palette` nearest `c` in RGB.
+pub fn nearest(palette: &[[f64; 3]], c: [f64; 3]) -> usize {
+    let mut best = (0, f64::INFINITY);
+    for (i, p) in palette.iter().enumerate() {
+        let d = rgb_distance2(c, *p);
+        if d < best.1 {
+            best = (i, d);
+        }
+    }
+    best.0
+}
+
+/// Weighted k-means in RGB. `points` are `(colour, weight)`; the result has
+/// at most `k` entries (fewer when there are fewer points). Deterministic:
+/// seeded at the heaviest point, then by greatest `distance² × √weight`, then
+/// Lloyd iterations until assignments stop changing or `iterations` runs
+/// out.
+pub fn kmeans(points: &[([f64; 3], f64)], k: usize, iterations: usize) -> Vec<[f64; 3]> {
+    if points.len() <= k {
+        return points.iter().map(|p| p.0).collect();
+    }
+    let heaviest = (0..points.len())
+        .max_by(|&a, &b| points[a].1.total_cmp(&points[b].1).then(b.cmp(&a)))
+        .unwrap_or(0);
+    let mut centres = vec![points[heaviest].0];
+    let mut nearest_d: Vec<f64> = points
+        .iter()
+        .map(|p| rgb_distance2(p.0, centres[0]))
+        .collect();
+    while centres.len() < k {
+        let mut next = (0, -1.0);
+        for (i, (d, p)) in nearest_d.iter().zip(points).enumerate() {
+            let score = d * p.1.sqrt();
+            if score > next.1 {
+                next = (i, score);
+            }
+        }
+        let c = points[next.0].0;
+        centres.push(c);
+        for (d, p) in nearest_d.iter_mut().zip(points) {
+            *d = d.min(rgb_distance2(p.0, c));
+        }
+    }
+    let mut assign = vec![usize::MAX; points.len()];
+    for _ in 0..iterations {
+        let fresh: Vec<usize> = points.iter().map(|p| nearest(&centres, p.0)).collect();
+        if fresh == assign {
+            break;
+        }
+        assign = fresh;
+        let mut sums = vec![[0.0f64; 4]; centres.len()];
+        for (p, &a) in points.iter().zip(&assign) {
+            let s = &mut sums[a];
+            for (sum, v) in s.iter_mut().zip(p.0) {
+                *sum += v * p.1;
+            }
+            s[3] += p.1;
+        }
+        for (c, s) in centres.iter_mut().zip(sums) {
+            if s[3] > 0.0 {
+                *c = [s[0] / s[3], s[1] / s[3], s[2] / s[3]];
+            }
+        }
+    }
+    centres
+}
+
+#[cfg(test)]
+mod quantise_tests {
+    use super::*;
+
+    #[test]
+    fn kmeans_is_deterministic_and_separates_clusters() {
+        let mut pts = Vec::new();
+        for i in 0..50 {
+            pts.push(([200.0 + f64::from(i % 5), 10.0, 10.0], 1.0));
+            pts.push(([10.0, 10.0, 200.0 + f64::from(i % 5)], 2.0));
+        }
+        let a = kmeans(&pts, 2, 20);
+        assert_eq!(a, kmeans(&pts, 2, 20));
+        assert!(
+            a.iter().any(|c| c[0] > 190.0) && a.iter().any(|c| c[2] > 190.0),
+            "{a:?}"
+        );
+        assert_eq!(
+            nearest(&a, [190.0, 0.0, 0.0]),
+            a.iter().position(|c| c[0] > 190.0).unwrap()
+        );
+    }
+}

@@ -6,7 +6,7 @@
 //! vertices      vertexCount × {x, y, z i16}          (y up)
 //! faces         faceCount × {a, b, c}                (u8 when vertexCount < 256, else u16)
 //! materialSlot  faceCount × u8
-//! paletteIndex  faceCount × u8
+//! paletteIndex  faceCount × u16
 //! [UV]          faceCount × {u0, v0, u1, v1, u2, v2 u8}
 //! [ALPHA]       faceCount × u8                       (255 = opaque)
 //! [PRIORITY]    faceCount × u8                       (draw-order render flag)
@@ -39,7 +39,7 @@ pub struct PackModel {
     pub vertices: Vec<[i16; 3]>,
     pub faces: Vec<[u16; 3]>,
     pub material_slots: Vec<u8>,
-    pub palette_indices: Vec<u8>,
+    pub palette_indices: Vec<u16>,
     pub uvs: Option<Vec<[u8; 6]>>,
     pub alphas: Option<Vec<u8>>,
     pub priorities: Option<Vec<u8>>,
@@ -113,7 +113,10 @@ impl PackModel {
                 }
             }
         }
-        w.bytes(&self.material_slots).bytes(&self.palette_indices);
+        w.bytes(&self.material_slots);
+        for &p in &self.palette_indices {
+            w.u16(p);
+        }
         for uv in self.uvs.iter().flatten() {
             w.bytes(uv);
         }
@@ -152,7 +155,7 @@ impl PackModel {
             m.faces.push(face);
         }
         m.material_slots = r.bytes(f)?.to_vec();
-        m.palette_indices = r.bytes(f)?.to_vec();
+        m.palette_indices = (0..f).map(|_| r.u16()).collect::<Result<_, _>>()?;
         if fl & flags::UV != 0 {
             m.uvs = Some(
                 (0..f)
@@ -195,7 +198,7 @@ mod tests {
         PackModel {
             vertices: vs,
             material_slots: vec![0; n],
-            palette_indices: (0..n).map(|i| i as u8).collect(),
+            palette_indices: (0..n).map(|i| i as u16 * 3).collect(),
             uvs: Some(vec![[1, 2, 3, 4, 5, 6]; n]),
             alphas: Some(vec![200; n]),
             priorities: None,

@@ -2,6 +2,7 @@
 //!
 //! Exit codes: 0 ok, 1 usage, 2 cache or I/O error, 3 partial failure.
 
+mod convert;
 mod loose;
 
 use std::path::PathBuf;
@@ -24,6 +25,11 @@ struct Cli {
 enum Cmd {
     /// Print a pack's manifest and index.
     Inspect { pack: PathBuf },
+    /// Build the client palette from every model colour and write the
+    /// materials pack (palette and default material) plus palette.png.
+    Materials(Out),
+    /// Pack the 50 textures into an atlas, with a material per texture.
+    Textures(Out),
     /// Bake a directory of loose records (`pack.json` plus `<id>.bin`) into
     /// a hashed pack.
     Pack {
@@ -32,6 +38,13 @@ enum Cmd {
         #[arg(short = 'o', long = "out")]
         out: PathBuf,
     },
+}
+
+#[derive(clap::Args)]
+pub struct Out {
+    /// Pack directory; packs go to <dir>/<kind>/<hash>.pack.
+    #[arg(short = 'o', long = "out")]
+    pub dir: PathBuf,
 }
 
 fn inspect(path: &std::path::Path) -> anyhow::Result<()> {
@@ -61,10 +74,28 @@ fn main() -> ExitCode {
             return ExitCode::from(code);
         }
     };
-    let _ = &cli.cache;
     let result = match cli.cmd {
         Cmd::Inspect { pack } => inspect(&pack),
         Cmd::Pack { dir, out } => loose::bake(&dir, &out).map(|p| println!("{}", p.display())),
+        cmd => {
+            let Some(dir) = cli.cache else {
+                eprintln!("error: no cache directory; pass --cache <dir> or set RS2_CACHE");
+                return ExitCode::from(1);
+            };
+            let cache = match rs2cache::Cache::open(&dir) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            let ctx = convert::Ctx::new(&cache);
+            match cmd {
+                Cmd::Materials(o) => ctx.and_then(|c| c.materials(&o.dir)),
+                Cmd::Textures(o) => ctx.and_then(|c| c.textures(&o.dir)),
+                Cmd::Inspect { .. } | Cmd::Pack { .. } => unreachable!(),
+            }
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

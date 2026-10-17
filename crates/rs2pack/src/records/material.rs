@@ -1,7 +1,7 @@
 //! `materials` records.
 //!
-//! A material is 10 bytes: `{id u16, mode u8, texId u16, period u8,
-//! palette u8, roughness u8, flags u8, alpha u8}`. The palette itself is
+//! A material is 11 bytes: `{id u16, mode u8, texId u16, period u8,
+//! palette u16, roughness u8, flags u8, alpha u8}`. The palette itself is
 //! stored in the same pack as record [`PALETTE_ID`]: `count u16` then
 //! `count × {r, g, b u8}`.
 
@@ -32,7 +32,7 @@ pub struct Material {
     pub texture: u16,
     /// Texture repeat period in tiles.
     pub period: u8,
-    pub palette: u8,
+    pub palette: u16,
     pub roughness: u8,
     pub flags: u8,
     pub alpha: u8,
@@ -45,7 +45,7 @@ impl Material {
             .u8(self.mode)
             .u16(self.texture)
             .u8(self.period)
-            .u8(self.palette)
+            .u16(self.palette)
             .u8(self.roughness)
             .u8(self.flags)
             .u8(self.alpha);
@@ -59,7 +59,7 @@ impl Material {
             mode: r.u8()?,
             texture: r.u16()?,
             period: r.u8()?,
-            palette: r.u8()?,
+            palette: r.u16()?,
             roughness: r.u8()?,
             flags: r.u8()?,
             alpha: r.u8()?,
@@ -94,7 +94,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ten_bytes_and_round_trip() {
+    fn eleven_bytes_and_round_trip() {
         let m = Material {
             id: 300,
             mode: mode::TEXTURE,
@@ -106,7 +106,7 @@ mod tests {
             alpha: 128,
         };
         let b = m.encode();
-        assert_eq!(b.len(), 10);
+        assert_eq!(b.len(), 11);
         assert_eq!(Material::decode(&b).unwrap(), m);
         let p = vec![[1, 2, 3], [250, 251, 252]];
         assert_eq!(decode_palette(&encode_palette(&p)).unwrap(), p);

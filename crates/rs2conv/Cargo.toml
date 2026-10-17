@@ -13,6 +13,7 @@ rs2pack.workspace = true
 rs2convert.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
