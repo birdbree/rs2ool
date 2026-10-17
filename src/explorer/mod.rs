@@ -41,10 +41,12 @@
 //! - [`classic`]: the `rs2classic` software renderer view.
 //! - [`map_view`]: map regions, the region overlay, and the world map.
 //! - [`playback`]: the animation clock and posing.
+//! - [`bones`]: the bone overlay for converted creatures.
 //! - [`kit`]: the player kit and its equipment slots.
 
 pub mod actions;
 pub mod app;
+pub mod bones;
 pub mod classic;
 pub mod inspector;
 pub mod jobs;

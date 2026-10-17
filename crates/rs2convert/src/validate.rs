@@ -112,14 +112,25 @@ pub fn skinned(model: &PackModel, rig: &Rig, clip: &Clip, t: u8) -> Vec<[f32; 3]
     model
         .vertices
         .iter()
-        .enumerate()
-        .map(|(v, p)| {
-            let label = model.labels.as_ref().map_or(0, |l| l[v]);
-            let b = rig.label_bone[usize::from(label)];
-            let b = if b == UNBOUND { 0 } else { usize::from(b) };
+        .zip(vertex_bones(model, rig))
+        .map(|(p, b)| {
             let rest = DVec3::new(p[0].into(), p[1].into(), p[2].into());
             let q = world[b].transform_point3(rest - pivots[b]);
             [q.x as f32, q.y as f32, q.z as f32]
+        })
+        .collect()
+}
+
+/// The bone each of a pack model's vertices follows: the one its label
+/// binds to, or bone 0 when it's unbound or unlabelled.
+pub fn vertex_bones(model: &PackModel, rig: &Rig) -> Vec<usize> {
+    (0..model.vertices.len())
+        .map(|v| {
+            let label = model.labels.as_ref().map_or(0, |l| l[v]);
+            match rig.label_bone[usize::from(label)] {
+                UNBOUND => 0,
+                b => usize::from(b),
+            }
         })
         .collect()
 }

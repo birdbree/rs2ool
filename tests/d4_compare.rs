@@ -15,11 +15,13 @@ use rs2ool::explorer::renderable::{Renderable, find_match};
 use rs2ool::explorer::selection::{CompareSelected, Sel, Selected, load};
 use rs2ool::explorer::sources::{Source, Sources, open_cache, open_pack};
 use rs2ool::explorer::ui::ViewportRect;
-use rs2ool::explorer::viewport3d::{self, Compare, ComparePane, OrbitCamera, renderable_parts};
+use rs2ool::explorer::viewport3d::{
+    self, Compare, ComparePane, OrbitCamera, VertexColours, renderable_parts,
+};
 
 /// The union of a renderable's raw-shaded part bounds.
 fn bounds(r: &Renderable) -> (Vec3, Vec3) {
-    let (_, real, _) = renderable_parts(r, false);
+    let (_, real, _) = renderable_parts(r, VertexColours::Faces);
     real.iter()
         .filter_map(|p| mesh::bounds(&p.mesh))
         .map(|(lo, hi)| (Vec3::from(lo), Vec3::from(hi)))

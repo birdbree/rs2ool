@@ -192,13 +192,27 @@ pub enum LightingMode {
     Real,
 }
 
+/// What the modern renderer colours vertices by (**View › Vertex colours**).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VertexColours {
+    /// The faces' own colours.
+    #[default]
+    Faces,
+    /// Each vertex's label.
+    Labels,
+    /// The bone each vertex follows, in the bone overlay's colours. Only
+    /// converted creatures have bones; anything else keeps its face
+    /// colours.
+    Bones,
+}
+
 /// Overlay toggles.
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct Overlays {
-    /// Colour each vertex by its label instead of the face colour
-    /// (**View › Colour by vertex label**).
-    pub labels: bool,
-    /// Meant for a bone overlay; nothing sets or reads it yet.
+    /// What vertices are coloured by.
+    pub colours: VertexColours,
+    /// Draw a converted creature's bones (**View › Bones**); see
+    /// [`bones`](crate::explorer::bones).
     pub bones: bool,
 }
 
@@ -550,6 +564,7 @@ fn show_selection(
     mut meshes: ResMut<Assets<Mesh>>,
     mut shown: ResMut<Shown>,
     mut cams: Query<&mut OrbitCamera>,
+    mut colours: Local<Option<VertexColours>>,
 ) {
     let ShowInputs {
         loaded,
@@ -562,20 +577,25 @@ fn show_selection(
     let mut cx = ShowContext {
         commands: &mut commands,
         meshes: &mut meshes,
-        labels: overlays.labels,
+        colours: overlays.colours,
         mode: *mode,
         textures: &textures,
     };
-    // Note an overlay change also reframes the camera; it rebuilds the
-    // meshes either way.
-    if (loaded.is_changed() || overlays.is_changed())
-        && let Some(bounds) = cx.show(&mut shown, false, loaded.renderable.as_deref())
-    {
-        for mut o in &mut cams {
-            o.frame(bounds);
+    // Only a change of vertex colours rebuilds the meshes; the bone overlay
+    // is drawn on top of them.
+    let recolour = colours.replace(overlays.colours) != Some(overlays.colours);
+    if loaded.is_changed() || recolour {
+        let bounds = cx.show(&mut shown, false, loaded.renderable.as_deref());
+        // Only a new model recentres the camera.
+        if loaded.is_changed()
+            && let Some(bounds) = bounds
+        {
+            for mut o in &mut cams {
+                o.frame(bounds);
+            }
         }
     }
-    if right.is_changed() || overlays.is_changed() || compare.is_changed() {
+    if right.is_changed() || recolour || compare.is_changed() {
         let r = right.renderable.as_deref().filter(|_| compare.enabled);
         cx.show(&mut shown, true, r);
     }
@@ -585,7 +605,7 @@ fn show_selection(
 struct ShowContext<'a, 'w, 's> {
     commands: &'a mut Commands<'w, 's>,
     meshes: &'a mut Assets<Mesh>,
-    labels: bool,
+    colours: VertexColours,
     mode: LightingMode,
     textures: &'a TextureMaterials,
 }
@@ -607,7 +627,7 @@ impl ShowContext<'_, '_, '_> {
             self.commands.entity(e).despawn();
         }
         slot.parts.clear();
-        let (client, real, blend) = renderable_parts(r?, self.labels);
+        let (client, real, blend) = renderable_parts(r?, self.colours);
         // Union of every part's bounds.
         let bounds = real
             .iter()
@@ -657,8 +677,11 @@ impl ShowContext<'_, '_, '_> {
 }
 
 /// A renderable's parts at rest; see [`posed_parts`].
-pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
-    posed_parts(r, labels, Pose::Rest)
+pub fn renderable_parts(
+    r: &Renderable,
+    colours: VertexColours,
+) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
+    posed_parts(r, colours, Pose::Rest)
 }
 
 /// Which vertices to draw a renderable with.
@@ -677,12 +700,12 @@ pub enum Pose<'a> {
 /// alpha. A pose that doesn't fit the renderable (wrong kind, or a vertex
 /// count that doesn't match) draws it at rest.
 ///
-/// With `labels` a cache model comes back as one untextured part coloured
-/// by vertex label. Pack models are always one part. 2D renderables give
-/// nothing.
+/// Coloured by [`VertexColours::Labels`], a cache model comes back as one
+/// untextured part. Pack models are always one part. Only converted
+/// creatures can be coloured by bone. 2D renderables give nothing.
 pub fn posed_parts(
     r: &Renderable,
-    labels: bool,
+    colours: VertexColours,
     pose: Pose,
 ) -> (Vec<mesh::Part>, Vec<mesh::Part>, bool) {
     match r {
@@ -694,7 +717,7 @@ pub fn posed_parts(
                 _ => &m.vertices,
             };
             let parts = |shading| {
-                if labels {
+                if colours == VertexColours::Labels {
                     let mesh = mesh::mesh_from_model(m, verts, shading, true);
                     vec![mesh::Part {
                         texture: None,
@@ -731,10 +754,26 @@ pub fn posed_parts(
                 _ => model,
             };
             let palette = palette.as_deref().map(Vec::as_slice);
+            let tags: Option<Vec<u8>> = match (colours, r) {
+                (VertexColours::Labels, _) => Some(
+                    model
+                        .labels
+                        .clone()
+                        .unwrap_or_else(|| vec![0; model.vertices.len()]),
+                ),
+                // A rig has at most 254 bones, so an index fits a u8.
+                (VertexColours::Bones, Renderable::PackCreature { rig, .. }) => Some(
+                    rs2convert::validate::vertex_bones(model, rig)
+                        .into_iter()
+                        .map(|b| b as u8)
+                        .collect(),
+                ),
+                _ => None,
+            };
             let part = |shading| {
                 vec![mesh::Part {
                     texture: None,
-                    mesh: mesh::mesh_from_pack_model(model, palette, shading),
+                    mesh: mesh::mesh_from_pack_model(model, palette, shading, tags.as_deref()),
                 }]
             };
             // Pack alpha 255 is opaque.

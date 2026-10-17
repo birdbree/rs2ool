@@ -1,14 +1,17 @@
 //! An NPC's walk sequence plays at the original client's speed (frame
 //! delays at 20 ms per cycle), and its converted version plays the same
 //! clip in step: at every frame the skinned pack vertices sit where the
-//! reference deformation puts the cache vertices.
+//! reference deformation puts the cache vertices. The bone overlay's
+//! skeleton moves with the skinned mesh.
 
 #![cfg(feature = "explorer")]
 
 use std::path::PathBuf;
 
+use bevy::math::Vec3;
 use contentpack::Kind;
 use rs2cache::types::record::{Record, RecordType};
+use rs2ool::explorer::bones::skeleton;
 use rs2ool::explorer::playback::{CYCLE_MS, Clock, Posed, posed, sequences, timing};
 use rs2ool::explorer::renderable::Renderable;
 use rs2ool::explorer::selection::{Sel, load};
@@ -100,4 +103,34 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
         }
     }
     assert!(worst < 4.0, "worst vertex error over the walk: {worst}");
+
+    // The bone overlay follows the mesh: each vertex keeps its distance to
+    // the pivot of the bone it follows, frame by frame.
+    let Renderable::PackCreature { model, rig, .. } = &right else {
+        unreachable!()
+    };
+    let bones = rs2convert::validate::vertex_bones(model, rig);
+    let rest = skeleton(&right, None, 0).unwrap();
+    assert_eq!(rest.pivots.len(), rig.bones.len());
+    assert!(
+        skeleton(&left, Some(walk), 0).is_none(),
+        "cache NPCs have no rig"
+    );
+    let mut moved = false;
+    for f in 0..delays.len() {
+        let s = skeleton(&right, Some(walk), f).unwrap();
+        moved |= s != rest;
+        let Some(Posed::Pack(p)) = posed(&right, walk, f) else {
+            unreachable!()
+        };
+        for ((v, q), &b) in model.vertices.iter().zip(&p).zip(&bones) {
+            let at_rest = Vec3::from(v.map(f32::from)).distance(rest.pivots[b]);
+            let now = Vec3::from(*q).distance(s.pivots[b]);
+            assert!(
+                (at_rest - now).abs() < 0.5,
+                "frame {f}: a vertex on bone {b} drifts from its pivot ({at_rest} vs {now})"
+            );
+        }
+    }
+    assert!(moved, "the skeleton moves over the walk");
 }

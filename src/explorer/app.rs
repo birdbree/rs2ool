@@ -12,8 +12,8 @@ use super::selection::{Sel, Selected};
 use super::sources::{Kind, Source, Sources};
 use super::viewport3d::Compare;
 use super::{
-    actions, classic, jobs, kit, map_view, playback, selection, sources, tree, ui, viewport2d,
-    viewport3d,
+    actions, bones, classic, jobs, kit, map_view, playback, selection, sources, tree, ui,
+    viewport2d, viewport3d,
 };
 
 /// What to open at startup: a cache and any packs, optionally a record in
@@ -116,6 +116,7 @@ pub fn run(startup: Startup) {
             viewport3d::plugin,
             viewport2d::plugin,
             playback::plugin,
+            bones::plugin,
             kit::plugin,
             actions::plugin,
             classic::plugin,

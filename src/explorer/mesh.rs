@@ -154,7 +154,8 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
     build(pos, normals, colors)
 }
 
-/// A distinct colour per label, for the labels overlay.
+/// A distinct colour per label (or bone), for the vertex colour overlays
+/// and the bone overlay.
 pub fn label_colour(l: u8) -> [f32; 3] {
     // Multiplying by 47 scatters neighbouring labels round the hue wheel;
     // `h` is the hue in sixths.
@@ -177,7 +178,15 @@ pub fn label_colour(l: u8) -> [f32; 3] {
 /// face normal is taken back to cache space for the original client's
 /// lightness term, which is applied to the colour's HSL lightness the way
 /// that client applies it to its 7-bit luminance.
-pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading: Shading) -> Mesh {
+///
+/// With `tags` (one per vertex) each corner is coloured by its vertex's tag
+/// through [`label_colour`] instead of the face colour.
+pub fn mesh_from_pack_model(
+    m: &PackModel,
+    palette: Option<&[[u8; 3]]>,
+    shading: Shading,
+    tags: Option<&[u8]>,
+) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
     let mut normals = Vec::with_capacity(n);
@@ -209,10 +218,11 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
         };
         // Pack alpha is already opacity (255 = opaque).
         let alpha = m.alphas.as_ref().map_or(1.0, |a| f32::from(a[i]) / 255.0);
-        for q in p {
+        for (q, v) in p.into_iter().zip(f) {
+            let c = tags.map_or(base, |t| label_colour(t[usize::from(*v)]));
             pos.push(q);
             normals.push(nrm);
-            colors.push([base[0], base[1], base[2], alpha]);
+            colors.push([c[0], c[1], c[2], alpha]);
         }
     }
     build(pos, normals, colors)
