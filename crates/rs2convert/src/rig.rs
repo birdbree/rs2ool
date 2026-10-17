@@ -75,7 +75,11 @@ fn candidates(creature: &Creature) -> BTreeMap<LabelSet, usize> {
                 continue;
             };
             for t in &frame.transforms {
-                let b = &pack.base[usize::from(t.transform)];
+                // A slot past the frame base is skipped, as deform and clip
+                // skip it; decoded packs never have one, built ones might.
+                let Some(b) = pack.base.get(usize::from(t.transform)) else {
+                    continue;
+                };
                 if !matches!(b.kind, kind::TRANSLATE | kind::ROTATE | kind::SCALE) {
                     continue;
                 }
@@ -399,4 +403,98 @@ pub fn name_hash(s: &str) -> u32 {
     s.bytes().fold(0x811c_9dc5, |h, b| {
         (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use rs2cache::types::anim::{BaseTransform, Frame, FramePack, FrameTransform};
+    use rs2cache::types::config::{SeqDef, SeqFrame};
+    use rs2cache::types::model::Model;
+
+    use super::*;
+    use crate::creature::Sequence;
+
+    /// A one-triangle creature whose only frame uses base slot 0 (a
+    /// rotation of label 1) and also names `extra`, which may be past the
+    /// two-slot base.
+    fn creature(extra: u8) -> Creature {
+        let model = Model {
+            vertices: vec![[0, 0, 0], [10, 0, 0], [0, 10, 0]],
+            faces: vec![[0, 1, 2]],
+            face_colours: vec![0],
+            face_types: None,
+            priority: 0,
+            face_priorities: None,
+            face_alphas: None,
+            face_labels: None,
+            vertex_labels: Some(vec![1, 1, 1]),
+            textured_faces: Vec::new(),
+        };
+        let slot = |transform| FrameTransform {
+            transform,
+            dx: 16,
+            dy: 0,
+            dz: 0,
+        };
+        let pack = FramePack {
+            base: vec![
+                BaseTransform {
+                    kind: kind::ROTATE,
+                    labels: vec![1],
+                },
+                BaseTransform {
+                    kind: kind::ORIGIN,
+                    labels: vec![1],
+                },
+            ],
+            frames: vec![Frame {
+                id: 7,
+                delay: 1,
+                transforms: vec![slot(0), slot(extra)],
+                alpha: false,
+            }],
+        };
+        let def = SeqDef {
+            id: 0,
+            frames: vec![SeqFrame {
+                frame: 7,
+                secondary: None,
+                delay: 1,
+            }],
+            loop_offset: None,
+            interleave_labels: None,
+            stretches: false,
+            priority: 5,
+            offhand_override: None,
+            mainhand_override: None,
+            max_loops: 99,
+            animating_precedence: 0,
+            walking_precedence: 0,
+            replay_mode: 2,
+            unknown_opcodes: Vec::new(),
+        };
+        let seq = Sequence {
+            def,
+            packs: vec![0],
+        };
+        Creature::new(
+            "test".into(),
+            model,
+            [128; 3],
+            vec![seq],
+            BTreeMap::from([(0, pack)]),
+        )
+    }
+
+    #[test]
+    fn a_slot_past_the_frame_base_is_skipped() {
+        let rig = infer(&creature(9), None).expect("no panic, and a rig");
+        // The root plus the one rotated label set; slot 9 adds nothing.
+        assert_eq!(rig.bones.len(), 2);
+        assert_eq!(rig.bones[1].labels, LabelSet::from([1]));
+        // Same result as a frame that only uses real slots.
+        assert_eq!(infer(&creature(0), None).unwrap().bones.len(), 2);
+    }
 }
