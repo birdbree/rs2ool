@@ -1,24 +1,27 @@
-//! The 50 textures decode as single sprites that pad to 64×64 or 128×128,
-//! with visible content.
+//! Every entry of the textures archive but `index.dat` is a texture named
+//! by its id, numbered from 0 without gaps, and each decodes as a single
+//! sprite that pads to 64×64 or 128×128, with visible content.
 
 mod common;
 
 use rs2cache::{archive, sprite};
 
 #[test]
-fn fifty_textures() {
+fn every_texture() {
     let Some(cache) = common::cache() else { return };
     let a = cache.archive(archive::TEXTURES).unwrap();
     let index = a.get("index.dat").unwrap();
     let blocks = sprite::sprite_entries(&a).unwrap();
-    assert_eq!(blocks.len(), 50);
+    // Every entry but the index is a sprite block.
+    assert_eq!(blocks.len(), a.entries.len() - 1);
+    assert!(!blocks.is_empty(), "no textures");
     let mut sizes = std::collections::BTreeMap::new();
-    for id in 0..50 {
+    for id in 0..blocks.len() {
         let name = format!("{id}.dat");
         let (entry, end) = blocks
             .iter()
             .find(|(e, _)| e.name == Some(name.as_str()))
-            .unwrap();
+            .unwrap_or_else(|| panic!("textures are not numbered 0..{}: no {name}", blocks.len()));
         let sheet = sprite::decode_block(&entry.data, index, *end)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(sheet.sprites.len(), 1, "{name}");

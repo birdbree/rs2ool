@@ -88,7 +88,7 @@ Files that don't come from one stored file (`xref.json`, `<type>.jsonl`) have em
 
 ## Sidecars
 
-With `--meta`, every output gets a sidecar named after its stem: `model/0.meta.json`, `idx1/0.meta.json`, `sprite/<id>-<archive>-<entry>.meta.json` (one per sheet, not per PNG), `map/50_50.meta.json`, `map/50_50.m.meta.json`, `archive2/loc.dat.meta.json`.
+With `--meta`, every output gets a sidecar named after its stem: `model/0.meta.json`, `idx1/0.meta.json`, `sprite/<id>-<archive>-<entry>.meta.json` (one per sheet, not per PNG), `map/48_48.meta.json`, `map/48_48.m.meta.json`, `archive2/loc.dat.meta.json`.
 
 A record's sidecar names the record, its stored files, and a summary for its type:
 

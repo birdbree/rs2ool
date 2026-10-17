@@ -6,7 +6,12 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use rs2cache::types::interface::Content;
+use rs2cache::types::record::{Record, RecordType};
+use rs2cache::{Cache, Records, archive};
 use serde_json::Value;
+
+mod common;
 
 fn cache() -> Option<PathBuf> {
     let dir = std::env::var_os("RS2_CACHE").map(PathBuf::from);
@@ -76,18 +81,48 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The listing line of archive `name`, with its entry names.
+fn archive_entries<'t>(text: &'t str, name: &str) -> Vec<&'t str> {
+    let line = text
+        .lines()
+        .find(|l| l.split('\t').nth(1) == Some(name))
+        .unwrap_or_else(|| panic!("archive {name} missing:\n{text}"));
+    let listing = line.split('\t').nth(2).unwrap();
+    let (count, names) = listing.split_once(": ").unwrap();
+    let names: Vec<&str> = names.split(", ").collect();
+    assert_eq!(count.parse::<usize>().unwrap(), names.len(), "{line}");
+    names
+}
+
 #[test]
 fn b1_list() {
     let Some(c) = cache() else { return };
     let text = ok(&c, &["list"]);
+    let cache = Cache::open(&c).unwrap();
     for i in 0..5 {
+        let files = cache.file_count(i).unwrap();
         assert!(
-            text.lines().any(|l| l.starts_with(&format!("{i}\t"))),
-            "index {i} missing:\n{text}"
+            text.lines()
+                .any(|l| l.starts_with(&format!("{i}\t{files}\t"))),
+            "index {i} missing or miscounted:\n{text}"
         );
     }
-    assert!(text.contains("config\t24: ") && text.contains("loc.dat"));
-    assert!(text.contains("media") && text.contains("compass.dat"));
+    assert!(archive_entries(&text, "config").contains(&"loc.dat"));
+    // The media archive lists the entry every media sprite comes from.
+    let media = archive_entries(&text, "media");
+    let records = Records::new(&cache);
+    let sprites: Vec<String> = records
+        .ids(RecordType::Sprite)
+        .unwrap()
+        .into_iter()
+        .filter_map(|id| records.sprite_source(id).ok())
+        .filter(|(n, _)| *n == archive::MEDIA)
+        .map(|(_, name)| name.to_string())
+        .collect();
+    assert!(!sprites.is_empty(), "no media sprites");
+    for name in &sprites {
+        assert!(media.contains(&name.as_str()), "{name} not listed");
+    }
     let usage = run(
         &c,
         &[
@@ -135,7 +170,14 @@ fn b2_raw_dumps_are_reproducible() {
         .as_array()
         .unwrap()
         .clone();
-    assert_eq!(files.len(), 14927);
+    let cache = Cache::open(&c).unwrap();
+    let entries = cache.entries(1).unwrap();
+    let present = entries.iter().filter(|e| !e.is_absent()).count();
+    assert_eq!(files.len(), present, "one file per present id");
+    let first = entries
+        .iter()
+        .position(|e| !e.is_absent())
+        .expect("a present file");
     for f in &files {
         let len = std::fs::metadata(a.join(f["path"].as_str().unwrap()))
             .unwrap()
@@ -149,47 +191,87 @@ fn b2_raw_dumps_are_reproducible() {
             "--index",
             "1",
             "--id",
-            "0",
+            &first.to_string(),
             "--raw",
             "-o",
             one.to_str().unwrap(),
         ],
     );
+    let file = format!("idx1/{first}.bin");
     assert_eq!(
-        std::fs::read(one.join("idx1/0.bin")).unwrap(),
-        std::fs::read(a.join("idx1/0.bin")).unwrap()
+        std::fs::read(one.join(&file)).unwrap(),
+        std::fs::read(a.join(&file)).unwrap()
     );
 }
 
 #[test]
 fn b3_decoded_output() {
     let Some(c) = cache() else { return };
+    let cache = Cache::open(&c).unwrap();
+    let records = Records::new(&cache);
     let d = tmp("b3");
     let o = d.to_str().unwrap();
-    ok(&c, &["decode", "npc", "--id", "1", "-o", o]);
-    let man = json(d.join("npc/1.json"));
-    assert_eq!(man["name"], "Man");
-    assert!(!man["models"].as_array().unwrap().is_empty());
-    assert!(man["stand_anim"].is_u64() && man["walk_anim"].is_u64());
 
-    ok(&c, &["decode", "obj", "--id", "1038", "-o", o]);
-    let hat = json(d.join("obj/1038.json"));
-    assert_eq!(hat["name"], "Red partyhat");
-    assert!(hat["male_equip1"].is_u64() && hat["female_equip1"].is_u64());
+    let npc = common::walking_npc(&records);
+    let Ok(Record::Npc(def)) = records.decode(RecordType::Npc, npc) else {
+        unreachable!()
+    };
+    ok(&c, &["decode", "npc", "--id", &npc.to_string(), "-o", o]);
+    let n = json(d.join(format!("npc/{npc}.json")));
+    assert_eq!(n["name"].as_str(), def.name.as_deref());
+    assert!(!n["name"].as_str().unwrap().is_empty());
+    let models: Vec<u64> = n["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m.as_u64().unwrap())
+        .collect();
+    assert_eq!(
+        models,
+        def.models.iter().map(|&m| u64::from(m)).collect::<Vec<_>>()
+    );
+    assert!(n["stand_anim"].is_u64() && n["walk_anim"].is_u64());
 
+    // The first named item worn by both body types.
+    let obj = records
+        .ids(RecordType::Obj)
+        .unwrap()
+        .into_iter()
+        .find(|&id| {
+            matches!(records.decode(RecordType::Obj, id), Ok(Record::Obj(d))
+                if d.name.as_deref().is_some_and(|n| !n.is_empty())
+                    && d.male_equip1.is_some()
+                    && d.female_equip1.is_some())
+        })
+        .expect("a named item with male and female equipment models");
+    ok(&c, &["decode", "obj", "--id", &obj.to_string(), "-o", o]);
+    let item = json(d.join(format!("obj/{obj}.json")));
+    assert!(!item["name"].as_str().unwrap().is_empty());
+    assert!(item["male_equip1"].is_u64() && item["female_equip1"].is_u64());
+
+    let model = records.ids(RecordType::Model).unwrap()[0];
     ok(
         &c,
-        &["dump", "--type", "model", "--id", "0", "--meta", "-o", o],
+        &[
+            "dump",
+            "--type",
+            "model",
+            "--id",
+            &model.to_string(),
+            "--meta",
+            "-o",
+            o,
+        ],
     );
-    let model = json(d.join("model/0.json"));
-    let meta = json(d.join("model/0.meta.json"));
+    let m = json(d.join(format!("model/{model}.json")));
+    let meta = json(d.join(format!("model/{model}.meta.json")));
     assert_eq!(
         meta["vertex_count"].as_u64().unwrap() as usize,
-        model["vertices"].as_array().unwrap().len()
+        m["vertices"].as_array().unwrap().len()
     );
     assert_eq!(
         meta["face_count"].as_u64().unwrap() as usize,
-        model["faces"].as_array().unwrap().len()
+        m["faces"].as_array().unwrap().len()
     );
 }
 
@@ -197,10 +279,11 @@ fn b3_decoded_output() {
 fn b3_meta_only_writes_no_payloads() {
     let Some(c) = cache() else { return };
     let d = tmp("b3meta");
-    for t in [
+    const TYPES: [&str; 14] = [
         "loc", "npc", "obj", "idk", "seq", "spotanim", "flo", "varp", "varbit", "texture",
         "sprite", "font", "midi", "anim",
-    ] {
+    ];
+    for t in TYPES {
         ok(
             &c,
             &[
@@ -227,32 +310,62 @@ fn b3_meta_only_writes_no_payloads() {
         "payloads written: {:?}",
         &payloads[..payloads.len().min(5)]
     );
-    assert!(files.len() > 30_000);
+    // A sidecar for every record of every type dumped.
+    let cache = Cache::open(&c).unwrap();
+    let records = Records::new(&cache);
+    let want: usize = TYPES
+        .iter()
+        .map(|t| records.ids(t.parse().unwrap()).unwrap().len())
+        .sum();
+    let sidecars = files
+        .iter()
+        .filter(|p| p.to_str().unwrap().ends_with(".meta.json"))
+        .count();
+    assert_eq!(sidecars, want);
 }
 
 #[test]
 fn b3_regions() {
     let Some(c) = cache() else { return };
+    let cache = Cache::open(&c).unwrap();
+    let records = Records::new(&cache);
+    // The first region with locations on the ground plane.
+    let region = records
+        .ids(RecordType::Map)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| match records.decode(RecordType::Map, id) {
+            Ok(Record::Map(r)) if r.locations.iter().any(|l| l.plane == 0) => Some(r),
+            _ => None,
+        })
+        .expect("a region with ground-plane locations");
+    let name = format!("{}_{}", region.x, region.y);
     let d = tmp("b3map");
     ok(
         &c,
         &[
             "dump",
             "--region",
-            "50_50",
+            &name,
             "--decode",
             "-o",
             d.to_str().unwrap(),
         ],
     );
-    let r = json(d.join("map/50_50.json"));
+    let r = json(d.join(format!("map/{name}.json")));
     assert_eq!(r["planes"].as_array().unwrap().len(), 4);
-    assert!(!r["locations"].as_array().unwrap().is_empty());
+    assert_eq!(
+        r["locations"].as_array().unwrap().len(),
+        region.locations.len()
+    );
 
     let all = tmp("b3maps");
     ok(&c, &["dump", "--all-regions", "-o", all.to_str().unwrap()]);
-    // Two files (tiles and locations) per region; 660 regions = 4620 / 7.
-    assert_eq!(manifest_paths(&all).len(), 660 * 2);
+    // Two files (tiles and locations) per region in the map index.
+    assert_eq!(
+        manifest_paths(&all).len(),
+        records.map_index().unwrap().len() * 2
+    );
 }
 
 #[test]
@@ -266,7 +379,18 @@ fn b3_images() {
         .filter(|p| p.ends_with(".png"))
         .count();
     // Every media and title sub-sprite (fonts are their own type).
-    assert_eq!(pngs, 643 + 1043 - 4 * 256);
+    let cache = Cache::open(&c).unwrap();
+    let records = Records::new(&cache);
+    let sub_sprites: usize = records
+        .ids(RecordType::Sprite)
+        .unwrap()
+        .into_iter()
+        .map(|id| match records.decode(RecordType::Sprite, id) {
+            Ok(Record::Sprite(sheet)) => sheet.sprites.len(),
+            other => panic!("sprite {id}: {other:?}"),
+        })
+        .sum();
+    assert_eq!(pngs, sub_sprites);
     ok(&c, &["dump", "--type", "font", "--all", "-o", o]);
     for f in ["p11_full", "p12_full", "b12_full", "q8_full"] {
         assert!(d.join(format!("font/{f}.png")).exists());
@@ -284,13 +408,54 @@ fn b3_images() {
             .iter()
             .filter(|p| p.starts_with("texture/"))
             .count(),
-        50
+        records.ids(RecordType::Texture).unwrap().len()
     );
+}
+
+/// The child ids of a layer component; empty for anything else.
+fn layer_children(i: &rs2cache::types::interface::Interface) -> Vec<u64> {
+    match &i.content {
+        Content::Layer { children, .. } => children.iter().map(|c| u64::from(c.id)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The ids of a tree node's nested children.
+fn node_children(node: &Value) -> Vec<u64> {
+    node["children"]
+        .as_array()
+        .map(|a| a.iter().map(|c| c["id"].as_u64().unwrap()).collect())
+        .unwrap_or_default()
 }
 
 #[test]
 fn b3_interface_tree() {
     let Some(c) = cache() else { return };
+    let cache = Cache::open(&c).unwrap();
+    let records = Records::new(&cache);
+    let all: std::collections::BTreeMap<u16, _> = records
+        .ids(RecordType::Interface)
+        .unwrap()
+        .into_iter()
+        .filter_map(|id| match records.decode(RecordType::Interface, id) {
+            Ok(Record::Interface(i)) => Some((i.id, i)),
+            _ => None,
+        })
+        .collect();
+    // The first root layer with a child that is itself a layer with
+    // children, so the tree nests at least two levels.
+    let (root, inner) = all
+        .values()
+        .filter(|i| i.parent == Some(i.id))
+        .find_map(|i| {
+            let inner = layer_children(i).into_iter().find(|&c| {
+                all.get(&(c as u16))
+                    .is_some_and(|c| !layer_children(c).is_empty())
+            })?;
+            Some((i, &all[&(inner as u16)]))
+        })
+        .expect("a root layer with a nested layer");
+
     let d = tmp("b3if");
     ok(
         &c,
@@ -304,31 +469,43 @@ fn b3_interface_tree() {
         ],
     );
     let tree = json(d.join("interface/tree.json"));
-    let tab = tree
+    let node = tree
         .as_array()
         .unwrap()
         .iter()
-        .find(|n| n["id"] == 3213)
-        .expect("3213 is a root");
-    assert!(
-        tab["children"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["id"] == 3214)
-    );
+        .find(|n| n["id"] == root.id)
+        .unwrap_or_else(|| panic!("{} is a root", root.id));
+    assert_eq!(node_children(node), layer_children(root));
+    let nested = node["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == inner.id)
+        .unwrap();
+    assert_eq!(node_children(nested), layer_children(inner));
 }
 
 #[test]
 fn b4_npc_group() {
     let Some(c) = cache() else { return };
+    let cache = Cache::open(&c).unwrap();
+    let npc = common::walking_npc(&Records::new(&cache));
     let d = tmp("b4");
-    ok(&c, &["dump", "--group", "npc:1", "-o", d.to_str().unwrap()]);
+    ok(
+        &c,
+        &[
+            "dump",
+            "--group",
+            &format!("npc:{npc}"),
+            "-o",
+            d.to_str().unwrap(),
+        ],
+    );
     let paths = manifest_paths(&d);
     let unique: BTreeSet<_> = paths.iter().collect();
     assert_eq!(unique.len(), paths.len(), "a dependency is listed twice");
-    let man = json(d.join("npc/1.json"));
-    for m in man["models"].as_array().unwrap() {
+    let def = json(d.join(format!("npc/{npc}.json")));
+    for m in def["models"].as_array().unwrap() {
         assert!(
             paths.contains(&format!("model/{m}.json")),
             "model {m} missing"
@@ -342,7 +519,7 @@ fn b4_npc_group() {
         }
     }
     assert!(!have.is_empty());
-    for s in [&man["stand_anim"], &man["walk_anim"]] {
+    for s in [&def["stand_anim"], &def["walk_anim"]] {
         let seq = json(d.join(format!("seq/{s}.json")));
         for f in seq["frames"].as_array().unwrap() {
             assert!(
@@ -361,8 +538,8 @@ fn b5_verify() {
     assert!(text.contains("no damaged files"), "{text}");
 
     // A copy with the data file cut 10 KB short of the last sector any file
-    // uses. (The supplied cache ends with ~64 KB of sectors no file
-    // references, so cutting 10 KB off the end damages nothing.)
+    // uses. (A cache can end with sectors no file references, so cutting
+    // 10 KB off the end of the file itself might damage nothing.)
     let used_end = {
         let cache = rs2cache::Cache::open(&c).unwrap();
         let mut end = 0usize;

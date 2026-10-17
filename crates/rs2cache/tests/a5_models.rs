@@ -1,9 +1,11 @@
-//! Every model decodes with its sections filling the file exactly, and a
-//! few individual models have plausible bounds.
+//! Every model decodes with its sections filling the file exactly, and an
+//! animated NPC's models have plausible bounds and vertex labels.
 
 mod common;
 
+use rs2cache::config::{self, npc::Npc};
 use rs2cache::model::{self, Header, Layout};
+use rs2cache::types::config::NpcDef;
 
 #[test]
 fn every_model_decodes() {
@@ -41,36 +43,47 @@ fn every_model_decodes() {
     assert!(slack.is_empty(), "sections do not fill the file");
 }
 
+/// The first NPC with at least two models, stand and walk sequences, and a
+/// one-tile footprint: a jointed figure about one tile across.
+fn rigged_npc(cache: &rs2cache::Cache) -> NpcDef {
+    config::decode_all::<Npc>(&cache.archive(config::ARCHIVE).unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|n| {
+            n.models.len() >= 2 && n.stand_anim.is_some() && n.walk_anim.is_some() && n.size == 1
+        })
+        .expect("no NPC with two models, stand and walk sequences, and size 1")
+}
+
 #[test]
-fn known_models_have_plausible_bounds() {
+fn npc_models_have_plausible_bounds() {
     let Some(cache) = common::cache() else { return };
-    let man = rs2cache::config::decode_one::<rs2cache::config::npc::Npc>(
-        &cache.archive(rs2cache::config::ARCHIVE).unwrap(),
-        1,
-    )
-    .unwrap();
-    for id in std::iter::once(0).chain(man.models.iter().map(|&m| u32::from(m))) {
-        let m = cache.model(id).unwrap();
+    let npc = rigged_npc(&cache);
+    for &id in &npc.models {
+        let m = cache.model(id.into()).unwrap();
         let (lo, hi) = m.bounds().unwrap();
         eprintln!(
-            "model {id}: {} verts, {} faces, bounds {lo:?}..{hi:?}, labels {}",
+            "npc {} model {id}: {} verts, {} faces, bounds {lo:?}..{hi:?}, labels {}",
+            npc.id,
             m.vertices.len(),
             m.faces.len(),
             m.vertex_labels.is_some()
         );
+        // A tile is 128 units; a one-tile figure stays well inside ±200.
         for a in [0, 2] {
             assert!(
                 lo[a] >= -200 && hi[a] <= 200,
                 "model {id} axis {a} out of ±200"
             );
         }
-        // y is down-negative: standing models reach up to about -230.
+        // y is down-negative: a standing figure reaches up a few hundred
+        // units at most.
         assert!(lo[1] > -300 && hi[1] < 300, "model {id} height");
-    }
-    for &id in &man.models {
+        // An animated figure's parts carry vertex labels for its frames.
         assert!(
-            cache.model(id.into()).unwrap().vertex_labels.is_some(),
-            "Man model {id} has no labels"
+            m.vertex_labels.is_some(),
+            "npc {} model {id} has no labels",
+            npc.id
         );
     }
 }

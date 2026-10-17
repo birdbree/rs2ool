@@ -23,25 +23,42 @@ fn every_object_converts() {
     assert_eq!(objects.manifest.record_count as usize, ids.len());
 
     let get = |id: u32| ObjectRecord::decode(&objects.get(id).unwrap().unwrap()).unwrap();
-    let tree = get(1276);
-    let Record::Loc(def) = records.decode(RecordType::Loc, 1276).unwrap() else {
-        unreachable!()
-    };
-    eprintln!(
-        "1276 {:?}: layer {}, footprint {}x{}",
-        def.name, tree.layer, tree.width, tree.height
-    );
-    assert_eq!(def.name.as_deref(), Some("Tree"));
-    assert_eq!(tree.layer, layer::FURNITURE);
-    assert_eq!((tree.width, tree.height), (def.size_x, def.size_y));
-
-    let mut morphs = 0;
-    let mut names = std::collections::BTreeMap::new();
-    for &id in &ids {
+    let def = |id: u32| {
         let Record::Loc(d) = records.decode(RecordType::Loc, id).unwrap() else {
             unreachable!()
         };
+        d
+    };
+
+    // The first named centrepiece (every model type 10, or untyped) whose
+    // footprint isn't 1x1.
+    let (big_id, big) = ids
+        .iter()
+        .map(|&id| (id, def(id)))
+        .find(|(_, d)| {
+            d.name.as_deref().is_some_and(|n| !n.is_empty())
+                && !d.models.is_empty()
+                && d.models.iter().all(|m| matches!(m.kind, None | Some(10)))
+                && (d.size_x, d.size_y) != (1, 1)
+        })
+        .expect("no named centrepiece loc with a footprint larger than 1x1");
+    let rec = get(big_id);
+    eprintln!(
+        "loc {big_id}: layer {}, footprint {}x{}",
+        rec.layer, rec.width, rec.height
+    );
+    assert_eq!(rec.layer, layer::FURNITURE);
+    assert_eq!((rec.width, rec.height), (big.size_x, big.size_y));
+
+    let mut morphs = 0;
+    for &id in &ids {
+        let d = def(id);
         let rec = get(id);
+        assert_eq!(
+            (rec.width, rec.height),
+            (d.size_x, d.size_y),
+            "loc {id} footprint"
+        );
         if d.morph
             .as_ref()
             .is_some_and(|m| m.children.iter().any(Option::is_some))
@@ -52,7 +69,6 @@ fn every_object_converts() {
                 "morph loc {id} has {} states",
                 rec.states.len()
             );
-            *names.entry(d.name.clone().unwrap_or_default()).or_insert(0) += 1;
         }
         if d.models.iter().any(|m| matches!(m.kind, Some(0..=3 | 9))) {
             let k = KitRecord::decode(
@@ -65,12 +81,9 @@ fn every_object_converts() {
             assert!(!k.variants.is_empty());
         }
     }
-    let mut common: Vec<_> = names.into_iter().collect();
-    common.sort_by_key(|c| std::cmp::Reverse(c.1));
     eprintln!(
-        "{} objects, {morphs} with morph tables (most common: {:?}), {} kits",
+        "{} objects, {morphs} with morph tables, {} kits",
         ids.len(),
-        &common[..common.len().min(8)],
         kits.manifest.record_count
     );
     // Every definition with a morph table gets more than one state.

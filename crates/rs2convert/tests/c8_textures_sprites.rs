@@ -32,7 +32,7 @@ fn atlas_round_trips_pixel_exact() {
 }
 
 #[test]
-fn sprites_round_trip_and_compass() {
+fn sprites_round_trip_and_opaque_sprite_stays_opaque() {
     let Some(cache) = common::cache() else { return };
     let records = Records::new(&cache);
     let (_, bytes) = sprite::pack(&records, &[archive::MEDIA, archive::TITLE], 0)
@@ -40,31 +40,52 @@ fn sprites_round_trip_and_compass() {
         .bake();
     let r = PackReader::from_bytes(&bytes).unwrap();
     let mut subs = 0;
+    // The first media sheet holding one sub-sprite with no transparent
+    // (palette index 0) pixel.
+    let mut opaque = None;
     for id in records.ids(RecordType::Sprite).unwrap() {
         let Record::Sprite(sheet) = records.decode(RecordType::Sprite, id).unwrap() else {
             unreachable!()
         };
-        let (_, entry) = records.sprite_source(id).unwrap();
-        for i in 0..sheet.sprites.len() {
+        let (archive_id, entry) = records.sprite_source(id).unwrap();
+        for (i, s) in sheet.sprites.iter().enumerate() {
             let rec = SpriteRecord::decode(&r.get(id << 8 | i as u32).unwrap().unwrap()).unwrap();
             assert_eq!(rec.name_hash, entry.hash() as u32);
+            assert_eq!(usize::from(rec.sub_index), i, "sprite {id}.{i} index");
+            assert_eq!(
+                (rec.width, rec.height, rec.x_offset, rec.y_offset),
+                (s.width, s.height, s.x_offset, s.y_offset),
+                "sprite {id}.{i} size and offsets"
+            );
             assert_eq!(rec.rgba, sheet.rgba(i).unwrap(), "sprite {id}.{i}");
             subs += 1;
         }
-        if entry.to_string() == "compass.dat" {
-            let rec = SpriteRecord::decode(&r.get(id << 8).unwrap().unwrap()).unwrap();
-            assert_eq!((rec.width, rec.height), (51, 51));
-            assert!(
-                rec.rgba.chunks(4).all(|p| p[3] == 255),
-                "compass is fully opaque in 317"
-            );
+        if opaque.is_none()
+            && archive_id == archive::MEDIA
+            && sheet.sprites.len() == 1
+            && !sheet.sprites[0].pixels.is_empty()
+            && sheet.sprites[0].pixels.iter().all(|&p| p != 0)
+        {
+            opaque = Some(id);
         }
     }
-    for f in 0..4 {
+    let id = opaque.expect("no media sheet with one fully opaque sub-sprite");
+    let rec = SpriteRecord::decode(&r.get(id << 8).unwrap().unwrap()).unwrap();
+    eprintln!("opaque sprite {id}: {}x{}", rec.width, rec.height);
+    assert_eq!(
+        rec.rgba.len(),
+        usize::from(rec.width) * usize::from(rec.height) * 4
+    );
+    assert!(
+        rec.rgba.chunks(4).all(|p| p[3] == 255),
+        "sprite {id} has no transparent pixel in the cache, so none in the pack"
+    );
+    let fonts = rs2cache::sprite::FONTS.len() as u32;
+    for f in 0..fonts {
         for g in 0..256 {
             assert!(r.get(sprite::GLYPH_BASE | f << 8 | g).is_some());
         }
         FontMetrics::decode(&r.get(sprite::METRICS_BASE | f).unwrap().unwrap()).unwrap();
     }
-    eprintln!("{subs} sprites and 4 fonts round-trip");
+    eprintln!("{subs} sprites and {fonts} fonts round-trip");
 }

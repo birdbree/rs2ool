@@ -1,6 +1,6 @@
 //! Every definition of every config type decodes, unknown opcodes are
-//! reported with their definition ids, and a few individual definitions
-//! are spot-checked.
+//! reported with their definition ids, and a few definitions chosen by
+//! their structure are spot-checked.
 
 mod common;
 
@@ -54,36 +54,73 @@ fn every_definition_decodes() {
     assert_eq!(unknown, 0, "definitions with unknown opcodes");
 }
 
+/// The first NPC with at least two models, stand and walk sequences, and a
+/// one-tile footprint: a jointed figure that animates in place and moves.
+fn rigged_npc(npcs: &[rs2cache::types::config::NpcDef]) -> &rs2cache::types::config::NpcDef {
+    npcs.iter()
+        .find(|n| {
+            n.models.len() >= 2 && n.stand_anim.is_some() && n.walk_anim.is_some() && n.size == 1
+        })
+        .expect("no NPC with two models, stand and walk sequences, and size 1")
+}
+
 #[test]
 fn spot_checks() {
     let Some(cache) = common::cache() else { return };
     let archive = cache.archive(config::ARCHIVE).unwrap();
+    let objs = config::decode_all::<Obj>(&archive).unwrap();
+    let has_name = |n: &Option<String>| n.as_deref().is_some_and(|s| !s.is_empty());
 
-    let coins = config::decode_one::<Obj>(&archive, 995).unwrap();
-    assert_eq!(coins.name.as_deref(), Some("Coins"));
-    assert!(coins.stackable);
-    assert!(
-        !coins.stack_variants.is_empty(),
-        "coins have stack-size models"
-    );
+    // A stackable obj with stack-size variants: each variant names another
+    // defined obj whose inventory model decodes.
+    let stack = objs
+        .iter()
+        .find(|o| o.stackable && !o.stack_variants.is_empty())
+        .expect("no stackable obj with stack-size variants");
+    assert!(has_name(&stack.name), "obj {} has no name", stack.id);
+    for v in &stack.stack_variants {
+        assert!(v.count > 0, "obj {} variant {v:?}", stack.id);
+        let other = objs
+            .get(usize::from(v.item))
+            .unwrap_or_else(|| panic!("obj {} variant names undefined obj {}", stack.id, v.item));
+        cache
+            .model(other.inventory_model.into())
+            .unwrap_or_else(|e| panic!("obj {} model: {e}", other.id));
+    }
 
-    let phat = config::decode_one::<Obj>(&archive, 1038).unwrap();
-    assert_eq!(phat.name.as_deref(), Some("Red partyhat"));
-    assert!(phat.male_equip1.is_some() && phat.female_equip1.is_some());
+    // An obj worn by both body types: both equip models decode.
+    let worn = objs
+        .iter()
+        .find(|o| o.male_equip1.is_some() && o.female_equip1.is_some())
+        .expect("no obj with male and female equip models");
+    assert!(has_name(&worn.name), "obj {} has no name", worn.id);
+    for m in [worn.male_equip1, worn.female_equip1].into_iter().flatten() {
+        cache
+            .model(m.into())
+            .unwrap_or_else(|e| panic!("obj {} equip model {m}: {e}", worn.id));
+    }
 
-    let man = config::decode_one::<Npc>(&archive, 1).unwrap();
-    assert_eq!(man.name.as_deref(), Some("Man"));
-    assert!(!man.models.is_empty());
-    assert!(man.stand_anim.is_some() && man.walk_anim.is_some());
+    let npcs = config::decode_all::<Npc>(&archive).unwrap();
+    let npc = rigged_npc(&npcs);
+    assert!(has_name(&npc.name), "npc {} has no name", npc.id);
     eprintln!(
-        "npc 1: models {:?}, stand {:?}, walk {:?}",
-        man.models, man.stand_anim, man.walk_anim
+        "obj {} (stack variants), obj {} (worn), npc {}: models {:?}, stand {:?}, walk {:?}",
+        stack.id, worn.id, npc.id, npc.models, npc.stand_anim, npc.walk_anim
     );
+    for &m in &npc.models {
+        cache
+            .model(m.into())
+            .unwrap_or_else(|e| panic!("npc {} model {m}: {e}", npc.id));
+    }
 
-    // Every sequence frame list is non-empty for sequences NPCs stand in.
+    // The sequences an NPC stands and walks in have frames.
     let seqs = config::decode_all::<Seq>(&archive).unwrap();
-    let stand = &seqs[usize::from(man.stand_anim.unwrap())];
-    assert!(!stand.frames.is_empty());
+    for anim in [npc.stand_anim, npc.walk_anim].into_iter().flatten() {
+        let seq = seqs
+            .get(usize::from(anim))
+            .unwrap_or_else(|| panic!("npc {} names undefined sequence {anim}", npc.id));
+        assert!(!seq.frames.is_empty(), "sequence {anim} has no frames");
+    }
 
     // Every flo colour is 24-bit and every idk body part is a slot 0–13.
     for f in config::decode_all::<Flo>(&archive).unwrap() {

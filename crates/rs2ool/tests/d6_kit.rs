@@ -39,46 +39,56 @@ fn kit_slots_dress_the_player() {
         "the defaults are the converter's default body"
     );
 
-    // Items with a male equipment model for the weapon and body slots.
+    // In 317 an item's definition doesn't say which slot it goes in; the
+    // kit's slot logic alone decides whether it adds to the body or
+    // replaces a kit part. So any item with a male equipment model that
+    // has faces will do for an item-only slot, and for a kit-backed slot
+    // one whose model differs in size from the kit part it replaces, so
+    // the replacement shows in the face count.
     let equip_faces = |obj: u32| {
         rs2convert::creature::equip_model(records, obj, false)
             .unwrap()
             .map(|m| m.faces.len())
     };
-    let items: Vec<u32> = records.ids(RecordType::Obj).unwrap();
-    let named = |word: &str| {
-        items
-            .iter()
-            .copied()
-            .find(|&id| {
-                matches!(records.decode(RecordType::Obj, id), Ok(Record::Obj(d))
-                    if d.name.as_deref().is_some_and(|n| n.contains(word)) && d.male_equip1.is_some())
-            })
-            .unwrap()
-    };
-    let (sword, plate) = (named("sword"), named("platebody"));
-
-    let mut slots = defaults;
-    slots[3].item = sword;
-    let armed = base.build(&slots, false).unwrap();
-    assert_eq!(
-        faces(&armed),
-        faces(&dressed) + equip_faces(sword).unwrap(),
-        "a weapon adds its model"
-    );
-
-    let mut slots = defaults;
-    slots[4].item = plate;
+    let (weapon_slot, body_slot) = (3, 4);
+    assert!(SLOT_KIT[weapon_slot].is_none() && SLOT_KIT[body_slot].is_some());
     let torso = base
         .parts
         .iter()
-        .find(|(p, _)| Some(p.idk) == defaults[4].kit)
+        .find(|(p, _)| Some(p.idk) == defaults[body_slot].kit)
         .map(|(_, m)| m.faces.len())
         .unwrap();
-    let plated = base.build(&slots, false).unwrap();
+    assert!(torso > 0, "the default torso draws");
+    let mut worn = records
+        .ids(RecordType::Obj)
+        .unwrap()
+        .into_iter()
+        .filter(|&id| {
+            matches!(records.decode(RecordType::Obj, id), Ok(Record::Obj(d))
+                if d.male_equip1.is_some())
+        })
+        .filter_map(|id| Some((id, equip_faces(id)?)))
+        .filter(|&(_, f)| f > 0);
+    let (held, _) = worn.next().expect("an item with a male equipment model");
+    let (body, _) = worn
+        .find(|&(_, f)| f != torso)
+        .expect("a second item whose model differs in size from the torso");
+
+    let mut slots = defaults;
+    slots[weapon_slot].item = held;
+    let armed = base.build(&slots, false).unwrap();
     assert_eq!(
-        faces(&plated),
-        faces(&dressed) - torso + equip_faces(plate).unwrap(),
-        "a body item replaces the torso"
+        faces(&armed),
+        faces(&dressed) + equip_faces(held).unwrap(),
+        "an item in an item-only slot adds its model"
+    );
+
+    let mut slots = defaults;
+    slots[body_slot].item = body;
+    let replaced = base.build(&slots, false).unwrap();
+    assert_eq!(
+        faces(&replaced),
+        faces(&dressed) - torso + equip_faces(body).unwrap(),
+        "an item in a kit-backed slot replaces the kit part"
     );
 }

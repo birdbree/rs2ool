@@ -193,10 +193,10 @@ Every action except baking needs the current selection to be in a cache source, 
 ```text
 rs2ool cache explorer --select npc:1 --compare --pack packs/models/<hash>.pack
 rs2ool pack explorer packs/models/<hash>.pack --select model:0 --compare
-rs2ool cache explorer --select map:12850 --classic
+rs2ool cache explorer --select map:12336 --classic
 ```
 
-`--select` always selects in the cache, so with `pack explorer` it needs `--cache` or `RS2_CACHE`. A map id is `x << 8 | y` (12850 is region `50_50`).
+`--select` always selects in the cache, so with `pack explorer` it needs `--cache` or `RS2_CACHE`. A map id is `x << 8 | y` (12336 is region `48_48`).
 
 ## See also
 

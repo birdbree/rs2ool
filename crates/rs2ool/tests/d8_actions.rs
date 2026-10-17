@@ -1,6 +1,6 @@
 //! Converting an NPC from the GUI's action yields packs byte-identical to
-//! `rs2ool pack npc --id 1 --with-anims`, and exporting a record writes the
-//! same files as `rs2ool cache dump`.
+//! `rs2ool pack npc --id <id> --with-anims`, and exporting a record writes
+//! the same files as `rs2ool cache dump`.
 
 #![cfg(feature = "explorer")]
 
@@ -11,6 +11,8 @@ use std::process::Command;
 use rs2cache::types::record::RecordType;
 use rs2ool::explorer::actions::{ConvertTarget, convert, decoded, dump};
 use rs2ool::explorer::sources::{Kind, Source, open_cache};
+
+mod common;
 
 /// Every file under `dir`, by path relative to it.
 fn tree(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -60,17 +62,19 @@ fn gui_actions_match_the_clis() {
         unreachable!()
     };
     let d = dir.to_str().unwrap();
+    let npc = common::walking_npc(records);
+    let id = npc.to_string();
 
     // Convert the NPC.
     let (gui, cli_out) = (tmp("convert-gui"), tmp("convert-cli"));
-    let done = convert(records, &ConvertTarget::Npc(1), &gui).unwrap();
+    let done = convert(records, &ConvertTarget::Npc(npc), &gui).unwrap();
     cli(&[
         "--cache",
         d,
         "pack",
         "npc",
         "--id",
-        "1",
+        &id,
         "--with-anims",
         "-o",
         cli_out.to_str().unwrap(),
@@ -102,7 +106,7 @@ fn gui_actions_match_the_clis() {
 
     // Export a record.
     let (gui, cli_out) = (tmp("dump-gui"), tmp("dump-cli"));
-    dump(records, decoded(RecordType::Npc, Some(1), &gui)).unwrap();
+    dump(records, decoded(RecordType::Npc, Some(npc), &gui)).unwrap();
     cli(&[
         "--cache",
         d,
@@ -111,7 +115,7 @@ fn gui_actions_match_the_clis() {
         "--type",
         "npc",
         "--id",
-        "1",
+        &id,
         "--decode",
         "--meta",
         "-o",

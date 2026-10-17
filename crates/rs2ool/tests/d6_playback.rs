@@ -14,8 +14,10 @@ use rs2ool::explorer::renderable::Renderable;
 use rs2ool::explorer::selection::{Sel, load};
 use rs2ool::explorer::sources::{Source, open_cache, open_pack};
 
+mod common;
+
 #[test]
-fn man_walks_at_client_speed_and_in_step_with_its_conversion() {
+fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
     let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
         eprintln!("skipping: RS2_CACHE is not set");
         return;
@@ -24,14 +26,19 @@ fn man_walks_at_client_speed_and_in_step_with_its_conversion() {
     let Source::Cache { records, .. } = &cache else {
         unreachable!()
     };
-    let Record::Npc(man) = records.decode(RecordType::Npc, 1).unwrap() else {
+    // Unscaled, so the converted vertices compare with the cache's as is.
+    let npc = common::walking_npc(records);
+    let Record::Npc(def) = records.decode(RecordType::Npc, npc).unwrap() else {
         unreachable!()
     };
-    let walk = u32::from(man.walk_anim.unwrap());
+    let walk = u32::from(def.walk_anim.unwrap());
 
-    let (_, left) = load(&cache, &Sel::Record(RecordType::Npc, 1)).unwrap();
+    let (_, left) = load(&cache, &Sel::Record(RecordType::Npc, npc)).unwrap();
     let left = left.unwrap();
-    assert!(matches!(left, Renderable::Creature { .. }), "Man plays");
+    assert!(
+        matches!(left, Renderable::Creature { .. }),
+        "npc {npc} plays"
+    );
     assert!(sequences(&left).contains(&walk));
 
     // Speed: the clock follows the sequence's delays, a 0 falling back to
@@ -55,20 +62,21 @@ fn man_walks_at_client_speed_and_in_step_with_its_conversion() {
     clock.advance(1.0);
     assert_eq!(clock.frame, 1);
 
-    // The converted NPC, written as `rs2ool pack npc --id 1 --with-anims` would.
+    // The converted NPC, written as `rs2ool pack npc --id <npc> --with-anims`
+    // would.
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d6_playback");
     let _ = std::fs::remove_dir_all(&out);
     let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());
-    let conv = rs2convert::run::npc(records, 0, 1, true, &[], None).unwrap();
+    let conv = rs2convert::run::npc(records, 0, npc, true, &[], None).unwrap();
     let written = rs2convert::run::write(&conv, &out, png).unwrap();
     let (_, _, models) = written.iter().find(|(k, ..)| *k == Kind::Models).unwrap();
     let pack = open_pack(models).unwrap();
-    let id = rs2convert::pipeline::ids::CREATURE_MODEL | 1;
+    let id = rs2convert::pipeline::ids::CREATURE_MODEL | npc;
     let (_, right) = load(&pack, &Sel::PackRecord(id)).unwrap();
     let right = right.unwrap();
     assert!(
         matches!(right, Renderable::PackCreature { .. }),
-        "the converted Man finds its rig and clips beside its model"
+        "the converted NPC finds its rig and clips beside its model"
     );
     assert!(sequences(&right).contains(&walk));
     let (pack_delays, _) = timing(&right, walk).unwrap();

@@ -266,8 +266,8 @@ mod tests {
 
     #[test]
     fn string_is_newline_terminated_latin1() {
-        let mut c = Cursor::new(b"Man\n\xe9\nrest");
-        assert_eq!(c.string().unwrap(), "Man");
+        let mut c = Cursor::new(b"Abc\n\xe9\nrest");
+        assert_eq!(c.string().unwrap(), "Abc");
         assert_eq!(c.string().unwrap(), "\u{e9}");
         assert_eq!(c.string(), Err(IoError::UnterminatedString { offset: 6 }));
         assert_eq!(c.pos(), 6, "a failed read does not advance");

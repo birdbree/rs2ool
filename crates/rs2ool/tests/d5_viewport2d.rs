@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use bevy_egui::egui;
-use rs2cache::types::record::RecordType;
+use rs2cache::types::record::{Record, RecordType};
 use rs2ool::explorer::renderable::Renderable;
 use rs2ool::explorer::selection::{Sel, load};
 use rs2ool::explorer::sources::{Source, open_cache};
@@ -24,31 +24,41 @@ fn cache() -> Option<Source> {
 }
 
 #[test]
-fn compass_is_crisp_at_4x() {
+fn sprite_is_crisp_at_4x() {
     let Some(src) = cache() else { return };
     let Source::Cache { records, .. } = &src else {
         unreachable!()
     };
-    let id = records
+    // The first media sprite sheet whose first sub-sprite is fully opaque.
+    let (id, want) = records
         .ids(RecordType::Sprite)
         .unwrap()
         .into_iter()
-        .find(|&id| {
+        .filter(|&id| {
             records
                 .sprite_source(id)
-                .is_ok_and(|(_, name)| name.to_string() == "compass.dat")
+                .is_ok_and(|(n, _)| n == rs2cache::archive::MEDIA)
         })
-        .expect("a compass sprite");
+        .find_map(|id| {
+            let Ok(Record::Sprite(sheet)) = records.decode(RecordType::Sprite, id) else {
+                return None;
+            };
+            let s = sheet.sprites.first()?;
+            let img = sheet_image(&sheet, 0, false)?;
+            (s.width > 0 && img.pixels.chunks(4).all(|p| p[3] == 255))
+                .then_some((id, (usize::from(s.width), usize::from(s.height))))
+        })
+        .expect("a media sprite with an opaque sub-sprite");
     let (_, r) = load(&src, &Sel::Record(RecordType::Sprite, id)).unwrap();
     let Some(Renderable::Sheet { sheet, untrimmed }) = r else {
         panic!("a sprite sheet")
     };
     assert!(!untrimmed);
     let img = sheet_image(&sheet, 0, untrimmed).unwrap();
-    assert_eq!((img.width, img.height), (51, 51));
+    assert_eq!((img.width, img.height), want, "the sub-sprite's own size");
     assert!(
         img.pixels.chunks(4).all(|p| p[3] == 255),
-        "the compass is opaque"
+        "the sprite is opaque"
     );
     for ppp in [1.0, 2.0] {
         let at = image_rect(
@@ -58,7 +68,12 @@ fn compass_is_crisp_at_4x() {
             4,
             ppp,
         );
-        assert_eq!(at.width() * ppp, 204.0, "4 physical pixels per texel");
+        assert_eq!(
+            at.width() * ppp,
+            4.0 * img.width as f32,
+            "4 physical pixels per texel"
+        );
+        assert_eq!(at.height() * ppp, 4.0 * img.height as f32);
     }
     assert_eq!(TEXTURE_OPTIONS.magnification, egui::TextureFilter::Nearest);
     assert_eq!(TEXTURE_OPTIONS.minification, egui::TextureFilter::Nearest);
@@ -87,8 +102,7 @@ fn p12_full_shows_256_glyphs() {
 #[test]
 fn interfaces_nest_their_children_with_sprites() {
     let Some(src) = cache() else { return };
-    // 3213 is a layer in the game frame; any layer with sprite children
-    // will do, so take the first root that has some.
+    // Any layer with sprite children will do, so take the first few.
     let Source::Cache { records, .. } = &src else {
         unreachable!()
     };

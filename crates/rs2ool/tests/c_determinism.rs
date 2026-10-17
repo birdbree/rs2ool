@@ -4,6 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn run(cache: &Path, out: &Path, args: &[&str]) -> Vec<String> {
     let _ = std::fs::remove_dir_all(out);
     let o = Command::new(env!("CARGO_BIN_EXE_rs2ool"))
@@ -42,9 +44,11 @@ fn npc_and_models_runs_are_identical() {
         eprintln!("skipping: RS2_CACHE is not set");
         return;
     };
+    let opened = rs2cache::Cache::open(&cache).unwrap();
+    let npc = common::walking_npc(&rs2cache::Records::new(&opened)).to_string();
     let tmp = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pack");
     for args in [
-        &["npc", "--id", "1", "--with-anims"][..],
+        &["npc", "--id", &npc, "--with-anims"][..],
         &["materials"][..],
         &["textures"][..],
     ] {

@@ -16,8 +16,10 @@ use rs2ool::explorer::viewport3d::{
     self, LightingMode, Limits, OrbitCamera, Shown, ShownPart, TextureMaterials,
 };
 
+mod common;
+
 #[test]
-fn man_mesh_is_upright_with_a_vertex_per_corner() {
+fn npc_mesh_is_upright_with_a_vertex_per_corner() {
     let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
         eprintln!("skipping: RS2_CACHE is not set");
         return;
@@ -25,8 +27,9 @@ fn man_mesh_is_upright_with_a_vertex_per_corner() {
     let cache = Cache::open(&dir).unwrap();
     let records = Records::new(&cache);
     let index = cache.frame_index().unwrap();
-    let man = rs2convert::creature::npc(&records, &index, 1, &[]).unwrap();
-    let m = &man.model;
+    let npc = common::walking_npc(&records);
+    let creature = rs2convert::creature::npc(&records, &index, npc, &[]).unwrap();
+    let m = &creature.model;
     for shading in [Shading::Raw, Shading::Client(NPC_LIGHTING)] {
         let mesh = mesh::mesh_from_model(m, &m.vertices, shading, false);
         assert_eq!(mesh.count_vertices(), m.faces.len() * 3);
@@ -43,10 +46,20 @@ fn man_mesh_is_upright_with_a_vertex_per_corner() {
             (-mhi[1] as f32, -mlo[1] as f32),
             "y is negated"
         );
-        assert!(hi[1] > 150.0, "the head is up");
+        // A standing character's feet are at the origin in the cache, its
+        // body above them (negative y); after the flip it extends up.
+        assert!(
+            hi[1] > 0.0 && hi[1] > -lo[1],
+            "the body is above its feet: y {} to {}",
+            lo[1],
+            hi[1]
+        );
     }
-    // Model 0 too.
-    let m0 = cache.model(0).unwrap();
+    // A plain model too.
+    let first = records
+        .ids(rs2cache::types::record::RecordType::Model)
+        .unwrap()[0];
+    let m0 = cache.model(first).unwrap();
     assert_eq!(
         mesh::mesh_from_model(&m0, &m0.vertices, Shading::Raw, false).count_vertices(),
         m0.faces.len() * 3

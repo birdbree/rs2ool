@@ -45,7 +45,7 @@ These tests only read the cache. Anything they write goes under Cargo's per-targ
 | `tests/a4_config.rs` | Every definition of every config type decodes, unknown opcodes are reported with their definition ids, and each definition ends exactly where the next begins; plus spot checks on individual definitions. |
 | `tests/a5_models.rs` | Every model decodes with its sections filling the file exactly; plus bounds checks on individual models. |
 | `tests/a6_frames.rs` | Every frame pack decodes with exact section lengths and in-range transform slots, every frame a sequence references is defined by exactly one pack, and a sequence moves only labels its model has. |
-| `tests/a7_textures.rs` | The 50 textures decode as single sprites that pad to 64 × 64 or 128 × 128, with visible content. |
+| `tests/a7_textures.rs` | Every texture decodes as a single sprite that pads to 64 × 64 or 128 × 128, with visible content, and the texture entries run from `0.dat` with no gaps. |
 | `tests/a8_maps.rs` | Every region in `map_index` decodes with its tile file consumed exactly, and every location type is 0–22; plus a spot check of one region's planes. |
 | `tests/a9_sprites.rs` | Every media and title sprite entry decodes, the four fonts have 256 glyphs each, and interfaces decode fully with every layer child present; plus spot checks on individual records. |
 | `tests/a10_remaining.rs` | Varps and varbits decode exactly with no unknown opcodes, every MIDI file inflates to MIDI, and models and frame packs carry the version and CRC their versionlist tables give. |

@@ -36,7 +36,7 @@ Extracts records to files, raw or decoded. A dump takes one **source**, usually 
 | `--index N` | files of index 0–4, inflated (or decoded with `--decode`) |
 | `--archive NAME` | an archive's entries, or its decoded record types with `--decode` |
 | `--type TYPE` | decoded records of one type |
-| `--region RX_RY` | one map region's tile and location files, e.g. `50_50` |
+| `--region RX_RY` | one map region's tile and location files, e.g. `48_48` |
 | `--all-regions` | every region in `map_index` |
 | `--group G` | a record and what it depends on: `npc:<id>`, `item:<id>` or `player-kit` |
 
@@ -75,7 +75,7 @@ rs2ool cache dump --archive media --decode --meta -o out/
 rs2ool cache dump --type model --range 0-99 --meta --xref -o out/
 rs2ool cache dump --type sprite --all -o out/
 rs2ool cache dump --type npc --all --jsonl -o out/
-rs2ool cache dump --region 50_50 --decode -o out/
+rs2ool cache dump --region 48_48 --decode -o out/
 rs2ool cache dump --all-regions --raw -o out/
 rs2ool cache dump --group npc:1 -o out/
 ```

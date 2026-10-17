@@ -37,11 +37,25 @@ fn cache_model_and_pack_record_compare() {
     let Source::Cache { records, .. } = &cache else {
         unreachable!()
     };
-    // Convert model 215 and the palette as `rs2ool pack` would.
+    // The first model with faces that spans all three axes, so a scaling
+    // error shows in its bounds.
+    let id = records
+        .ids(RecordType::Model)
+        .unwrap()
+        .into_iter()
+        .find(|&id| {
+            records.cache().model(id).is_ok_and(|m| {
+                !m.faces.is_empty()
+                    && m.bounds()
+                        .is_some_and(|(lo, hi)| (0..3).all(|a| hi[a] > lo[a]))
+            })
+        })
+        .expect("a model with extent on every axis");
+    // Convert it and the palette as `rs2ool pack` would.
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d4_compare");
     let _ = std::fs::remove_dir_all(&out);
     let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());
-    let models = rs2convert::run::models(records, 0, Some(215)).unwrap();
+    let models = rs2convert::run::models(records, 0, Some(id)).unwrap();
     let written = rs2convert::run::write(&models, &out, png).unwrap();
     rs2convert::run::write(&rs2convert::run::materials(records, 0).unwrap(), &out, png).unwrap();
     let (_, _, pack_path) = written.iter().find(|(k, ..)| *k == Kind::Models).unwrap();
@@ -62,7 +76,7 @@ fn cache_model_and_pack_record_compare() {
             .collect();
         *app.world_mut().resource_mut::<Selected>() = Selected {
             source: Some(0),
-            sel: Some(Sel::Record(RecordType::Model, 215)),
+            sel: Some(Sel::Record(RecordType::Model, id)),
         };
         app.update();
         assert_eq!(app.world().resource::<CompareSelected>().0.sel, None, "off");
@@ -71,23 +85,23 @@ fn cache_model_and_pack_record_compare() {
         let right = &app.world().resource::<CompareSelected>().0;
         assert_eq!(
             (right.source, right.sel.clone()),
-            (Some(1), Some(Sel::PackRecord(215)))
+            (Some(1), Some(Sel::PackRecord(id)))
         );
     }
 
     // "Match" pairs them both ways.
-    let cache_sel = Sel::Record(RecordType::Model, 215);
+    let cache_sel = Sel::Record(RecordType::Model, id);
     assert_eq!(
         find_match(&sources, 0, &cache_sel),
-        Some((1, Sel::PackRecord(215)))
+        Some((1, Sel::PackRecord(id)))
     );
     assert_eq!(
-        find_match(&sources, 1, &Sel::PackRecord(215)),
+        find_match(&sources, 1, &Sel::PackRecord(id)),
         Some((0, cache_sel.clone()))
     );
 
     let (_, left) = load(&sources[0], &cache_sel).unwrap();
-    let (_, right) = load(&sources[1], &Sel::PackRecord(215)).unwrap();
+    let (_, right) = load(&sources[1], &Sel::PackRecord(id)).unwrap();
     let (left, right) = (left.unwrap(), right.unwrap());
     let Renderable::PackModel { model, palette } = &right else {
         panic!("a pack model")

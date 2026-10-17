@@ -308,7 +308,7 @@ mod tests {
         d.extend([0, 0, 0, 0, 2, 0, 8, 0, 5, 0xff, 0xfb, 0, 9, 0, 0, 0, 0]);
         d.extend([0, 8]);
         header(&mut d, 5, 1);
-        d.extend(b"compass,0\n\n");
+        d.extend(b"sheet,0\n\n");
         d.extend(b"\n");
         d.extend([0, 9]);
         header(&mut d, 8, 0);
@@ -338,7 +338,7 @@ mod tests {
             list[1].content,
             Content::Sprite {
                 sprite: Some(SpriteRef {
-                    name: "compass".into(),
+                    name: "sheet".into(),
                     index: 0
                 }),
                 enabled_sprite: None

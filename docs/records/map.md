@@ -17,7 +17,7 @@ locationFile  u16   index-4 file id of the location file
 members       u8    1 = members region
 ```
 
-The region id is the region's x and y, each 0–255. Region `(x, y)` covers world tiles `x * 64 .. x * 64 + 63` and `y * 64 .. y * 64 + 63`. Record type `map` uses the region id as its record id, and the ids are the regions `map_index` lists, sorted. On the command line you name a region as `RX_RY`, as in `--region 50_50`. See [versionlist](../cache/versionlist.md).
+The region id is the region's x and y, each 0–255. Region `(x, y)` covers world tiles `x * 64 .. x * 64 + 63` and `y * 64 .. y * 64 + 63`. Record type `map` uses the region id as its record id, and the ids are the regions `map_index` lists, sorted. On the command line you name a region as `RX_RY`, as in `--region 48_48`. See [versionlist](../cache/versionlist.md).
 
 ## The tile file
 
@@ -114,7 +114,7 @@ Location
 
 ## Dump
 
-`rs2ool cache dump --region 50_50 --decode -o out/` (or `decode map`) writes `map/50_50.json`. Without `--decode`, it writes the two inflated files as `map/50_50.m.bin` (tiles) and `map/50_50.l.bin` (locations). The sidecar summary gives each plane's lowest and highest height and the location count.
+`rs2ool cache dump --region 48_48 --decode -o out/` (or `decode map`) writes `map/48_48.json`. Without `--decode`, it writes the two inflated files as `map/48_48.m.bin` (tiles) and `map/48_48.l.bin` (locations). The sidecar summary gives each plane's lowest and highest height and the location count.
 
 ## See also
 

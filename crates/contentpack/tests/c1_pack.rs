@@ -4,6 +4,9 @@
 use contentpack::records::model::{AttachPoint, PackModel};
 use contentpack::{Kind, PackReader, PackWriter};
 
+/// Any record id will do.
+const ID: u32 = 42;
+
 #[test]
 fn one_synthetic_model_round_trips() {
     let model = PackModel {
@@ -23,12 +26,12 @@ fn one_synthetic_model_round_trips() {
     };
     let record = model.encode().unwrap();
     let mut w = PackWriter::new(Kind::Models, 1);
-    w.insert(215, record.clone());
+    w.insert(ID, record.clone());
     let (name, bytes) = w.bake();
     let r = PackReader::from_bytes(&bytes).unwrap();
     assert_eq!(r.hash, name);
     assert_eq!(r.manifest.record_count, 1);
-    let back = r.get(215).unwrap().unwrap();
+    let back = r.get(ID).unwrap().unwrap();
     assert_eq!(back, record);
     assert_eq!(PackModel::decode(&back).unwrap(), model);
 }

@@ -469,18 +469,18 @@ mod tests {
 
     #[test]
     fn dumped_model_paths() {
-        assert_eq!(dumped_model_id(Path::new("model/215.json")), Some(215));
-        assert_eq!(dumped_model_id(Path::new("model/215.meta.json")), None);
+        assert_eq!(dumped_model_id(Path::new("model/42.json")), Some(42));
+        assert_eq!(dumped_model_id(Path::new("model/42.meta.json")), None);
         assert_eq!(dumped_model_id(Path::new("npc/1.json")), None);
         assert_eq!(dumped_model_id(Path::new("model/x/1.json")), None);
     }
 
     #[test]
     fn cache_and_pack_ids_round_trip() {
-        for r in [(RecordType::Model, 215), (RecordType::Npc, 1)] {
+        for r in [(RecordType::Model, 42), (RecordType::Npc, 7)] {
             assert_eq!(pack_to_cache(cache_to_pack(r).unwrap()), Some(r));
         }
-        assert_eq!(cache_to_pack((RecordType::Obj, 4151)), None);
+        assert_eq!(cache_to_pack((RecordType::Obj, 9)), None);
         assert_eq!(pack_to_cache(ids::KIT_MODEL | 3), None);
     }
 }

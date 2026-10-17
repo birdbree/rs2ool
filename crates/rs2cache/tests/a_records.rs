@@ -35,8 +35,9 @@ fn every_type_decodes_and_summarises() {
 #[test]
 fn model_sidecar_counts_match_the_model() {
     let Some(cache) = common::cache() else { return };
-    let m = meta(&cache, RecordType::Model, 0).unwrap();
-    let model = cache.model(0).unwrap();
+    let id = ids(&cache, RecordType::Model).unwrap()[0];
+    let m = meta(&cache, RecordType::Model, id).unwrap();
+    let model = cache.model(id).unwrap();
     let TypeSummary::Model {
         vertex_count,
         face_count,

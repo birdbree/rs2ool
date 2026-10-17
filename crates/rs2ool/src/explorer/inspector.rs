@@ -238,8 +238,8 @@ mod link_tests {
         assert_eq!(link_type(T::Loc, "models[3].model"), Some(T::Model));
         assert_eq!(link_type(T::Map, "locations[0].id"), Some(T::Loc));
         assert_eq!(link_type(T::Npc, "name"), None);
-        assert_eq!(link_ids("[215, 246, 292] … (7 total)"), [215, 246, 292]);
-        assert_eq!(link_ids("808"), [808]);
-        assert!(link_ids("Man").is_empty());
+        assert_eq!(link_ids("[12, 34, 56] … (7 total)"), [12, 34, 56]);
+        assert_eq!(link_ids("789"), [789]);
+        assert!(link_ids("Name").is_empty());
     }
 }

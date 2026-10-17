@@ -131,7 +131,7 @@ mod tests {
             .op(1)
             .u16(2635)
             .op(2)
-            .str("Red partyhat")
+            .str("Item")
             .op(3)
             .str("A nice hat from a cracker.")
             .op(4)
@@ -211,7 +211,7 @@ mod tests {
             .end();
         let d = Obj::decode(1038, &mut Cursor::new(&data)).unwrap();
         assert_eq!(d.inventory_model, 2635);
-        assert_eq!(d.name.as_deref(), Some("Red partyhat"));
+        assert_eq!(d.name.as_deref(), Some("Item"));
         assert_eq!(
             (d.icon_zoom, d.icon_pitch, d.icon_yaw, d.icon_roll),
             (440, 76, 1852, 30)

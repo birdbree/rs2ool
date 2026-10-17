@@ -1,7 +1,7 @@
 //! Every frame pack decodes with exact section lengths, frame transform
 //! indices stay within the base, every frame `seq.dat` references is
-//! defined by exactly one pack, and a stand sequence only moves labels its
-//! model has.
+//! defined by exactly one pack, and an NPC's stand sequence moves every
+//! label its models have.
 
 mod common;
 
@@ -11,6 +11,7 @@ use rs2cache::anim::{self, FrameIndex};
 use rs2cache::archive;
 use rs2cache::config::{self, npc::Npc, seq::Seq};
 use rs2cache::types::anim::kind;
+use rs2cache::types::config::NpcDef;
 
 #[test]
 fn every_pack_decodes_exactly() {
@@ -88,17 +89,35 @@ fn sequences_resolve_to_one_pack() {
     assert!(missing.is_empty());
 }
 
+/// The first NPC with at least two models, stand and walk sequences, and a
+/// one-tile footprint: a jointed figure that animates in place.
+fn rigged_npc(cfg: &rs2cache::Archive) -> NpcDef {
+    config::decode_all::<Npc>(cfg)
+        .unwrap()
+        .into_iter()
+        .find(|n| {
+            n.models.len() >= 2 && n.stand_anim.is_some() && n.walk_anim.is_some() && n.size == 1
+        })
+        .expect("no NPC with two models, stand and walk sequences, and size 1")
+}
+
 #[test]
-fn stand_sequence_labels_exist_on_man() {
+fn stand_sequence_labels_exist_on_npc() {
     let Some(cache) = common::cache() else { return };
     let cfg = cache.archive(config::ARCHIVE).unwrap();
-    let man = config::decode_one::<Npc>(&cfg, 1).unwrap();
-    let labels: BTreeSet<u8> = man
+    let npc = rigged_npc(&cfg);
+    let labels: BTreeSet<u8> = npc
         .models
         .iter()
-        .flat_map(|&m| cache.model(m.into()).unwrap().vertex_labels.unwrap())
+        .flat_map(|&m| {
+            cache
+                .model(m.into())
+                .unwrap()
+                .vertex_labels
+                .unwrap_or_else(|| panic!("npc {} model {m} has no labels", npc.id))
+        })
         .collect();
-    let stand = config::decode_one::<Seq>(&cfg, man.stand_anim.unwrap().into()).unwrap();
+    let stand = config::decode_one::<Seq>(&cfg, npc.stand_anim.unwrap().into()).unwrap();
     let index: FrameIndex = cache.frame_index().unwrap();
     let mut moved = BTreeSet::new();
     for f in &stand.frames {
@@ -111,12 +130,16 @@ fn stand_sequence_labels_exist_on_man() {
             }
         }
     }
-    eprintln!("Man labels {labels:?}; stand moves {moved:?}");
+    eprintln!(
+        "npc {} labels {labels:?}; stand {} moves {moved:?}",
+        npc.id, stand.id
+    );
     // A frame base covers every body type, so it may name labels this model
     // lacks; but what the model has must be what the base moves.
     assert!(!moved.is_empty());
     assert!(
         labels.iter().all(|l| *l == 0 || moved.contains(l)),
-        "Man labels not moved by stand"
+        "npc {} labels not moved by its stand sequence",
+        npc.id
     );
 }

@@ -100,7 +100,7 @@ mod tests {
             .u16(215)
             .u16(246)
             .op(2)
-            .str("Man")
+            .str("Name")
             .op(3)
             .str("One of many citizens.")
             .op(12)
@@ -156,7 +156,7 @@ mod tests {
             .end();
         let d = Npc::decode(1, &mut Cursor::new(&data)).unwrap();
         assert_eq!(d.models, [215, 246]);
-        assert_eq!(d.name.as_deref(), Some("Man"));
+        assert_eq!(d.name.as_deref(), Some("Name"));
         assert_eq!(d.size, 2);
         assert_eq!((d.stand_anim, d.walk_anim), (Some(808), Some(819)));
         assert_eq!(
