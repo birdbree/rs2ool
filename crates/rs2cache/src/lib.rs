@@ -7,6 +7,7 @@ pub mod archive;
 pub mod cache;
 pub mod compress;
 pub mod config;
+pub mod interface;
 pub mod io;
 pub mod map;
 pub mod model;
