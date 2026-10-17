@@ -72,7 +72,7 @@ fn opaque_single_sprite() {
     let rgba = sheet.rgba(0).unwrap();
     assert_eq!(rgba.len(), s.pixels.len() * 4);
     assert!(
-        rgba.chunks_exact(4).all(|px| px[3] == 255),
+        rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
         "opaque pixels lost alpha"
     );
 }

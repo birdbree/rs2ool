@@ -1,0 +1,5 @@
+# The toolchain CI and local builds share, so a new Rust release can't
+# break the build without warning. Bump it deliberately.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

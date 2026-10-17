@@ -2,7 +2,7 @@
 
 # Getting started
 
-This page gets you from a fresh checkout to a dumped record, a converted pack and the explorer window. It assumes a stable Rust toolchain that supports edition 2024.
+This page gets you from a fresh checkout to a dumped record, a converted pack and the explorer window. It assumes you have `rustup`. The repository's `rust-toolchain.toml` pins the Rust version, and `rustup` installs it the first time you build.
 
 ## You need a cache
 

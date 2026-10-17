@@ -11,7 +11,7 @@ This section is for working on the workspace itself: building, testing, linting,
 
 ## Commands
 
-Run these from the repository root. The workspace builds on stable Rust (edition 2024).
+Run these from the repository root. The workspace uses edition 2024, on the Rust version [`rust-toolchain.toml`](../../rust-toolchain.toml) pins. CI uses the same file, so a new Rust release (and its new lints) can't break the build unannounced. To move to a newer Rust, bump the version there and fix whatever the new clippy flags in the same PR.
 
 Cache-gated tests read the cache from `RS2_CACHE`. Set it to an absolute path: `cargo test` runs each crate's tests from that crate's directory, so a relative path points somewhere else. No cache is included in the repository; point it at your own copy.
 
