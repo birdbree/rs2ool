@@ -2,6 +2,7 @@
 //! archives, and every record decoder. Everything decoded is returned as an
 //! `rs2intermediate` struct.
 
+pub mod anim;
 pub mod archive;
 pub mod cache;
 pub mod compress;
@@ -34,6 +35,8 @@ pub enum Error {
     Config(#[from] config::ConfigError),
     #[error("model {id}: {source}")]
     Model { id: u32, source: model::ModelError },
+    #[error("frame pack {id}: {source}")]
+    Anim { id: u32, source: anim::FrameError },
 }
 
 impl Cache {
@@ -47,6 +50,25 @@ impl Cache {
     /// Read and decode model `id` from index 1.
     pub fn model(&self, id: u32) -> Result<rs2intermediate::model::Model, Error> {
         model::decode(&self.read(1, id)?).map_err(|source| Error::Model { id, source })
+    }
+
+    /// Read and decode frame pack `id` from index 2.
+    pub fn frame_pack(&self, id: u32) -> Result<rs2intermediate::anim::FramePack, Error> {
+        anim::decode(&self.read(2, id)?).map_err(|source| Error::Anim { id, source })
+    }
+
+    /// Build the frame id → pack map by reading every pack's id list.
+    pub fn frame_index(&self) -> Result<anim::FrameIndex, Error> {
+        let mut packs = Vec::new();
+        for id in 0..self.file_count(2)? as u32 {
+            match self.read(2, id) {
+                Ok(data) => packs.push((id, data)),
+                Err(Error::Cache(CacheError::Absent { .. })) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        anim::FrameIndex::build(packs.iter().map(|(id, d)| (*id, d.as_slice())))
+            .map_err(|(id, source)| Error::Anim { id, source })
     }
 
     /// Read and decode archive `archive` of index 0.
