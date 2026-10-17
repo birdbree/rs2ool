@@ -53,6 +53,16 @@ cargo insta review
 
 Before you call a change done, `cargo fmt --check`, the clippy command above and `cargo test --workspace` should all pass. With `RS2_CACHE` set, the cache-gated tests run too; without it they print a skip note and pass.
 
+## CI
+
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on every pull request and every push to `main`, in three jobs:
+
+- `fmt`: `cargo fmt --check`.
+- `cli`: clippy and the tests built with `--no-default-features`, with no system libraries installed, which proves the command line builds without Bevy.
+- `full`: Bevy's Linux libraries (ALSA, udev, Wayland, xkbcommon), then clippy with `-D warnings`, `cargo doc` with warnings as errors, and the full test suite.
+
+CI has no cache, so the cache-gated tests skip there. Run them locally with `RS2_CACHE` set before you merge anything that touches a decoder or a converter.
+
 ## The GitHub wiki
 
 The [wiki](https://github.com/birdbree/rs2ool/wiki) is generated from `docs/`, so edit the pages here, never there. [`scripts/wiki.py`](../../scripts/wiki.py) gives every page a unique wiki name, rewrites links between pages, points links to source files at GitHub, and adds a sidebar. A workflow republishes it whenever `docs/` changes on `main`. To check the output or publish by hand:

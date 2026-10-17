@@ -1,5 +1,7 @@
 # rs2ool
 
+[![ci](https://github.com/birdbree/rs2ool/actions/workflows/ci.yml/badge.svg)](https://github.com/birdbree/rs2ool/actions/workflows/ci.yml)
+
 rs2ool (say it "R.S. Tool") is a set of tools for reading the RS2 revision-317 cache, the data files of the original Java client. They decode every record in it, draw models the way the original client draws them, and convert records into a documented content-pack format. Everything runs offline. No cache is included in the repository, so point the tools at your own copy of one.
 
 ## Install
