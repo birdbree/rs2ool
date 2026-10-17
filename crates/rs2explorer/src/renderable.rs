@@ -131,7 +131,7 @@ pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, 
     // Prefer a different kind of source: cache ↔ pack, dump → cache.
     let in_pack = |i: usize| match (&sources[i], pack_id) {
         (Source::Pack { reader, .. }, Some(id))
-            if reader.manifest.kind == Kind::Models && reader.get(id).is_some() =>
+            if reader.manifest.kind == Kind::Models && reader.contains(id) =>
         {
             Some((i, Sel::PackRecord(id)))
         }

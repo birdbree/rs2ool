@@ -34,6 +34,14 @@ pub enum Shading {
     Client(Lighting),
 }
 
+/// The explorer's world position of a cache-space point: y and z negated.
+/// The cache is right-handed with y down and z north (tile y); negating
+/// two axes is a rotation, so models keep their handedness and sit in the
+/// same frame as map terrain (negating y alone would mirror them).
+pub fn world(v: [i32; 3]) -> [f32; 3] {
+    [v[0] as f32, -v[1] as f32, -v[2] as f32]
+}
+
 fn rgb(c: u32) -> [f32; 3] {
     let [r, g, b] = split(c);
     [r, g, b].map(|v| f32::from(v) / 255.0)
@@ -86,7 +94,7 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
         let p = f.map(|v| vertices[usize::from(v)]);
         // The client lights with the cache-space cross product.
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
-        let nrm = flat_normal(p.map(|q| [q[0] as f32, -q[1] as f32, q[2] as f32]));
+        let nrm = flat_normal(p.map(world));
         let textured = m.face_types.as_ref().is_some_and(|t| t[i] & 2 != 0);
         let hsl = m.face_colours[i];
         let base = if textured {
@@ -103,7 +111,7 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
             .map_or(1.0, |a| 1.0 - f32::from(a[i]) / 255.0);
         for (corner, v) in f.iter().enumerate() {
             let q = p[corner];
-            pos.push([q[0] as f32, -q[1] as f32, q[2] as f32]);
+            pos.push(world(q));
             normals.push(nrm);
             let c = if labels {
                 let l = m.vertex_labels.as_ref().map_or(0, |l| l[usize::from(*v)]);
@@ -142,7 +150,11 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
     let mut normals = Vec::with_capacity(n);
     let mut colors = Vec::with_capacity(n);
     for (i, f) in m.faces.iter().enumerate() {
-        let p = f.map(|v| m.vertices[usize::from(v)].map(f32::from));
+        // Pack positions are y up with the cache's z; flip z as `world` does.
+        let p = f.map(|v| {
+            let [x, y, z] = m.vertices[usize::from(v)].map(f32::from);
+            [x, y, -z]
+        });
         let nrm = flat_normal(p);
         let base = if m.material_slots[i] != 0 {
             [0.55, 0.5, 0.45]
@@ -307,7 +319,7 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
     for (i, f) in m.faces.iter().enumerate() {
         let p = f.map(|v| vertices[usize::from(v)]);
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
-        let nrm = flat_normal(p.map(|q| [q[0] as f32, -q[1] as f32, q[2] as f32]));
+        let nrm = flat_normal(p.map(world));
         let ty = m.face_types.as_ref().map_or(0, |t| t[i]);
         let triple = m
             .textured_faces
@@ -345,7 +357,7 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
         };
         let g = groups.entry(key).or_default();
         for (corner, q) in p.iter().enumerate() {
-            g.pos.push([q[0] as f32, -q[1] as f32, q[2] as f32]);
+            g.pos.push(world(*q));
             g.normals.push(nrm);
             g.colors.push([colour[0], colour[1], colour[2], alpha]);
             g.uvs.push(uv[corner]);
@@ -383,6 +395,19 @@ mod tests {
         assert_eq!(uv[1], [1.0, 0.0]);
         // Past N, v runs on so the repeating sampler wraps it.
         assert_eq!(uv[2], [0.5, 2.0]);
+    }
+
+    #[test]
+    fn world_mapping_is_a_rotation_not_a_mirror() {
+        let [x, y, z] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(world);
+        let c = [
+            x[1] * y[2] - x[2] * y[1],
+            x[2] * y[0] - x[0] * y[2],
+            x[0] * y[1] - x[1] * y[0],
+        ];
+        // x × y = z in the cache, so it must stay so after mapping.
+        assert_eq!(c, z);
+        assert_eq!(world([0, -100, 0])[1], 100.0, "cache y is down");
     }
 
     #[test]

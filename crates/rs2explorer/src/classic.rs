@@ -10,13 +10,13 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use rs2intermediate::record::{Record, RecordType};
-use rs2render::{Camera, Framebuffer, LitModel, Textures, light};
+use rs2render::{Framebuffer, LitModel, Textures, light};
 
 use crate::map_view::{ClassicScene, RegionScene};
 use crate::selection::Loaded;
 use crate::sources::{Source, Sources};
 use crate::ui::ViewportRect;
-use crate::viewport3d::{Compare, OrbitCamera, Shown};
+use crate::viewport3d::{Compare, OrbitCamera, Shown, WorldCamera};
 
 /// Which renderer draws the model.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,7 +30,8 @@ pub enum RenderMode {
 
 #[derive(Resource)]
 pub struct ClassicView {
-    /// The lit model and its vertices centred on the origin.
+    /// The lit model and its vertices (cache space, where the modern
+    /// view draws them too).
     pub model: Option<(Arc<LitModel>, Vec<[i32; 3]>)>,
     pub textures: Option<Arc<Textures>>,
     /// Screen pixels per classic pixel.
@@ -53,33 +54,6 @@ impl Default for ClassicView {
             last: None,
         }
     }
-}
-
-/// Centre a model's vertices on the origin, as the orbit camera expects.
-pub fn centred(v: &[[i32; 3]]) -> Vec<[i32; 3]> {
-    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
-    for p in v {
-        for a in 0..3 {
-            lo[a] = lo[a].min(p[a]);
-            hi[a] = hi[a].max(p[a]);
-        }
-    }
-    let c = [0, 1, 2].map(|a| {
-        if lo[a] <= hi[a] {
-            (lo[a] + hi[a]) / 2
-        } else {
-            0
-        }
-    });
-    v.iter()
-        .map(|p| [p[0] - c[0], p[1] - c[1], p[2] - c[2]])
-        .collect()
-}
-
-/// The classic camera for an orbit state: radians to 2048-unit angles.
-pub fn camera(o: &OrbitCamera) -> Camera {
-    let units = |r: f32| (r / std::f32::consts::TAU * 2048.0).round() as i32;
-    Camera::orbit(units(-o.yaw), units(o.pitch), o.distance.round() as i32)
 }
 
 /// Load the 50 textures from the first cache source, once, off the UI
@@ -126,7 +100,7 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
     view.model = model.map(|m| {
         (
             Arc::new(light(m, &rs2render::light::NPC)),
-            centred(&m.vertices),
+            m.vertices.clone(),
         )
     });
 }
@@ -162,10 +136,12 @@ fn visibility(on: ClassicOn, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
     }
 }
 
-/// Render and paint the classic view over the viewport.
-/// The classic world camera for an orbit state around a region: the eye
-/// and target in cache coordinates (Bevy's y and z are negated), with yaw
-/// and pitch pointing the eye at the target.
+/// The classic world camera for an orbit state: the eye and target in
+/// cache coordinates (Bevy's y and z are negated, see [`mesh::world`]),
+/// with yaw and pitch pointing the eye at the target. Single models and
+/// regions both draw through it, so the classic and modern views match.
+///
+/// [`mesh::world`]: crate::mesh::world
 pub fn scene_view(o: &OrbitCamera) -> rs2render::View {
     let to_cache = |v: Vec3| {
         [
@@ -185,6 +161,37 @@ pub fn scene_view(o: &OrbitCamera) -> rs2render::View {
     let yaw = units((-d[0]).atan2(d[2]));
     let pitch = units(d[1].atan2((d[0] * d[0] + d[2] * d[2]).sqrt()));
     rs2render::View { eye, yaw, pitch }
+}
+
+/// The classic projection's focal length in classic pixels (`x << 9 / z`).
+const FOCAL: f32 = 512.0;
+
+/// Give the modern cameras the classic projection's vertical field of view
+/// for the current viewport and pixel size, so both renderers frame the
+/// same view.
+fn match_fov(
+    rect: Res<ViewportRect>,
+    view: Res<ClassicView>,
+    mut q: Query<&mut Projection, With<WorldCamera>>,
+) {
+    if !(rect.is_changed() || view.is_changed()) || rect.size.y == 0 {
+        return;
+    }
+    let fov = classic_fov(rect.size.y, view.scale.max(1));
+    for mut p in &mut q {
+        if let Projection::Perspective(pp) = &mut *p
+            && (pp.fov - fov).abs() > 1e-6
+        {
+            pp.fov = fov;
+        }
+    }
+}
+
+/// The vertical field of view of a classic frame `height` physical pixels
+/// tall drawn at `scale` physical pixels per classic pixel.
+pub fn classic_fov(height: u32, scale: u32) -> f32 {
+    let half = height as f32 / scale as f32 / 2.0;
+    2.0 * (half / FOCAL).atan()
 }
 
 /// Draw a region scene: terrain planes, then objects far to near.
@@ -259,7 +266,7 @@ fn draw(
     let tex = view.textures.clone();
     let tex = tex.as_deref().unwrap_or(&empty);
     if let Some((lit, verts)) = &view.model {
-        rs2render::render(&mut fb, lit, verts, &camera(&o), tex);
+        rs2render::render_in_view(&mut fb, lit, verts, &scene_view(&o), tex);
     } else if let Some(scene) = &scene {
         render_scene(&mut fb, scene, region.planes, &scene_view(&o), tex);
     }
@@ -314,6 +321,18 @@ pub struct FrameKey {
 pub fn plugin(app: &mut App) {
     app.init_resource::<RenderMode>()
         .init_resource::<ClassicView>()
-        .add_systems(Update, (load_textures, prepare, visibility))
+        .add_systems(Update, (load_textures, prepare, visibility, match_fov))
         .add_systems(EguiPrimaryContextPass, draw.after(crate::ui::Layout));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classic_fov_matches_the_projection() {
+        // A frame 1024 classic pixels tall spans ±512 at focal length 512.
+        assert!((classic_fov(1024, 1) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!((classic_fov(2048, 2) - classic_fov(1024, 1)).abs() < 1e-6);
+    }
 }

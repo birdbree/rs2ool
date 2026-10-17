@@ -9,10 +9,10 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rs2explorer::mesh;
 use rs2explorer::renderable::{Renderable, find_match};
-use rs2explorer::selection::{Sel, load};
-use rs2explorer::sources::{Source, open_cache, open_pack};
+use rs2explorer::selection::{CompareSelected, Sel, Selected, load};
+use rs2explorer::sources::{Source, Sources, open_cache, open_pack};
 use rs2explorer::ui::ViewportRect;
-use rs2explorer::viewport3d::{self, ComparePane, OrbitCamera, renderable_parts};
+use rs2explorer::viewport3d::{self, Compare, ComparePane, OrbitCamera, renderable_parts};
 use rs2intermediate::record::RecordType;
 use rs2pack::Kind;
 
@@ -45,6 +45,32 @@ fn cache_model_and_pack_record_compare() {
     rs2convert::run::write(&rs2convert::run::materials(records, 0).unwrap(), &out, png).unwrap();
     let (_, _, pack_path) = written.iter().find(|(k, ..)| *k == Kind::Models).unwrap();
     let sources = vec![cache, open_pack(pack_path).unwrap()];
+
+    // Compare mode follows the selection to its converted version.
+    {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Compare>()
+            .init_resource::<Selected>()
+            .init_resource::<CompareSelected>()
+            .init_resource::<Sources>()
+            .add_systems(Update, viewport3d::follow_match);
+        app.world_mut().resource_mut::<Sources>().list =
+            sources.iter().map(rs2explorer::sources::detach).collect();
+        *app.world_mut().resource_mut::<Selected>() = Selected {
+            source: Some(0),
+            sel: Some(Sel::Record(RecordType::Model, 215)),
+        };
+        app.update();
+        assert_eq!(app.world().resource::<CompareSelected>().0.sel, None, "off");
+        app.world_mut().resource_mut::<Compare>().enabled = true;
+        app.update();
+        let right = &app.world().resource::<CompareSelected>().0;
+        assert_eq!(
+            (right.source, right.sel.clone()),
+            (Some(1), Some(Sel::PackRecord(215)))
+        );
+    }
 
     // "Match" pairs them both ways.
     let cache_sel = Sel::Record(RecordType::Model, 215);

@@ -8,8 +8,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-use rs2explorer::renderable::find_match;
-use rs2explorer::selection::{CompareSelected, Sel, Selected};
+use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Source, Sources};
 use rs2explorer::viewport3d::Compare;
 use rs2explorer::{classic, jobs, map_view, selection, sources, tree, ui, viewport3d};
@@ -18,7 +17,7 @@ use rs2intermediate::record::RecordType;
 /// `rs2explorer [cache-dir] [--pack file]... [--select type:id] [--compare]
 /// [--classic]`: open a cache (default `RS2_CACHE`) and any packs at
 /// startup, optionally select a record in the cache, and with `--compare`
-/// show its match from another source beside it.
+/// show its other version (original or converted) beside it.
 #[derive(Resource, Default)]
 struct Startup {
     cache: Option<PathBuf>,
@@ -70,14 +69,13 @@ fn open_startup(
 }
 
 /// Once every startup source is open (sources open in parallel, so the
-/// cache is found by kind), select the record and, with `--compare`, its
-/// match.
+/// cache is found by kind), select the record and turn on compare mode
+/// for `--compare`.
 fn select_startup(
     st: Res<Startup>,
     sources: Res<Sources>,
     mut selected: ResMut<Selected>,
     mut compare: ResMut<Compare>,
-    mut right: ResMut<CompareSelected>,
     mut done: Local<bool>,
 ) {
     let expected = usize::from(st.cache.is_some()) + st.packs.len();
@@ -92,19 +90,10 @@ fn select_startup(
     let (Some((t, id)), Some(si)) = (st.select, cache) else {
         return;
     };
-    let sel = Sel::Record(t, id);
-    if st.compare
-        && let Some((ri, rsel)) = find_match(&sources.list, si, &sel)
-    {
-        compare.enabled = true;
-        right.0 = Selected {
-            source: Some(ri),
-            sel: Some(rsel),
-        };
-    }
+    compare.enabled = st.compare;
     *selected = Selected {
         source: Some(si),
-        sel: Some(sel),
+        sel: Some(Sel::Record(t, id)),
     };
 }
 

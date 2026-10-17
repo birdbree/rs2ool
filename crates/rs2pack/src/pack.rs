@@ -321,6 +321,11 @@ impl PackReader {
         self.index.iter().map(|e| e.id)
     }
 
+    /// Whether record `id` is present, without reading it.
+    pub fn contains(&self, id: u32) -> bool {
+        self.index.binary_search_by_key(&id, |e| e.id).is_ok()
+    }
+
     /// Record `id`, decompressed and CRC-checked; `None` if absent.
     pub fn get(&self, id: u32) -> Option<Result<Vec<u8>, PackError>> {
         let e = *self

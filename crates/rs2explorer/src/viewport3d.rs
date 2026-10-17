@@ -20,7 +20,9 @@ use rs2render::texture::TexturePage;
 use crate::classic::ClassicView;
 use crate::mesh::{self, NPC_LIGHTING, Shading};
 use crate::renderable::Renderable;
-use crate::selection::{CompareSelected, Loaded};
+use crate::renderable::find_match;
+use crate::selection::{CompareSelected, Loaded, Selected};
+use crate::sources::Sources;
 use crate::ui::ViewportRect;
 
 /// Marks the world camera(s).
@@ -279,12 +281,38 @@ pub struct ComparePane;
 /// The render layer of compare mode's right-hand model.
 pub const COMPARE_LAYER: usize = 1;
 
-/// Compare mode: the right pane shows [`CompareSelected`]; tree clicks go
-/// to it while `pick_right` is set.
+/// Compare mode: the right pane shows the other version of the selected
+/// model (original beside converted), kept in [`CompareSelected`] by
+/// [`follow_match`].
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Compare {
     pub enabled: bool,
-    pub pick_right: bool,
+}
+
+/// Keep the right pane on the selection's match: a cache model or NPC and
+/// its converted pack record, either way round. Nothing when compare mode
+/// is off or no open source has the other version.
+pub fn follow_match(
+    compare: Res<Compare>,
+    selected: Res<Selected>,
+    sources: Res<Sources>,
+    mut right: ResMut<CompareSelected>,
+) {
+    if !(compare.is_changed() || selected.is_changed() || sources.is_changed()) {
+        return;
+    }
+    let matched = selected
+        .source
+        .zip(selected.sel.as_ref())
+        .filter(|_| compare.enabled)
+        .and_then(|(si, sel)| find_match(&sources.list, si, sel));
+    let want = matched.map_or_else(Selected::default, |(si, sel)| Selected {
+        source: Some(si),
+        sel: Some(sel),
+    });
+    if right.0 != want {
+        right.0 = want;
+    }
 }
 
 /// The viewport of each world camera: the whole rect, or its left and
@@ -778,6 +806,7 @@ pub fn plugin(app: &mut App) {
                 orbit_mouse.run_if(not(egui_wants_any_pointer_input)),
                 apply_orbit,
                 sync_compare_camera,
+                follow_match,
                 build_texture_materials,
                 show_selection,
                 switch_lighting,

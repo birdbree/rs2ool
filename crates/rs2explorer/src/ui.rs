@@ -11,7 +11,6 @@ use rs2intermediate::record::RecordType;
 use crate::classic::{ClassicView, RenderMode};
 use crate::inspector;
 use crate::jobs::Jobs;
-use crate::renderable::find_match;
 use crate::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::sources::{Kind, Source, Sources};
 use crate::tree::{self, ListKey, Lists};
@@ -208,56 +207,36 @@ fn sel_label(sources: &Sources, s: &Selected) -> String {
     }
 }
 
-/// Compare mode's controls: the toggle, which pane tree clicks pick for,
-/// and "Match", which fills the right pane with the same model from
-/// another source.
+/// Compare mode's controls: the toggle, and what the right pane shows
+/// (the selection's other version, original or converted).
 fn compare_ui(
     ui: &mut egui::Ui,
     compare: &mut Compare,
-    right: &mut Selected,
-    main: &Selected,
+    right: &CompareSelected,
     sources: &Sources,
     loaded: &Loaded<CompareSelected>,
 ) {
-    ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut compare.enabled, "Compare");
-        let matched = main
-            .source
-            .zip(main.sel.as_ref())
-            .and_then(|(si, sel)| find_match(&sources.list, si, sel));
-        if ui
-            .add_enabled(matched.is_some(), egui::Button::new("Match"))
-            .on_hover_text("show the same model from another source on the right")
-            .on_disabled_hover_text("no other open source has this model")
-            .clicked()
-            && let Some((si, sel)) = matched
-        {
-            *right = Selected {
-                source: Some(si),
-                sel: Some(sel),
-            };
-            compare.enabled = true;
-        }
-    });
+    ui.checkbox(&mut compare.enabled, "Compare original and converted")
+        .on_hover_text(
+            "show the selected model's other version beside it: a cache model or NPC \
+             and its record in an open pack, either way round",
+        );
     if !compare.enabled {
         return;
     }
-    ui.horizontal(|ui| {
-        ui.label("Tree picks:");
-        ui.radio_value(&mut compare.pick_right, false, "left");
-        ui.radio_value(&mut compare.pick_right, true, "right");
-    });
+    if right.0.sel.is_none() {
+        ui.weak("No other version open: open the converted pack (or the cache) to compare.");
+        return;
+    }
     ui.horizontal_wrapped(|ui| {
         ui.label("Right:");
-        ui.add(egui::Label::new(sel_label(sources, right)).truncate());
+        ui.add(egui::Label::new(sel_label(sources, &right.0)).truncate());
         if loaded.is_loading() {
             ui.spinner();
         }
     });
     if let Some(e) = &loaded.error {
         ui.colored_label(egui::Color32::LIGHT_RED, e);
-    } else if right.sel.is_some() && !loaded.is_loading() && loaded.renderable.is_none() {
-        ui.weak("(nothing to draw)");
     }
 }
 
@@ -403,13 +382,7 @@ fn layout(
         .response
         .rect
         .height();
-    // Tree clicks go to the right pane while compare mode picks for it.
-    let pick_right = st.compare.enabled && st.compare.pick_right;
-    let mut sel = if pick_right {
-        st.compare_sel.0.clone()
-    } else {
-        st.selected.clone()
-    };
+    let mut sel = st.selected.clone();
     let mut reveal = st.nav.reveal.take();
     let left = egui::Panel::left("tree")
         .resizable(true)
@@ -431,11 +404,7 @@ fn layout(
         .rect
         .width();
     st.nav.reveal = reveal;
-    if pick_right {
-        if sel != st.compare_sel.0 {
-            st.compare_sel.0 = sel;
-        }
-    } else if sel != *st.selected {
+    if sel != *st.selected {
         let old = std::mem::replace(&mut *st.selected, sel);
         if old.sel.is_some() {
             st.nav.back.push(old);
@@ -448,20 +417,9 @@ fn layout(
         .size_range(200.0..=480.0)
         .show(&mut root, |ui| {
             let mut c = *st.compare;
-            let mut right = st.compare_sel.0.clone();
-            compare_ui(
-                ui,
-                &mut c,
-                &mut right,
-                &st.selected,
-                &st.sources,
-                &st.compare_loaded,
-            );
+            compare_ui(ui, &mut c, &st.compare_sel, &st.sources, &st.compare_loaded);
             if c != *st.compare {
                 *st.compare = c;
-            }
-            if right != st.compare_sel.0 {
-                st.compare_sel.0 = right;
             }
             ui.separator();
             clicked = inspector_ui(ui, &st.loaded, &st.nav, &mut back);
