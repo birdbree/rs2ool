@@ -1,14 +1,22 @@
 //! Decode any record by type and id, list the ids of a type, and build its
 //! metadata sidecar.
 //!
-//! Ids per type: models, frame packs and MIDI use their index file id; maps
-//! the region id `x << 8 | y`; config types the definition id; textures
-//! 0–49; fonts 0–3 in [`sprite::FONTS`] order; interfaces the component id;
-//! sprites a position in the media archive's sprite entries followed by the
-//! title archive's, in stored order, fonts excluded.
+//! Ids per type:
+//!
+//! ```text
+//! model, anim, midi     file id in index 1, 2, 3
+//! map                   region id x << 8 | y, as map_index lists them
+//! config types          definition id (position in the table)
+//! texture               0–49
+//! font                  0–3, in sprite::FONTS order
+//! interface             component id
+//! sprite                position in the media archive's sprite entries,
+//!                       then the title archive's, stored order, fonts left out
+//! ```
 //!
 //! [`Records`] memoises archives and decoded tables; the free functions are
-//! one-shot conveniences over it.
+//! one-shot conveniences over it. If you're decoding more than one record,
+//! use [`Records`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -24,6 +32,7 @@ use crate::config::{
 };
 use crate::{Cache, CacheError, Error, compress, interface, map, sprite};
 
+// A whole decoded table type, by id, shared between callers.
 type Table = Arc<BTreeMap<u32, Record>>;
 
 /// A cache plus memoised archives and decoded tables, so decoding many
@@ -35,6 +44,7 @@ pub struct Records<'c> {
     map_index: Mutex<Option<Arc<Vec<map::MapIndexEntry>>>>,
 }
 
+// Types that decode as a whole table at once (configs and interfaces).
 fn is_table(t: RecordType) -> bool {
     matches!(
         t,
@@ -63,6 +73,7 @@ fn decode_table<T: ConfigType>(
 }
 
 impl<'c> Records<'c> {
+    /// Wrap a cache; nothing is read until asked for.
     pub fn new(cache: &'c Cache) -> Self {
         Self {
             cache,
@@ -72,6 +83,7 @@ impl<'c> Records<'c> {
         }
     }
 
+    /// The underlying cache.
     pub fn cache(&self) -> &'c Cache {
         self.cache
     }
@@ -81,6 +93,8 @@ impl<'c> Records<'c> {
         if let Some(a) = self.archives.lock().unwrap().get(&n) {
             return Ok(a.clone());
         }
+        // Decode outside the lock. Two threads may race and both decode;
+        // the last insert wins and both results are identical.
         let a = Arc::new(self.cache.archive(n)?);
         self.archives.lock().unwrap().insert(n, a.clone());
         Ok(a)
@@ -151,7 +165,9 @@ impl<'c> Records<'c> {
         })
     }
 
+    // The sprite id list: (archive, archive handle, entry hash) per id.
     fn sprite_entries(&self) -> Result<Vec<(u8, Arc<Archive>, i32)>, Error> {
+        // Font entries share the title archive's index.dat but aren't sprites.
         let fonts: Vec<i32> = sprite::FONTS
             .iter()
             .map(|f| archive::jag_hash(&format!("{f}.dat")))
@@ -164,6 +180,8 @@ impl<'c> Records<'c> {
                 .into_iter()
                 .map(|(e, _)| e.hash)
                 .collect();
+            // Walk the archive's own entry order so ids follow stored order,
+            // not index.dat block order.
             for e in &a.entries {
                 if hashes.contains(&e.hash) && !fonts.contains(&e.hash) {
                     out.push((n, a.clone(), e.hash));
@@ -173,7 +191,7 @@ impl<'c> Records<'c> {
         Ok(out)
     }
 
-    /// The archive and entry name of sprite `id`.
+    /// The archive number and entry name of sprite `id`.
     pub fn sprite_source(&self, id: u32) -> Result<(u8, EntryName), Error> {
         let list = self.sprite_entries()?;
         let (n, a, hash) = list
@@ -242,7 +260,8 @@ impl<'c> Records<'c> {
         })
     }
 
-    /// The archive and entries an archive-backed record lives in.
+    /// The archive and entries an archive-backed record lives in, the
+    /// shared `index.dat` included for sprite types.
     fn archive_entries(&self, t: RecordType, id: u32) -> Result<(u8, Vec<EntryName>), Error> {
         let named = |s: &str| EntryName::Named(s.to_owned());
         let cfg = |dat: &str, idx: Option<&str>| {
@@ -331,6 +350,7 @@ fn missing(kind: RecordType, id: u32) -> Error {
     Error::NoRecord { kind, id }
 }
 
+// File ids of `index` that aren't absent.
 fn present(cache: &Cache, index: u8) -> Result<Vec<u32>, Error> {
     Ok(cache
         .entries(index)?
@@ -341,6 +361,7 @@ fn present(cache: &Cache, index: u8) -> Result<Vec<u32>, Error> {
         .collect())
 }
 
+// Decode the sprite entry with name hash `hash` from archive `n`.
 fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<SpriteSheet, Error> {
     let index = a
         .get("index.dat")
@@ -356,7 +377,8 @@ fn sheet_of(a: &Archive, n: u8, hash: i32) -> Result<SpriteSheet, Error> {
     sprite::decode_block(&e.data, index, end).map_err(|e| sprite_error(n, e))
 }
 
-/// Metadata of one file of index 0–4.
+/// Metadata of one file of index 0–4. The CRC covers the stored bytes,
+/// version trailer included.
 pub fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> {
     let (raw, chain) = cache.read_raw_with_chain(index, id)?;
     let gz = compress::is_gzip(&raw);
@@ -372,7 +394,8 @@ pub fn index_file(cache: &Cache, index: u8, id: u32) -> Result<FileMeta, Error> 
     })
 }
 
-/// Metadata of one archive entry.
+/// Metadata of one entry of archive `n`. The CRC covers the unpacked entry
+/// data.
 pub fn entry_file(n: u8, a: &Archive, e: &Entry) -> FileMeta {
     FileMeta {
         source: Source::Archive {
@@ -394,13 +417,15 @@ pub fn entry_file(n: u8, a: &Archive, e: &Entry) -> FileMeta {
     }
 }
 
+// Number of distinct values in an optional label section.
 fn distinct(labels: &Option<Vec<u8>>) -> usize {
     labels
         .as_ref()
         .map_or(0, |l| l.iter().collect::<BTreeSet<_>>().len())
 }
 
-/// Summarise a decoded record. Cross-reference fields are left empty.
+/// Summarise a decoded record. Cross-reference fields (`textures`,
+/// `used_by_models`) are left as `None` for the caller to fill.
 pub fn summarize(record: &Record) -> TypeSummary {
     match record {
         Record::Model(m) => TypeSummary::Model {
@@ -415,6 +440,7 @@ pub fn summarize(record: &Record) -> TypeSummary {
         Record::Anim(p) => TypeSummary::Anim {
             frame_ids: p.frames.iter().map(|f| f.id).collect(),
             transform_count: p.base.len(),
+            // Every label any slot uses, deduplicated and sorted via a set.
             labels: p
                 .base
                 .iter()

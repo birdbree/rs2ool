@@ -1,11 +1,9 @@
-//! Phase A10 check: varp and varbit decode exactly with no unknown opcodes;
-//! every MIDI file inflates to MIDI; every model and frame pack carries the
+//! Varps and varbits decode exactly with no unknown opcodes, every MIDI
+//! file inflates to MIDI, and every model and frame pack carries the
 //! version and CRC its versionlist table gives.
 //!
-//! The supplied cache was modified after its versionlist was built: 46 MIDI
-//! files differ from it (41 have no version trailer) and 18 map files
-//! were added without versionlist entries. Mismatches in indices 3 and 4 are
-//! reported; any in indices 1 and 2 fail.
+//! A cache can be modified after its versionlist was built, so mismatches
+//! in indices 3 and 4 are reported; any in indices 1 and 2 fail.
 
 mod common;
 

@@ -5,6 +5,7 @@ use crate::types::config::VarbitDef;
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `varbit.dat` (varbits).
 pub struct Varbit;
 
 impl ConfigType for Varbit {

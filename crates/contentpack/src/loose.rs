@@ -1,6 +1,17 @@
 //! Loose record directories: `pack.json` (kind, source cache CRC and
-//! optional manifest extras) plus one `<id>.bin` per record. `rs2conv pack`
+//! optional manifest extras) plus one `<id>.bin` per record. `rs2ool pack build`
 //! and the explorer bake one into a hashed pack.
+//!
+//! ```text
+//! <dir>/
+//!   pack.json    {"kind": "models", "source_cache_crc": 0, "extra": {}}
+//!   1.bin        record 1
+//!   215.bin      record 215
+//! ```
+//!
+//! Every `.bin` file is a record, and its stem has to parse as a decimal
+//! `u32`. Other extensions are ignored. Record bytes go in as they are:
+//! nothing here decodes or checks them.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,18 +21,26 @@ use thiserror::Error;
 
 use crate::{Kind, PackWriter};
 
+/// Why a loose directory wouldn't load or bake.
 #[derive(Debug, Error)]
 pub enum LooseError {
+    /// A file or directory couldn't be read or written.
     #[error("{path}: {source}")]
     Io {
+        /// The file or directory involved.
         path: PathBuf,
+        /// The underlying error.
         source: std::io::Error,
     },
+    /// `pack.json` didn't parse as a [`LooseManifest`].
     #[error("{path}: {source}")]
     Manifest {
+        /// Path of the `pack.json`.
         path: PathBuf,
+        /// The parse error.
         source: serde_json::Error,
     },
+    /// A `.bin` file whose stem isn't a decimal `u32` id.
     #[error("{0}: record files must be named <id>.bin")]
     Name(PathBuf),
 }
@@ -33,15 +52,20 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> LooseError + '_ {
     }
 }
 
+/// The contents of `pack.json`.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct LooseManifest {
+    /// What the records are. Written as the kind name, `"models"` and so on.
     pub kind: Kind,
+    /// CRC32 of the source cache's versionlist archive; copied into the
+    /// pack's manifest.
     pub source_cache_crc: u32,
+    /// Kind-specific tables that become the manifest's `extra`. Optional.
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
 }
 
-/// Read a loose directory into a writer.
+/// Read a loose directory into a writer, ready to bake.
 pub fn read(dir: &Path) -> Result<PackWriter, LooseError> {
     let mpath = dir.join("pack.json");
     let m: LooseManifest = serde_json::from_slice(&std::fs::read(&mpath).map_err(io(&mpath))?)
@@ -55,6 +79,7 @@ pub fn read(dir: &Path) -> Result<PackWriter, LooseError> {
     }
     for e in std::fs::read_dir(dir).map_err(io(dir))? {
         let p = e.map_err(io(dir))?.path();
+        // Only `.bin` files are records; anything else in there is ignored.
         if p.extension().is_some_and(|x| x == "bin") {
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
             let Ok(id) = stem.parse::<u32>() else {
@@ -66,8 +91,11 @@ pub fn read(dir: &Path) -> Result<PackWriter, LooseError> {
     Ok(w)
 }
 
-/// Bake a loose directory; `out` is a `.pack` path or a directory (the
-/// pack is then named by its hash). Returns the written path.
+/// Bake a loose directory with zstd and write it out.
+///
+/// If `out` ends in `.pack`, that's the file you get. Otherwise it's a
+/// directory and the pack lands in it as `<hash>.pack`, with no `<kind>`
+/// subdirectory (unlike [`PackWriter::write_to`]). Returns the path written.
 pub fn bake(dir: &Path, out: &Path) -> Result<PathBuf, LooseError> {
     let w = read(dir)?;
     let (hash, bytes) = w.bake();

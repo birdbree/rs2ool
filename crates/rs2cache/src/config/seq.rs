@@ -5,6 +5,7 @@ use crate::types::config::{SeqDef, SeqFrame};
 use super::{ConfigType, opcodes, opt_u16};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `seq.dat` (sequences).
 pub struct Seq;
 
 impl ConfigType for Seq {
@@ -44,7 +45,7 @@ impl ConfigType for Seq {
                         })
                         .collect::<Result<_, IoError>>()?;
                 }
-                // The client stores this without mapping 65535 to -1.
+                // The original client keeps this as read, 65535 included.
                 2 => d.loop_offset = Some(c.u16()?),
                 3 => {
                     let n = c.u8()?;
@@ -58,6 +59,7 @@ impl ConfigType for Seq {
                 9 => animating = Some(c.u8()?),
                 10 => walking = Some(c.u8()?),
                 11 => d.replay_mode = c.u8()?,
+                // Four bytes with no known meaning.
                 12 => c.skip(4)?,
                 _ => return Ok(false),
             }

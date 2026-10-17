@@ -1,6 +1,9 @@
 //! Creature assembly: an NPC's (or kit part's) models merged into one mesh
-//! the way the 317 client does, plus the sequences and frame packs that
-//! animate it.
+//! the way the original client merges them, plus the sequences and frame
+//! packs that animate it.
+//!
+//! A [`Creature`] is what rig inference, clip conversion and validation all
+//! work from.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,11 +16,15 @@ use rs2cache::types::record::{Record, RecordType};
 
 use crate::ConvertError;
 
-/// Merge models as the client's `Model(int, Model[])`: faces are appended in
-/// order, and each face vertex is welded to the first existing vertex at the
-/// same coordinates (keeping that vertex's label) or appended. Vertices no
-/// face uses are dropped. Optional per-face sections are filled with the
-/// client's defaults for models that lack them.
+/// Merge models into one, the way the original client does when it builds
+/// a creature from parts.
+///
+/// Faces are appended in order. Each face vertex is welded to the first
+/// existing vertex at the same coordinates (and keeps that vertex's label),
+/// or appended if there isn't one. Vertices no face uses are dropped.
+/// Optional per-face sections are filled with the original client's
+/// defaults (type 0, alpha 0, label 0, the model's own priority) for parts
+/// that lack them. A single model comes back unchanged.
 pub fn merge(models: &[Model]) -> Model {
     if models.len() == 1 {
         return models[0].clone();
@@ -47,6 +54,8 @@ pub fn merge(models: &[Model]) -> Model {
         vertex_labels: any_vertex_labels.then(Vec::new),
         textured_faces: Vec::new(),
     };
+    // Index in `out` of vertex `i` of `m`: the first vertex already at that
+    // position, or a new one.
     let weld = |out: &mut Model, m: &Model, i: u16| -> u16 {
         let p = m.vertices[usize::from(i)];
         if let Some(j) = out.vertices.iter().position(|&q| q == p) {
@@ -63,6 +72,8 @@ pub fn merge(models: &[Model]) -> Model {
         for f in 0..m.faces.len() {
             if let Some(t) = &mut out.face_types {
                 let mut k = m.face_types.as_ref().map_or(0, |mt| mt[f]);
+                // Textured: shift the triangle index (bits 2+) past the
+                // triangles earlier parts already added. Wraps like a byte.
                 if k & 2 == 2 {
                     k = k.wrapping_add((tex_offset as u8) << 2);
                 }
@@ -89,7 +100,8 @@ pub fn merge(models: &[Model]) -> Model {
     out
 }
 
-/// Replace face colours, as `Model.method476` for each recolour in order.
+/// Replace face colours, one recolour after another, as the original client
+/// does. Order matters: a later pair can recolour an earlier pair's output.
 pub fn recolour(m: &mut Model, recolours: &[Recolour]) {
     for r in recolours {
         for c in &mut m.face_colours {
@@ -103,6 +115,7 @@ pub fn recolour(m: &mut Model, recolours: &[Recolour]) {
 /// One sequence with its frames resolved.
 #[derive(Debug, Clone)]
 pub struct Sequence {
+    /// The decoded sequence definition.
     pub def: SeqDef,
     /// The pack holding each frame (index matches `def.frames`).
     pub packs: Vec<u32>,
@@ -112,18 +125,25 @@ pub struct Sequence {
 /// every frame pack they use.
 #[derive(Debug, Clone)]
 pub struct Creature {
+    /// The definition's name, or `npc <id>` when it has none.
     pub name: String,
+    /// The merged, recoloured mesh, unscaled. Frames apply to this.
     pub model: Model,
-    /// The definition's scale `[x, y, z] / 128`, applied after animation.
+    /// The definition's scale per axis, in 1/128 units (128 = 1.0).
+    /// The original client applies it after animating.
     pub scale: [i32; 3],
     /// The rest mesh with the scale baked in: what the converted model,
     /// the rig's pivots and validation's skinning start from.
     pub rest: Vec<[i32; 3]>,
+    /// The sequences to convert, in the order they were asked for, with
+    /// duplicates dropped.
     pub sequences: Vec<Sequence>,
+    /// Every frame pack those sequences use, by pack id.
     pub packs: BTreeMap<u32, FramePack>,
 }
 
 impl Creature {
+    /// Put a creature together and work out its scaled rest mesh.
     pub fn new(
         name: String,
         model: Model,
@@ -159,7 +179,8 @@ impl Creature {
     }
 
     /// The vertices at frame `i` of sequence `s`, deformed exactly as the
-    /// 317 client deforms them, scale applied (validation's reference).
+    /// original client deforms them, then scaled. This is validation's
+    /// reference. `None` when the sequence or frame isn't there.
     pub fn posed(&self, s: usize, i: usize) -> Option<Vec<[i32; 3]>> {
         let seq = self.sequences.get(s)?;
         let (pack, frame) = self.frame(seq, i)?;
@@ -196,6 +217,9 @@ fn model(records: &Records, id: u16) -> Result<Model, ConvertError> {
 }
 
 /// Resolve sequences and load their frame packs.
+///
+/// Repeated ids are skipped. Fails if a sequence names a frame that no
+/// frame pack defines.
 pub fn sequences(
     records: &Records,
     index: &FrameIndex,
@@ -229,9 +253,9 @@ pub fn sequences(
     Ok((seqs, packs))
 }
 
-/// Item `obj`'s equipment model for a body type, as the client builds it
-/// for a player wearing it: the item's equip models (up to three) merged,
-/// moved by its y offset, and recoloured. `None` when the item has
+/// Item `obj`'s equipment model for a body type, as the original client
+/// builds it for a player wearing it: the item's equip models (up to three)
+/// merged, moved by its y offset, and recoloured. `None` when the item has
 /// no equip model for that body type.
 pub fn equip_model(
     records: &Records,
@@ -249,8 +273,8 @@ pub fn equip_model(
     } else {
         ([d.male_equip1, d.male_equip2, d.male_equip3], d.male_offset)
     };
-    // As `ItemDef`: nothing without the first model, and the third only
-    // with the second.
+    // As in the original client: nothing without the first model, and the
+    // third only counts when there's a second.
     let ids: Vec<u16> = match ids {
         [None, ..] => return Ok(None),
         [Some(a), Some(b), c] => [Some(a), Some(b), c].into_iter().flatten().collect(),

@@ -1,5 +1,9 @@
-//! Open sources: caches, dump directories and packs. Opening (dialog and
-//! all) runs as a task; finished sources land in [`Sources`].
+//! Open sources: caches, dump directories and packs.
+//!
+//! Opening (file dialog and all) runs as a task; finished sources land in
+//! [`Sources::list`] and stay there for the session. Selections refer to a
+//! source by its index in that list, so sources are never removed or
+//! reordered.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,23 +13,34 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use contentpack::PackReader;
 use rs2cache::{Cache, Records};
 
+/// One open source. Its handles are shared, so [`detach`] copies it
+/// cheaply for a task.
 pub enum Source {
     /// A cache, with its memoising record handle. The cache is leaked for
     /// a `'static` lifetime; a session opens few.
     Cache {
+        /// The cache directory.
         path: PathBuf,
+        /// The decoded-record handle, shared with tasks.
         records: Arc<Records<'static>>,
     },
-    /// A directory written by `cachedump`.
-    DumpDir { path: PathBuf },
+    /// A directory written by `rs2ool cache dump`.
+    DumpDir {
+        /// The directory, which has a `manifest.json`.
+        path: PathBuf,
+    },
     /// One converted pack.
     Pack {
+        /// The `.pack` file.
         path: PathBuf,
+        /// The open pack, shared with tasks.
         reader: Arc<PackReader>,
     },
 }
 
 impl Source {
+    /// The tree's heading for it: `cache <dir>`, `dump <dir>` or
+    /// `<kind> pack <file>`.
     pub fn label(&self) -> String {
         let name = |p: &Path| {
             p.file_name().map_or_else(
@@ -68,7 +83,8 @@ pub fn open_cache(path: &Path) -> anyhow::Result<Source> {
     })
 }
 
-/// Open a cachedump output directory.
+/// Open an `rs2ool cache dump` output directory. All it checks is that
+/// there's a `manifest.json`.
 pub fn open_dump(path: &Path) -> anyhow::Result<Source> {
     anyhow::ensure!(
         path.join("manifest.json").exists(),
@@ -88,19 +104,30 @@ pub fn open_pack(path: &Path) -> anyhow::Result<Source> {
     })
 }
 
+/// Which kind of source to open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    /// A cache directory.
     Cache,
+    /// An `rs2ool cache dump` output directory.
     DumpDir,
+    /// A `.pack` file.
     Pack,
 }
 
+/// A source being opened. `None` means the dialog was cancelled; the
+/// error string already names the path.
 type Opening = Task<Option<Result<Source, String>>>;
 
+/// Every source of the session.
 #[derive(Resource, Default)]
 pub struct Sources {
+    /// Open sources, in the order they finished opening. Selections index
+    /// into this.
     pub list: Vec<Source>,
+    /// One message per source that failed to open, shown under the tree.
     pub errors: Vec<String>,
+    // Sources still opening.
     pending: Vec<Opening>,
 }
 
@@ -128,6 +155,7 @@ impl Sources {
         self.pending.push(task);
     }
 
+    /// How many sources are still opening.
     pub fn pending(&self) -> usize {
         self.pending.len()
     }
@@ -141,6 +169,7 @@ fn open(kind: Kind, path: &Path) -> anyhow::Result<Source> {
     }
 }
 
+/// Moves sources that finished opening into the list.
 fn poll(mut sources: ResMut<Sources>) {
     let mut i = 0;
     while i < sources.pending.len() {
@@ -158,6 +187,7 @@ fn poll(mut sources: ResMut<Sources>) {
     }
 }
 
+/// Adds [`Sources`] and the system that polls it.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Sources>().add_systems(Update, poll);
 }

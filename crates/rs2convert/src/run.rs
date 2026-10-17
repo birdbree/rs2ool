@@ -1,7 +1,12 @@
-//! The conversion commands as library calls, shared by `rs2conv` and the
+//! The conversion commands as library calls, shared by `rs2ool pack` and the
 //! explorer so a conversion started from either produces byte-identical
-//! packs. Each command returns an [`Outcome`]; [`write`] puts it in a pack
-//! directory.
+//! packs.
+//!
+//! Each command returns an [`Outcome`] and doesn't touch the disk;
+//! [`write()`] puts it in a pack directory. Every command takes the source
+//! cache CRC (from [`crate::source_cache_crc`]) to stamp into its packs.
+//! The ones that need colours build the palette from scratch each time,
+//! which is deterministic but not quick.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +25,7 @@ use crate::{ConvertError, model};
 /// What a conversion produced.
 #[derive(Default)]
 pub struct Outcome {
+    /// The packs to write, each into its kind's directory.
     pub packs: Vec<PackWriter>,
     /// Side files, relative to the pack directory (for example
     /// `palette.json`).
@@ -28,7 +34,7 @@ pub struct Outcome {
     pub images: Vec<(PathBuf, u32, u32, Vec<u8>)>,
     /// Converted creatures, keyed for their `<key>/validation.json`.
     pub creatures: Vec<(String, CreatureOutput)>,
-    /// One line per notable result, for the user.
+    /// Human-readable summary lines, one per notable result.
     pub log: Vec<String>,
 }
 
@@ -39,7 +45,8 @@ impl Outcome {
     }
 }
 
-/// Build the palette from the cache's model colours.
+/// Build the palette from the cache's model colours, primed for every
+/// corpus colour, with its quantisation error.
 pub fn palette(records: &Records) -> Result<(Palette, PaletteError), ConvertError> {
     let corpus = corpus(records)?;
     let mut p = Palette::build(&corpus);
@@ -54,7 +61,8 @@ fn json(v: &impl serde::Serialize) -> Vec<u8> {
     b
 }
 
-/// The palette's materials pack, swatch and error report.
+/// The palette's materials pack, plus `palette.json` (the error report)
+/// and `palette.png` (a swatch).
 pub fn materials(records: &Records, crc: u32) -> Result<Outcome, ConvertError> {
     let (p, e) = palette(records)?;
     let (w, h, rgba) = p.swatch(8);
@@ -83,7 +91,8 @@ pub fn textures(records: &Records, crc: u32) -> Result<Outcome, ConvertError> {
     })
 }
 
-/// Models: one id, or every model.
+/// Models: one id, or every model when `id` is `None`. Converted in
+/// parallel, written sorted by id.
 pub fn models(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, ConvertError> {
     let (palette, _) = palette(records)?;
     let list = match id {
@@ -111,6 +120,9 @@ pub fn models(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, C
 }
 
 /// One NPC: merged model, rig and (with `with_anims`) validated clips.
+///
+/// `extra` adds sequence ids on top of the NPC's own stance and walk
+/// sequences. `overrides` replaces inferred bone parents.
 pub fn npc(
     records: &Records,
     crc: u32,
@@ -149,7 +161,8 @@ pub fn npc(
 }
 
 /// Every identity-kit part, and the default body rigged with the stance
-/// sequences.
+/// sequences. Part metadata goes in the models pack manifest under
+/// `kit_parts`.
 pub fn player_kit(
     records: &Records,
     crc: u32,
@@ -197,7 +210,8 @@ pub fn player_kit(
     })
 }
 
-/// Media and/or title sprites, and fonts with the title archive.
+/// Sprites from the archives in `archives` (media and/or title), plus the
+/// fonts when the title archive is one of them.
 pub fn sprites(records: &Records, crc: u32, archives: &[u8]) -> Result<Outcome, ConvertError> {
     Ok(Outcome {
         packs: vec![crate::sprite::pack(records, archives, crc)?],
@@ -218,7 +232,7 @@ pub fn sprite_archives(name: Option<&str>) -> Result<Vec<u8>, ConvertError> {
     }
 }
 
-/// Floor materials and their string table.
+/// Floor materials and their name string table.
 pub fn floors(records: &Records, crc: u32) -> Result<Outcome, ConvertError> {
     let (palette, _) = palette(records)?;
     let (m, s) = crate::floor::packs(records, &palette, crc)?;
@@ -228,7 +242,8 @@ pub fn floors(records: &Records, crc: u32) -> Result<Outcome, ConvertError> {
     })
 }
 
-/// Objects: one id, or every definition.
+/// Objects: one id, or every definition when `id` is `None`. Packs that
+/// come out empty are left out.
 pub fn objects(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, ConvertError> {
     let (palette, _) = palette(records)?;
     let list = match id {
@@ -250,11 +265,15 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ConvertError + '_ {
     move |e| ConvertError::Invalid(format!("{}: {e}", path.display()))
 }
 
-/// Write an outcome into a pack directory: each pack at
-/// `<dir>/<kind>/<hash>.pack`, side files, images (through `png`, which
-/// encodes RGBA to a file), each creature's `<key>/validation.json`, and
-/// the merged `validation_summary.json`. Returns the packs written as
-/// `(kind, records, path)`.
+/// Write an outcome into a pack directory.
+///
+/// Each pack goes to `<dir>/<kind>/<hash>.pack`, then the side files, the
+/// images (through `png`, which you give to encode RGBA to a file, so this
+/// crate doesn't need an image library), each creature's
+/// `<key>/validation.json`, and `validation_summary.json`. The summary is
+/// merged: entries for other creatures already in it are kept, and one
+/// that can't be parsed is started over. Returns the packs written as
+/// `(kind, record count, path)`.
 pub fn write(
     outcome: &Outcome,
     dir: &Path,

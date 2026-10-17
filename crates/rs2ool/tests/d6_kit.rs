@@ -1,6 +1,6 @@
-//! Phase D6 player kit: the default slots rebuild the converter's default
-//! body, an item in an empty slot adds its equipment model, and an item in
-//! a kit-backed slot replaces that slot's kit part.
+//! The player kit's default slots rebuild the converter's default body, an
+//! item in an empty slot adds its equipment model, and an item in a
+//! kit-backed slot replaces that slot's kit part.
 
 #![cfg(feature = "explorer")]
 

@@ -1,4 +1,17 @@
 //! The output directory: files, sidecars, and `manifest.json`.
+//!
+//! Every write goes through [`Output`], which records it for the manifest.
+//! Writers run in parallel, so the lists sit behind mutexes and get sorted
+//! at the end; two runs on the same cache give the same manifest.
+//!
+//! ```text
+//! manifest.json
+//! {
+//!   "files":    [ { "path", "sources", "raw_size", "inflated_size", "crc32" }, … ],
+//!   "absent":   N,
+//!   "failures": [ { "record", "error" }, … ]
+//! }
+//! ```
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,24 +22,28 @@ use anyhow::Context;
 use rs2cache::types::record::{Meta, Source};
 use serde::Serialize;
 
-/// One written file.
+/// One written file, as listed in `manifest.json`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ManifestEntry {
     /// Relative to the output directory, `/`-separated.
     pub path: String,
+    /// The cache files or archive entries it came from. Empty for files
+    /// that don't come from one place, like `xref.json` or a `.jsonl`.
     pub sources: Vec<Source>,
-    /// Stored size of the source(s).
+    /// Stored size of the source(s), in bytes; 0 when unknown.
     pub raw_size: u64,
-    /// Inflated size of the source(s).
+    /// Inflated size of the source(s), in bytes; 0 when unknown.
     pub inflated_size: u64,
     /// CRC32 of the written file.
     pub crc32: u32,
 }
 
-/// A record that could not be written.
+/// A record that couldn't be written, as listed in `manifest.json`.
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
+    /// What failed, e.g. `npc 12`, `idx1 40` or `region 50_50`.
     pub record: String,
+    /// The error with its whole context chain.
     pub error: String,
 }
 
@@ -40,13 +57,22 @@ struct Manifest<'a> {
 /// What to write beside each payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaMode {
+    /// Payloads only, no sidecars.
     Off,
+    /// Payloads and a `.meta.json` sidecar for each (`--meta`).
     With,
+    /// Sidecars only (`--meta-only`).
     Only,
 }
 
+/// An output directory being written to.
+///
+/// Shared by reference across rayon workers. Call [`Output::finish`] at the
+/// end to write `manifest.json`; drop it without that and there's no
+/// manifest.
 pub struct Output {
     root: PathBuf,
+    /// Which of payloads and sidecars get written.
     pub meta: MetaMode,
     files: Mutex<Vec<ManifestEntry>>,
     failures: Mutex<Vec<Failure>>,
@@ -54,14 +80,22 @@ pub struct Output {
 }
 
 /// Sizes and sources of what a written file came from.
+///
+/// Copied into the [`ManifestEntry`] of every file written with it. The
+/// default (no sources, sizes 0) is for files that don't come from one
+/// place.
 #[derive(Debug, Clone, Default)]
 pub struct Provenance {
+    /// The cache files or archive entries read.
     pub sources: Vec<Source>,
+    /// Their total stored size, in bytes.
     pub raw_size: u64,
+    /// Their total inflated size, in bytes.
     pub inflated_size: u64,
 }
 
 impl Provenance {
+    /// Takes the sources from a record's sidecar and adds up their sizes.
     pub fn from_meta(m: &Meta) -> Self {
         Self {
             sources: m.files.iter().map(|f| f.source.clone()).collect(),
@@ -72,6 +106,8 @@ impl Provenance {
 }
 
 impl Output {
+    /// Creates `root` (and its parents) if needed and starts an empty
+    /// manifest.
     pub fn new(root: &Path, meta: MetaMode) -> anyhow::Result<Self> {
         fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
         Ok(Self {
@@ -83,10 +119,12 @@ impl Output {
         })
     }
 
+    /// The output directory.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// Writes `bytes` to `rel` under the root and adds it to the manifest.
     fn put(&self, rel: &str, bytes: &[u8], prov: &Provenance) -> anyhow::Result<()> {
         let path = self.root.join(rel);
         if let Some(dir) = path.parent() {
@@ -103,7 +141,7 @@ impl Output {
         Ok(())
     }
 
-    /// Write a payload, unless only sidecars were asked for.
+    /// Writes a payload to `rel`, unless only sidecars were asked for.
     pub fn payload(&self, rel: &str, bytes: &[u8], prov: &Provenance) -> anyhow::Result<()> {
         if self.meta == MetaMode::Only {
             return Ok(());
@@ -111,7 +149,8 @@ impl Output {
         self.put(rel, bytes, prov)
     }
 
-    /// Write a JSON payload (pretty-printed).
+    /// Writes a payload as pretty-printed JSON with a trailing newline,
+    /// unless only sidecars were asked for.
     pub fn json(&self, rel: &str, value: &impl Serialize, prov: &Provenance) -> anyhow::Result<()> {
         if self.meta == MetaMode::Only {
             return Ok(());
@@ -121,7 +160,8 @@ impl Output {
         self.put(rel, &bytes, prov)
     }
 
-    /// Write a sidecar `<stem>.meta.json`, when sidecars were asked for.
+    /// Writes the sidecar `<rel_stem>.meta.json`, if sidecars were asked
+    /// for.
     pub fn sidecar(
         &self,
         rel_stem: &str,
@@ -136,7 +176,11 @@ impl Output {
         self.put(&format!("{rel_stem}.meta.json"), &bytes, prov)
     }
 
-    /// Write an RGBA image as PNG.
+    /// Writes an RGBA image (`width × height × 4` bytes, row by row) as a
+    /// PNG.
+    ///
+    /// Skipped when only sidecars were asked for, and for empty images,
+    /// which PNG can't hold.
     pub fn png(
         &self,
         rel: &str,
@@ -157,6 +201,8 @@ impl Output {
         self.put(rel, &bytes, prov)
     }
 
+    /// Notes a record that couldn't be written. The run carries on and
+    /// ends [`Partial`](crate::cache::Outcome::Partial).
     pub fn fail(&self, record: String, error: impl std::fmt::Display) {
         self.failures.lock().unwrap().push(Failure {
             record,
@@ -164,15 +210,20 @@ impl Output {
         });
     }
 
+    /// Counts an id that has no record. That's not a failure: indices have
+    /// empty slots.
     pub fn absent(&self) {
         self.absent.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Write `manifest.json` (sorted, so runs are reproducible) and return
-    /// `(files written, absent, failures)`.
+    /// Writes `manifest.json` and returns `(files written, absent,
+    /// failures)`.
+    ///
+    /// Everything's sorted first, so runs are reproducible.
     pub fn finish(self) -> anyhow::Result<(usize, usize, usize)> {
         let mut files = self.files.into_inner().unwrap();
         files.sort_by(|a, b| a.path.cmp(&b.path));
+        // A path written twice only gets listed once.
         files.dedup_by(|a, b| a.path == b.path);
         let mut failures = self.failures.into_inner().unwrap();
         failures.sort_by(|a, b| a.record.cmp(&b.record));

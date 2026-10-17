@@ -1,6 +1,6 @@
-//! Phase D2 check: selecting `npc 1` decodes off the UI thread, and the
-//! inspector then shows "Man", its models and its sequences; the npc list
-//! loads with names and filters by name.
+//! Selecting an NPC definition decodes off the UI thread and fills the
+//! inspector with its name, models and sequences; the npc list loads with
+//! names and filters by name.
 
 #![cfg(feature = "explorer")]
 

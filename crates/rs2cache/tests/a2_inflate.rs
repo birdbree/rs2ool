@@ -1,5 +1,4 @@
-//! Phase A2 check: every non-empty index-1 and index-2 file is gzip and
-//! inflates.
+//! Every non-empty index-1 and index-2 file is gzip and inflates.
 
 mod common;
 

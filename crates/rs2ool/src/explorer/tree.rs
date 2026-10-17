@@ -1,6 +1,8 @@
 //! The data behind the left-hand tree, kept apart from egui so it can be
-//! tested. Lists of ids (with names) load on the compute pool when a node
-//! is first expanded.
+//! tested.
+//!
+//! A list of ids (with names) loads on the compute pool the first time
+//! its node is expanded, and then stays in [`Lists`] for the session.
 
 use std::collections::BTreeMap;
 
@@ -10,15 +12,19 @@ use rs2cache::types::record::{Record, RecordType};
 
 use crate::explorer::sources::Source;
 
-/// One index of a cache with its file count.
+/// One index of a cache with its file counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexRow {
+    /// The index number, 0–4.
     pub index: u8,
+    /// Slots in the index, empty ones included.
     pub files: usize,
+    /// Slots that hold a file.
     pub present: usize,
 }
 
-/// The indices of a cache source.
+/// The indices of a cache source; empty for any other source. An index
+/// that won't read is left out.
 pub fn index_rows(source: &Source) -> Vec<IndexRow> {
     let Source::Cache { records, .. } = source else {
         return Vec::new();
@@ -39,11 +45,15 @@ pub fn index_rows(source: &Source) -> Vec<IndexRow> {
 /// One row of a list: an id and a display name (empty when it has none).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
+    /// The record id, or for a dump directory the file's position in the
+    /// manifest.
     pub id: u32,
+    /// The name, or `""`.
     pub name: String,
 }
 
 impl Row {
+    /// What the tree shows: `id name`, or just the id.
     pub fn label(&self) -> String {
         if self.name.is_empty() {
             self.id.to_string()
@@ -53,6 +63,7 @@ impl Row {
     }
 
     /// Whether `filter` matches the id exactly or the name, ignoring case.
+    /// An empty filter matches everything.
     pub fn matches(&self, filter: &str) -> bool {
         let f = filter.trim();
         f.is_empty()
@@ -63,14 +74,24 @@ impl Row {
 
 /// Which list: a record type of a cache, the records of a pack, or the
 /// files of a dump directory.
+///
+/// The `usize` is always the source's index in
+/// [`Sources::list`](crate::explorer::sources::Sources::list).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ListKey {
+    /// A cache's records of one type.
     Type(usize, RecordType),
+    /// A pack's records.
     Pack(usize),
+    /// A dump directory's files.
     Dump(usize),
 }
 
-/// The rows of a cache record type, named where the type has names.
+/// The rows of a cache record type, named where the type has names: the
+/// definition's name for `loc`, `npc` and `obj`, the archive entry for
+/// `sprite`, the font name for `font`, and `RX_RY` for `map`.
+///
+/// Blocking: naming definitions means decoding every one.
 pub fn type_rows(source: &Source, t: RecordType) -> Result<Vec<Row>, String> {
     let Source::Cache { records, .. } = source else {
         return Err("not a cache".into());
@@ -118,7 +139,7 @@ pub fn pack_rows(source: &Source) -> Vec<Row> {
 }
 
 /// The files of a dump directory, from its manifest, as rows numbered by
-/// position.
+/// position, each with its relative path.
 pub fn dump_rows(source: &Source) -> Result<Vec<(Row, std::path::PathBuf)>, String> {
     let Source::DumpDir { path } = source else {
         return Err("not a dump directory".into());
@@ -127,6 +148,7 @@ pub fn dump_rows(source: &Source) -> Result<Vec<(Row, std::path::PathBuf)>, Stri
         &std::fs::read(path.join("manifest.json")).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
+    // `files[*].path`, numbered in manifest order.
     Ok(manifest["files"]
         .as_array()
         .map(|a| {
@@ -150,18 +172,23 @@ pub fn dump_rows(source: &Source) -> Result<Vec<(Row, std::path::PathBuf)>, Stri
         .collect())
 }
 
+/// A list being loaded.
 type RowsTask = Task<Result<Vec<Row>, String>>;
 
 /// Loaded and loading lists, and the search text per list.
 #[derive(Resource, Default)]
 pub struct Lists {
+    /// Finished lists, or the error that stopped one loading.
     pub rows: BTreeMap<ListKey, Result<Vec<Row>, String>>,
+    /// The search box text above each list.
     pub search: BTreeMap<ListKey, String>,
+    // Lists still loading.
     pending: BTreeMap<ListKey, RowsTask>,
 }
 
 impl Lists {
-    /// Start loading a list if it is neither loaded nor loading.
+    /// Starts loading a list unless it's loaded or loading already. A key
+    /// that doesn't fit the source's kind is ignored.
     pub fn request(&mut self, key: ListKey, source: &Source) {
         if self.rows.contains_key(&key) || self.pending.contains_key(&key) {
             return;
@@ -192,12 +219,15 @@ impl Lists {
         self.pending.insert(key, task);
     }
 
+    /// Whether that list is still loading.
     pub fn loading(&self, key: &ListKey) -> bool {
         self.pending.contains_key(key)
     }
 }
 
+/// Moves finished lists into `rows`.
 fn poll(mut lists: ResMut<Lists>) {
+    // Copy the keys out so the map can change while we walk them.
     let done: Vec<ListKey> = lists.pending.keys().copied().collect();
     for key in done {
         let finished = lists
@@ -211,6 +241,7 @@ fn poll(mut lists: ResMut<Lists>) {
     }
 }
 
+/// Adds [`Lists`] and the system that polls it.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Lists>().add_systems(Update, poll);
 }

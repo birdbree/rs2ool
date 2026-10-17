@@ -1,10 +1,40 @@
 //! Model decoder (index 1).
 //!
-//! The last 18 bytes of the inflated file are a trailer:
-//! `vertexCount u16, faceCount u16, texturedFaceCount u8, hasFaceTypes u8,
-//! priority u8 (255 = per face), hasAlpha u8, hasFaceLabels u8,
-//! hasVertexLabels u8, xLen u16, yLen u16, zLen u16, faceIndexLen u16`.
-//! Sections run from offset 0 in the order [`Layout::compute`] gives.
+//! The last 18 bytes of the inflated file are a trailer. A flag counts only
+//! when its byte is exactly 1.
+//!
+//! ```text
+//! vertexCount        u16
+//! faceCount          u16
+//! texturedFaceCount  u8
+//! hasFaceTypes       u8
+//! priority           u8    255 = per-face priorities follow
+//! hasAlpha           u8
+//! hasFaceLabels      u8
+//! hasVertexLabels    u8
+//! xLen, yLen, zLen   u16   byte lengths of the three delta streams
+//! faceIndexLen       u16   byte length of the face-index stream
+//! ```
+//!
+//! The sections run back to back from offset 0. Optional ones take no space
+//! when absent, and spare bytes before the trailer are ignored:
+//!
+//! ```text
+//! vertex flags       u8 × vertexCount     bit 1/2/4: x/y/z delta follows
+//! face compression   u8 × faceCount       1–4, see decode
+//! face priorities    u8 × faceCount       if priority == 255
+//! face labels        u8 × faceCount       if hasFaceLabels
+//! face types         u8 × faceCount       if hasFaceTypes
+//! vertex labels      u8 × vertexCount     if hasVertexLabels
+//! face alphas        u8 × faceCount       if hasAlpha
+//! face indices       faceIndexLen bytes   signed smarts
+//! face colours       u16 × faceCount
+//! textured faces     u16 × 3 × texturedFaceCount
+//! x, y, z deltas     xLen, yLen, zLen bytes of signed smarts
+//! ```
+//!
+//! Yes, priorities come before labels, and face labels before face types.
+//! [`Layout::compute`] has the same order in code.
 
 use crate::types::model::Model;
 use thiserror::Error;
@@ -13,26 +43,53 @@ use crate::io::{Cursor, IoError};
 
 const TRAILER: usize = 18;
 
+/// A model that wouldn't decode.
 #[derive(Debug, Error)]
 pub enum ModelError {
+    /// The file is shorter than the trailer.
     #[error("{len} bytes is too short for the 18-byte model trailer")]
-    TooShort { len: usize },
+    TooShort {
+        /// File length.
+        len: usize,
+    },
+    /// The trailer's sections don't fit before it.
     #[error("sections need {need} bytes before the trailer but {have} are present")]
-    SectionOverrun { need: usize, have: usize },
+    SectionOverrun {
+        /// Bytes the sections add up to.
+        need: usize,
+        /// Bytes before the trailer.
+        have: usize,
+    },
+    /// A stream ran out mid-read, say a delta stream shorter than its flags
+    /// promise.
     #[error("truncated section: {0}")]
     Truncated(#[from] IoError),
+    /// A face compression byte isn't 1–4.
     #[error("face {face} has compression type {kind}; expected 1 to 4")]
-    BadCompressionType { face: usize, kind: u8 },
+    BadCompressionType {
+        /// Face number.
+        face: usize,
+        /// The byte found.
+        kind: u8,
+    },
+    /// A face index is negative or not below the vertex count.
     #[error("face {face} uses vertex {index} but the model has {vertices}")]
     FaceIndex {
+        /// Face number.
         face: usize,
+        /// The decoded index.
         index: i32,
+        /// Vertex count.
         vertices: usize,
     },
+    /// A textured-face index isn't below the vertex count.
     #[error("textured face {face} uses vertex {index} but the model has {vertices}")]
     TexturedFaceIndex {
+        /// Textured-face number.
         face: usize,
+        /// The index found.
         index: u16,
+        /// Vertex count.
         vertices: usize,
     },
 }
@@ -40,23 +97,35 @@ pub enum ModelError {
 /// The trailer's counts and flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
+    /// Number of vertices.
     pub vertex_count: u16,
+    /// Number of faces.
     pub face_count: u16,
+    /// Number of textured-face triples.
     pub textured_face_count: u8,
+    /// A face-type byte per face follows.
     pub has_face_types: bool,
     /// 255 means per-face priorities follow; anything else is the priority
     /// of every face.
     pub priority: u8,
+    /// An alpha byte per face follows.
     pub has_alpha: bool,
+    /// A face-label byte per face follows.
     pub has_face_labels: bool,
+    /// A vertex-label byte per vertex follows.
     pub has_vertex_labels: bool,
+    /// Byte length of the x delta stream.
     pub x_len: u16,
+    /// Byte length of the y delta stream.
     pub y_len: u16,
+    /// Byte length of the z delta stream.
     pub z_len: u16,
+    /// Byte length of the face-index stream.
     pub face_index_len: u16,
 }
 
 impl Header {
+    /// Read the trailer from the last 18 bytes of an inflated model.
     pub fn read(data: &[u8]) -> Result<Self, ModelError> {
         let at = data
             .len()
@@ -83,26 +152,42 @@ impl Header {
 /// Start offsets of every section; optional sections are `None` when absent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
+    /// Vertex flag bytes.
     pub vertex_flags: usize,
+    /// Face compression bytes.
     pub face_compression: usize,
+    /// Per-face priorities.
     pub face_priorities: Option<usize>,
+    /// Face labels.
     pub face_labels: Option<usize>,
+    /// Face types.
     pub face_types: Option<usize>,
+    /// Vertex labels.
     pub vertex_labels: Option<usize>,
+    /// Face alphas.
     pub face_alphas: Option<usize>,
+    /// Face-index stream.
     pub face_indices: usize,
+    /// Face colours.
     pub face_colours: usize,
+    /// Textured-face triples.
     pub textured_faces: usize,
+    /// X delta stream.
     pub x: usize,
+    /// Y delta stream.
     pub y: usize,
+    /// Z delta stream.
     pub z: usize,
     /// Where the sections end; the trailer should start here.
     pub end: usize,
 }
 
 impl Layout {
+    /// Lay the sections out from the trailer's counts and flags, in file
+    /// order.
     pub fn compute(h: &Header) -> Self {
         let (v, f) = (usize::from(h.vertex_count), usize::from(h.face_count));
+        // Hand out `n` bytes from the running offset; returns where they start.
         let mut at = 0;
         let mut take = |n: usize| {
             let start = at;
@@ -118,6 +203,7 @@ impl Layout {
         let face_alphas = h.has_alpha.then(|| take(f));
         let face_indices = take(h.face_index_len.into());
         let face_colours = take(f * 2);
+        // Three u16 vertex indices per triple.
         let textured_faces = take(usize::from(h.textured_face_count) * 6);
         let x = take(h.x_len.into());
         let y = take(h.y_len.into());
@@ -142,6 +228,18 @@ impl Layout {
 }
 
 /// Decode an inflated model file.
+///
+/// Faces are built from the compression byte and the previous face:
+///
+/// ```text
+/// 1   a = next; b = next; c = next
+/// 2   b = c; c = next          (a kept)
+/// 3   a = c; c = next          (b kept)
+/// 4   swap a and b; c = next
+/// ```
+///
+/// `next` adds the next signed smart to a running index that starts at 0
+/// and carries over from face to face.
 pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
     let h = Header::read(data)?;
     let l = Layout::compute(&h);
@@ -165,6 +263,7 @@ pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
         Cursor::at(body, l.z)?,
     );
     let mut vertices = Vec::with_capacity(vc);
+    // An axis whose bit is clear keeps the previous vertex's value.
     let mut prev = [0i32; 3];
     for f in flags {
         for (axis, c) in [&mut xs, &mut ys, &mut zs].into_iter().enumerate() {
@@ -181,6 +280,7 @@ pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
     let mut kinds = Cursor::at(body, l.face_compression)?;
     let mut deltas = Cursor::at(body, l.face_indices)?;
     let mut faces = Vec::with_capacity(fc);
+    // `a`, `b`, `c` are the current triangle; `last` is the running index.
     let (mut a, mut b, mut c, mut last) = (0i32, 0i32, 0i32, 0i32);
     for face in 0..fc {
         let mut next = || -> Result<i32, IoError> {
@@ -207,6 +307,7 @@ pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
             }
             kind => return Err(ModelError::BadCompressionType { face, kind }),
         }
+        // Range-check in i32 first: a bad delta can run negative.
         let check = |index: i32| {
             u16::try_from(index)
                 .ok()
@@ -240,12 +341,14 @@ pub fn decode(data: &[u8]) -> Result<Model, ModelError> {
         textured_faces.push(t);
     }
 
+    // Read an optional byte section, keeping `None` when it's absent.
     let optional = |at: Option<usize>, n: usize| at.map(|at| bytes(at, n)).transpose();
     Ok(Model {
         vertices,
         faces,
         face_colours,
         face_types: optional(l.face_types, fc)?,
+        // 255 only says "per-face priorities follow"; it's not a priority.
         priority: if h.priority == 255 { 0 } else { h.priority },
         face_priorities: optional(l.face_priorities, fc)?,
         face_alphas: optional(l.face_alphas, fc)?,

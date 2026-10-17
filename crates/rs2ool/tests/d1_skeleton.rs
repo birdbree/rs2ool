@@ -1,6 +1,5 @@
-//! Phase D1 check: opening a cache runs on the task pool without blocking
-//! the app's update loop, and the tree then lists the five indices with
-//! their file counts.
+//! Opening a cache runs on the task pool without blocking the app's update
+//! loop, and the tree then lists the five indices with their file counts.
 
 #![cfg(feature = "explorer")]
 

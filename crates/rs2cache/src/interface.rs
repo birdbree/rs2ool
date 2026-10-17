@@ -1,20 +1,44 @@
 //! Interface decoder (interface archive, entry `data`).
 //!
-//! `count u16`, then components back to back until the data ends. Each
-//! starts with `id u16`; the value 65535 instead introduces a new root:
-//! `parent u16, id u16`. The common header and type-specific blocks follow
-//! the 317 client's `RSInterface.unpack`.
+//! `count u16`, then components back to back until the data ends; the count
+//! isn't used to stop. Each starts with `id u16`, except that 65535 in that
+//! spot introduces a new root: `parent u16, id u16`. The parent holds for
+//! every component after it until the next marker.
+//!
+//! ```text
+//! type          u8       selects the type-specific block
+//! actionType    u8
+//! contentType   u16
+//! width         u16
+//! height        u16
+//! alpha         u8
+//! hoverPopup    opt16
+//! conditions    count u8, then {op u8, value u16} × count
+//! scripts       count u8, then {len u16, u16 × len} × count
+//! type block    see Content
+//! spell block   string, string, u16      if actionType == 2 or type == 2
+//! text          string                   type 8 only, here rather than above
+//! tooltip       string                   if actionType is 1, 4, 5 or 6
+//! ```
+//!
+//! `opt16` is one byte `hi`: 0 means none, otherwise one more byte `lo`
+//! follows and the value is `(hi − 1) << 8 | lo`. Flags are bytes where only
+//! 1 is true. This is the same order the original client reads in.
 
 use crate::types::interface::{Child, Condition, Content, Interface, SpriteRef, TextStyle};
 use thiserror::Error;
 
 use crate::io::{Cursor, IoError};
 
+/// The interface data ran out in the middle of a component.
 #[derive(Debug, Error)]
 #[error("interface {id:?} at offset {offset}: {source}")]
 pub struct InterfaceError {
+    /// The component being read, once its id is known.
     pub id: Option<u16>,
+    /// Where that component started.
     pub offset: usize,
+    /// The failed read.
     pub source: IoError,
 }
 
@@ -27,6 +51,8 @@ fn opt_packed(c: &mut Cursor) -> Result<Option<u16>, IoError> {
     Ok(Some((u16::from(hi) - 1) << 8 | u16::from(c.u8()?)))
 }
 
+// `name,index`, split at the last comma. Anything that doesn't parse (an
+// empty string included) is no sprite.
 fn sprite_ref(s: String) -> Option<SpriteRef> {
     let (name, index) = s.rsplit_once(',')?;
     Some(SpriteRef {
@@ -35,6 +61,7 @@ fn sprite_ref(s: String) -> Option<SpriteRef> {
     })
 }
 
+// A string where empty means none.
 fn opt_string(c: &mut Cursor) -> Result<Option<String>, IoError> {
     let s = c.string()?;
     Ok((!s.is_empty()).then_some(s))
@@ -64,6 +91,7 @@ fn component(c: &mut Cursor, id: u16, parent: Option<u16>) -> Result<Interface, 
     let height = c.u16()?;
     let alpha = c.u8()?;
     let hover_popup = opt_packed(c)?;
+    // Conditions and scripts pair up by position.
     let n = c.u8()?;
     let mut ops = Vec::with_capacity(n.into());
     for _ in 0..n {
@@ -78,6 +106,7 @@ fn component(c: &mut Cursor, id: u16, parent: Option<u16>) -> Result<Interface, 
         let len = c.u16()?;
         scripts.push((0..len).map(|_| c.u16()).collect::<Result<_, _>>()?);
     }
+    // Enabled, hover and enabled-hover colours, in that order.
     let colours =
         |c: &mut Cursor| -> Result<[i32; 3], IoError> { Ok([c.i32()?, c.i32()?, c.i32()?]) };
     let content = match kind {
@@ -118,6 +147,7 @@ fn component(c: &mut Cursor, id: u16, parent: Option<u16>) -> Result<Interface, 
             let replaceable = c.u8()? == 1;
             let pad_x = c.u8()?;
             let pad_y = c.u8()?;
+            // Always 20 entries, each led by a present flag.
             let mut slot_sprites = Vec::with_capacity(20);
             for _ in 0..20 {
                 slot_sprites.push(if c.u8()? == 1 {
@@ -237,7 +267,7 @@ fn component(c: &mut Cursor, id: u16, parent: Option<u16>) -> Result<Interface, 
 }
 
 /// Decode every interface component. Returns the declared count (the size
-/// of the client's id table) and the components in file order.
+/// of the original client's id table) and the components in file order.
 pub fn decode(data: &[u8]) -> Result<(u16, Vec<Interface>), InterfaceError> {
     let mut c = Cursor::new(data);
     let err = |id, offset| move |source| InterfaceError { id, offset, source };
@@ -247,6 +277,7 @@ pub fn decode(data: &[u8]) -> Result<(u16, Vec<Interface>), InterfaceError> {
     while c.remaining() > 0 {
         let start = c.pos();
         let mut id = c.u16().map_err(err(None, start))?;
+        // 65535 is a root marker, not an id.
         if id == u16::MAX {
             parent = Some(c.u16().map_err(err(None, start))?);
             id = c.u16().map_err(err(None, start))?;

@@ -1,6 +1,13 @@
 //! Objects (`loc.dat`): a model record per `(definition, model)`, an
-//! `objects` record per definition, a `kits` entry per wall-class
-//! definition, and the names and options in a string table.
+//! `objects` record per definition, a `kits` entry per definition with wall
+//! models, and the names and options in one string table.
+//!
+//! ```text
+//! model record   OBJECT_MODEL | loc << 4 | index    (index < 16)
+//! kit material   KIT_MATERIAL + loc
+//! kit variant    key = type << 2 | rotation (0–3), one per wall model
+//! strings        STRINGS_DOMAIN << 8 | locale       (locale 0)
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,14 +26,16 @@ use crate::creature::merge;
 use crate::palette::Palette;
 use crate::{ConvertError, model};
 
-/// Object model records are `OBJECT_MODEL | loc << 4 | index`.
+/// Base of the object model record ids: `OBJECT_MODEL | loc << 4 | index`.
 pub const OBJECT_MODEL: u32 = 0x4000_0000;
 /// Wall kits use synthetic material `KIT_MATERIAL + loc`.
 pub const KIT_MATERIAL: u16 = 2000;
 /// String-table domain for objects (records `domain << 8 | locale`).
 pub const STRINGS_DOMAIN: u32 = 2;
 
-/// The client's layer for a 317 location type.
+/// The object layer for a 317 location type: walls 0–3 and 9, wall
+/// decorations 4–8, free-standing 10–11, roofs 12–21, and floor
+/// decoration for everything else.
 pub fn layer_of(kind: u8) -> u8 {
     match kind {
         0..=3 | 9 => layer::WALL,
@@ -37,8 +46,11 @@ pub fn layer_of(kind: u8) -> u8 {
     }
 }
 
-/// Geometry as the client builds it for a definition, before placement:
-/// mirrored (z negated, winding kept), scaled, then offset.
+/// A definition's geometry as the original client builds it, before
+/// placement: mirrored, scaled, then offset.
+///
+/// Mirroring negates z and swaps each face's first and last corners, so
+/// faces still point outwards.
 pub fn shaped(mut m: Model, d: &LocDef) -> Model {
     if d.mirrored {
         for v in &mut m.vertices {
@@ -59,8 +71,12 @@ pub fn shaped(mut m: Model, d: &LocDef) -> Model {
     m
 }
 
-/// The models of a definition, by placement type: untyped models (op 5)
-/// merge into one type-10 model, as the client draws them.
+/// The models of a definition, by placement type, each already
+/// [`shaped`].
+///
+/// If no model has a type (opcode 5), they're all merged into one type-10
+/// model, as the original client draws them. Otherwise each typed model
+/// stands alone, and any untyped one among them counts as type 10.
 pub fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, ConvertError> {
     let load = |id: u16| -> Result<Model, ConvertError> {
         match records.decode(RecordType::Model, id.into())? {
@@ -107,19 +123,28 @@ impl Strings {
 
 /// The packs produced for a set of objects.
 pub struct ObjectPacks {
+    /// Every model of every definition touched, morph children included.
     pub models: PackWriter,
+    /// One record per requested id.
     pub objects: PackWriter,
+    /// One wall kit per requested id that has wall models.
     pub kits: PackWriter,
+    /// The string table (names and options), as one record.
     pub strings: PackWriter,
 }
 
-/// Convert `ids` (and the morph children their states need).
+/// Convert `ids`, and the models of the morph children their states need.
+///
+/// Each morph child becomes an extra state on its parent's record rather
+/// than a record of its own (unless it's in `ids` too). Fails if a
+/// definition has more than 16 models.
 pub fn convert(
     records: &Records,
     ids: &[u32],
     palette: &Palette,
     source_cache_crc: u32,
 ) -> Result<ObjectPacks, ConvertError> {
+    // Requested definitions plus every morph child reachable from them.
     let defs: BTreeMap<u32, LocDef> = {
         let mut want: BTreeSet<u32> = ids.iter().copied().collect();
         let mut out = BTreeMap::new();
@@ -176,7 +201,10 @@ pub fn convert(
         if !ids.contains(&id) {
             continue;
         }
+        // One state per definition: its first model, collision bits and
+        // option strings.
         let state_of = |loc: u32, d: &LocDef, strings: &mut Strings| {
+            // The low four bits are the blocked-direction mask.
             let blocked = u16::from(d.blocked_directions & 0x0f) << collision::BLOCKED_SHIFT;
             State {
                 model: if shapes.get(&loc).is_some_and(|l| !l.is_empty()) {
@@ -193,6 +221,7 @@ pub fn convert(
             }
         };
         let mut states = vec![state_of(id, d, &mut strings)];
+        // An animated state loops its animation on itself.
         let mut transitions = Vec::new();
         if let Some(a) = d.animation {
             transitions.push(Transition {
@@ -216,6 +245,7 @@ pub fn convert(
             }
         }
         let shapes_here = &shapes[&id];
+        // The layer comes from the first model's type (10 when it has none).
         let first_kind = shapes_here.first().map_or(10, |(k, _)| *k);
         let mut place = 0u16;
         for (on, bit) in [
@@ -253,6 +283,8 @@ pub fn convert(
             transitions,
         };
         packs.objects.insert(id, rec.encode()?);
+        // Wall kit: every wall model at each of the four rotations, keyed
+        // `type << 2 | rotation`.
         let walls: Vec<(u16, u32)> = shapes_here
             .iter()
             .enumerate()

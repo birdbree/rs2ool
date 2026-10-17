@@ -1,5 +1,6 @@
 //! What the inspector shows, kept apart from egui so it can be tested:
-//! the sidecar as key/value rows, the decoded fields, and a hex dump.
+//! the sidecar as key/value rows, the decoded fields, a hex dump, and which
+//! fields link to other records.
 
 use serde_json::Value;
 
@@ -8,8 +9,12 @@ use crate::explorer::selection::LoadedData;
 /// Key/value rows for a grid.
 pub type Rows = Vec<(String, String)>;
 
-/// Flatten a JSON value into `(path, value)` rows. Arrays longer than
-/// `max_items` show their length and the first items.
+/// Flattens a JSON value into `(path, value)` rows, with paths like
+/// `models[3].model`.
+///
+/// An array of plain values is one row, cut to `max_items` with the total
+/// after. An array of objects or arrays gets an `N items` row and then its
+/// first few entries (at most 8), each flattened.
 pub fn rows(value: &Value, max_items: usize) -> Rows {
     fn walk(prefix: &str, v: &Value, max: usize, out: &mut Vec<(String, String)>) {
         match v {
@@ -23,6 +28,7 @@ pub fn rows(value: &Value, max_items: usize) -> Rows {
                     walk(&p, x, max, out);
                 }
             }
+            // Flat arrays: one `[a, b, …]` row.
             Value::Array(a) if a.iter().all(|x| !x.is_object() && !x.is_array()) => {
                 let shown: Vec<String> = a.iter().take(max).map(scalar).collect();
                 let more = if a.len() > max {
@@ -42,6 +48,7 @@ pub fn rows(value: &Value, max_items: usize) -> Rows {
             other => out.push((prefix.to_owned(), scalar(other))),
         }
     }
+    // Strings without quotes, null as a dash.
     fn scalar(v: &Value) -> String {
         match v {
             Value::String(s) => s.clone(),
@@ -54,7 +61,7 @@ pub fn rows(value: &Value, max_items: usize) -> Rows {
     out
 }
 
-/// The sidecar rows and the decoded-field rows of a loaded selection.
+/// The metadata rows and the decoded-field rows of a loaded selection.
 pub fn sections(data: &LoadedData) -> (Rows, Rows) {
     match data {
         LoadedData::Record { record, meta, .. } => {
@@ -64,6 +71,7 @@ pub fn sections(data: &LoadedData) -> (Rows, Rows) {
                 o.remove("definition");
             }
             let r = serde_json::to_value(record).unwrap_or(Value::Null);
+            // Skip the type tag and show the record itself.
             let inner = r.get("record").cloned().unwrap_or(r);
             (rows(&m, 12), rows(&inner, 24))
         }
@@ -91,7 +99,8 @@ pub fn sections(data: &LoadedData) -> (Rows, Rows) {
     }
 }
 
-/// The raw bytes to show in the hex view, when the selection has any.
+/// The raw bytes to show in the hex view: MIDI records, pack records, and
+/// dump files that aren't JSON. `None` for everything else.
 pub fn raw_bytes(data: &LoadedData) -> Option<&[u8]> {
     match data {
         LoadedData::Record { record, .. } => match &**record {
@@ -107,6 +116,9 @@ pub fn raw_bytes(data: &LoadedData) -> Option<&[u8]> {
 }
 
 /// One hex-view line: offset, 16 bytes in hex, and their printable ASCII.
+///
+/// `row` is the line number (offset / 16) and has to be in range; it
+/// panics past the end of `bytes`.
 pub fn hex_line(bytes: &[u8], row: usize) -> String {
     let start = row * 16;
     let chunk = &bytes[start..bytes.len().min(start + 16)];
@@ -121,6 +133,7 @@ pub fn hex_line(bytes: &[u8], row: usize) -> String {
             }
         })
         .collect();
+    // 47 = 16 bytes × 2 digits + 15 spaces, so a short last line lines up.
     format!("{start:08x}  {:<47}  {ascii}", hex.join(" "))
 }
 
@@ -150,13 +163,15 @@ mod tests {
     }
 }
 
-/// The record type a field of `of` refers to, by its flattened key (array
-/// indices removed), if it is a reference.
+/// The record type a field of `of` refers to, by its flattened key, or
+/// `None` if the field isn't a reference. Array indices in `key` are
+/// ignored, so `models[3].model` matches `models.model`.
 pub fn link_type(
     of: rs2cache::types::record::RecordType,
     key: &str,
 ) -> Option<rs2cache::types::record::RecordType> {
     use rs2cache::types::record::RecordType as T;
+    // `key` with every `[…]` cut out.
     let mut k = String::with_capacity(key.len());
     let mut skip = false;
     for c in key.chars() {
@@ -197,10 +212,12 @@ pub fn link_type(
 }
 
 /// The ids in a row's displayed value: one number, or a `[a, b, …]` list.
+/// Anything that isn't a number is skipped, so a name gives nothing.
 pub fn link_ids(value: &str) -> Vec<u32> {
     value
         .trim_start_matches('[')
         .split(['[', ']', ','])
+        // Stop at the `… (N total)` tail that cut-down arrays get.
         .map_while(|p| {
             let p = p.trim();
             if p.starts_with('…') { None } else { Some(p) }

@@ -1,6 +1,15 @@
 //! The 3D viewport: a world camera whose viewport follows the central rect
 //! (under a separate camera that draws only egui), an orbit controller,
 //! the selected model, and scale furniture.
+//!
+//! Compare mode adds a second world camera on render layer 1 for the right
+//! pane. It copies the main camera's transform every frame, so one
+//! [`OrbitCamera`] drives both.
+//!
+//! Each shown part gets two meshes up front, one with the 317 lighting
+//! baked in and one with raw colours for the engine's lights, so flipping
+//! **View › Lighting** just swaps handles. World space is the cache's with
+//! y and z negated (see [`mesh::world`]), so y is up.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{CameraOutputMode, Viewport};
@@ -34,10 +43,15 @@ pub struct WorldCamera;
 /// `yaw` around y and `pitch` above the horizon (radians).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct OrbitCamera {
+    /// Angle around the y axis; 0 puts the camera on the +z side.
     pub yaw: f32,
+    /// Angle above the horizon; negative looks up from below.
     pub pitch: f32,
+    /// From the target to the camera, in world units.
     pub distance: f32,
+    /// The point the camera looks at and orbits.
     pub target: Vec3,
+    /// Where all of the above may go.
     pub limits: Limits,
 }
 
@@ -46,10 +60,15 @@ pub struct OrbitCamera {
 /// (a region keeps the eye above the ground).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Limits {
+    /// The target box's low corner.
     pub lo: Vec3,
+    /// The target box's high corner.
     pub hi: Vec3,
+    /// Closest the camera may zoom in.
     pub near: f32,
+    /// Furthest it may zoom out.
     pub far: f32,
+    /// Lowest pitch allowed, radians; the top is always [`PITCH_LIMIT`].
     pub min_pitch: f32,
 }
 
@@ -69,6 +88,7 @@ impl Limits {
     /// Limits for a scene spanning `lo..hi`, with `margin` of slack around
     /// it for the target.
     pub fn around(lo: Vec3, hi: Vec3, margin: f32, min_pitch: f32) -> Self {
+        // The scene's diagonal, floored so a tiny model still gets room.
         let size = (hi - lo).length().max(50.0);
         Self {
             lo: lo - Vec3::splat(margin),
@@ -92,17 +112,25 @@ impl Default for OrbitCamera {
     }
 }
 
+/// The steepest pitch either way, 85° in radians. Stopping short of 90°
+/// keeps `looking_at` away from the straight-up degenerate case.
 pub const PITCH_LIMIT: f32 = 85.0 * std::f32::consts::PI / 180.0;
+/// Arrow-key turn speed, radians per second.
 const KEY_SPEED: f32 = 1.0;
+/// Mouse-drag turn, radians per pixel.
 const DRAG_SPEED: f32 = 0.008;
 /// Fly speed, in multiples of the orbit distance per second.
 const FLY_SPEED: f32 = 0.4;
-/// Zoom per scroll line, and per pixel for trackpads.
+/// Zoom per scroll line (mouse wheels), and per pixel (trackpads), as an
+/// exponent: each unit scales the distance by `e^±k`.
 const ZOOM_PER_LINE: f32 = 0.04;
 const ZOOM_PER_PIXEL: f32 = 0.0015;
 
 impl OrbitCamera {
+    /// The camera transform for this orbit state, looking at the target
+    /// with y up.
     pub fn transform(&self) -> Transform {
+        // Spherical to Cartesian: unit vector from target to eye, scaled.
         let offset = Vec3::new(
             self.yaw.sin() * self.pitch.cos(),
             self.pitch.sin(),
@@ -126,6 +154,8 @@ impl OrbitCamera {
     /// the view direction) and `up`, within the limits.
     pub fn fly(&mut self, right: f32, forward: f32, up: f32) {
         let (s, c) = self.yaw.sin_cos();
+        // (c, 0, -s) is the view's right on the ground, (-s, 0, -c) the
+        // direction from the eye to the target, flattened.
         let d = Vec3::new(c, 0.0, -s) * right + Vec3::new(-s, 0.0, -c) * forward + Vec3::Y * up;
         self.target = (self.target + d).clamp(self.limits.lo, self.limits.hi);
     }
@@ -134,7 +164,9 @@ impl OrbitCamera {
     /// bounded around it.
     pub fn frame(&mut self, (lo, hi): (Vec3, Vec3)) {
         self.target = (lo + hi) / 2.0;
+        // 1.6 diagonals back fits the whole model in the default view.
         self.distance = ((hi - lo).length() * 1.6).max(100.0);
+        // Let the target wander half the model's biggest size past it.
         let margin = (hi - lo).max_element() * 0.5;
         self.bound(Limits::around(lo, hi, margin, -PITCH_LIMIT));
     }
@@ -143,6 +175,7 @@ impl OrbitCamera {
     pub fn bound(&mut self, limits: Limits) {
         self.limits = limits;
         self.target = self.target.clamp(limits.lo, limits.hi);
+        // Zero moves, just to run the clamps in `zoom` and `turn`.
         self.zoom(1.0);
         self.turn(0.0, 0.0);
     }
@@ -151,17 +184,21 @@ impl OrbitCamera {
 /// Which lighting the model is drawn with.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LightingMode {
-    /// The client's fixed directional term, baked, drawn unlit.
+    /// The original client's fixed directional term, baked into the
+    /// colours and drawn unlit. The default.
     #[default]
     Client,
-    /// Engine lighting.
+    /// The raw colours under the engine's directional and ambient light.
     Real,
 }
 
 /// Overlay toggles.
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct Overlays {
+    /// Colour each vertex by its label instead of the face colour
+    /// (**View › Colour by vertex label**).
     pub labels: bool,
+    /// Meant for a bone overlay; nothing sets or reads it yet.
     pub bones: bool,
 }
 
@@ -169,9 +206,13 @@ pub struct Overlays {
 /// as a child entity of [`ShownModel::entity`].
 #[derive(Debug, Clone)]
 pub struct ShownPart {
+    /// The part's mesh entity.
     pub entity: Entity,
+    /// Texture id, 0–49; `None` for untextured faces.
     pub texture: Option<u16>,
+    /// The mesh with the 317 lighting baked in ([`LightingMode::Client`]).
     pub client: Handle<Mesh>,
+    /// The mesh with raw colours ([`LightingMode::Real`]).
     pub real: Handle<Mesh>,
     /// Whether its model has per-face alpha (see [`Shown::unlit_blend`]).
     pub blend: bool,
@@ -180,7 +221,11 @@ pub struct ShownPart {
 /// One model on screen: a parent entity and its parts.
 #[derive(Debug, Clone, Default)]
 pub struct ShownModel {
+    /// The parent entity; despawning it takes the parts with it. `None`
+    /// when nothing's shown.
     pub entity: Option<Entity>,
+    /// Its parts, in the order [`posed_parts`] builds them. Playback
+    /// relies on that order to pose them in place.
     pub parts: Vec<ShownPart>,
 }
 
@@ -189,23 +234,31 @@ pub struct ShownModel {
 /// handles without rebuilding anything.
 #[derive(Resource, Default)]
 pub struct Shown {
+    /// The main selection's model (left pane in compare mode).
     pub main: ShownModel,
+    /// Compare mode's right-hand model.
     pub compare: ShownModel,
+    /// Plain material for 317 lighting: vertex colours, unlit.
     pub unlit: Handle<StandardMaterial>,
+    /// Plain material for engine lighting.
     pub lit: Handle<StandardMaterial>,
     /// Blended variants, only for models with per-face alpha: the blended
     /// pass does not write depth, so an opaque model drawn with it shows
     /// its inner faces through its outer ones.
     pub unlit_blend: Handle<StandardMaterial>,
+    /// The engine-lit blended variant.
     pub lit_blend: Handle<StandardMaterial>,
 }
 
+/// Spawns the cameras, the light and the shared materials.
 fn setup(
     mut commands: Commands,
     mut egui_settings: ResMut<EguiGlobalSettings>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut shown: ResMut<Shown>,
 ) {
+    // egui gets its own camera (spawned below) so the world cameras can
+    // have viewports without squashing the UI.
     egui_settings.auto_create_primary_context = false;
     let orbit = OrbitCamera::default();
     commands.spawn((WorldCamera, orbit, Camera3d::default(), orbit.transform()));
@@ -259,6 +312,8 @@ fn setup(
     });
     shown.unlit = materials.add(unlit);
     shown.lit = materials.add(lit);
+    // The UI camera: draws nothing from the world, renders last, and
+    // blends egui over the whole window.
     commands.spawn((
         PrimaryEguiContext,
         Camera2d,
@@ -291,6 +346,7 @@ pub const COMPARE_LAYER: usize = 1;
 /// [`follow_match`].
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Compare {
+    /// Whether compare mode is on.
     pub enabled: bool,
 }
 
@@ -306,6 +362,7 @@ pub fn follow_match(
     if !(compare.is_changed() || selected.is_changed() || sources.is_changed()) {
         return;
     }
+    // `(source, sel)` of the match, or nothing when compare is off.
     let matched = selected
         .source
         .zip(selected.sel.as_ref())
@@ -325,6 +382,7 @@ pub fn follow_match(
 pub fn pane_viewport(rect: &ViewportRect, compare: bool, right: bool) -> Viewport {
     let (mut position, mut size) = (rect.position, rect.size);
     if compare {
+        // The right pane takes the odd pixel when the width is odd.
         let left = size.x / 2;
         size.x = if right { size.x - left } else { left };
         if right {
@@ -338,6 +396,8 @@ pub fn pane_viewport(rect: &ViewportRect, compare: bool, right: bool) -> Viewpor
     }
 }
 
+/// Resizes the world cameras' viewports when the panels move or compare
+/// mode flips, and turns the right pane's camera on and off.
 fn follow_rect(
     rect: Res<ViewportRect>,
     compare: Res<Compare>,
@@ -378,6 +438,7 @@ pub fn orbit_keys(
 ) {
     // Real elapsed time, capped so a stalled frame doesn't jump the camera.
     let dt = time.delta_secs().min(0.05);
+    // -1, 0 or 1 from a pair of opposing keys.
     let axis = |pos: KeyCode, neg: KeyCode| {
         f32::from(u8::from(keys.pressed(pos))) - f32::from(u8::from(keys.pressed(neg)))
     };
@@ -388,6 +449,7 @@ pub fn orbit_keys(
     );
     if right != 0.0 || forward != 0.0 || up != 0.0 {
         for mut o in &mut q {
+            // Scaled by distance: slow up close, quick far out.
             let speed = o.distance * FLY_SPEED * dt;
             o.fly(right * speed, forward * speed, up * speed);
         }
@@ -437,6 +499,7 @@ fn orbit_mouse(
     mut q: Query<&mut OrbitCamera>,
 ) {
     let inside = in_viewport(window.physical_cursor_position(), &rect);
+    // A drag belongs to the viewport only if the press started there.
     if buttons.just_pressed(MouseButton::Left) {
         *dragging = inside;
     }
@@ -445,6 +508,7 @@ fn orbit_mouse(
     }
     for mut o in &mut q {
         if *dragging && motion.delta != Vec2::ZERO {
+            // Sideways drags yaw; dragging down raises the eye.
             o.turn(-motion.delta.x * DRAG_SPEED, motion.delta.y * DRAG_SPEED);
         }
         if inside && scroll.delta.y != 0.0 {
@@ -452,11 +516,14 @@ fn orbit_mouse(
                 MouseScrollUnit::Line => ZOOM_PER_LINE,
                 MouseScrollUnit::Pixel => ZOOM_PER_PIXEL,
             };
+            // Exponential, so each notch zooms by the same ratio; scrolling
+            // up moves in.
             o.zoom((-scroll.delta.y * per).exp());
         }
     }
 }
 
+/// Writes each changed [`OrbitCamera`] into its camera's transform.
 pub fn apply_orbit(mut q: Query<(&OrbitCamera, &mut Transform), Changed<OrbitCamera>>) {
     for (o, mut t) in &mut q {
         *t = o.transform();
@@ -499,6 +566,8 @@ fn show_selection(
         mode: *mode,
         textures: &textures,
     };
+    // Note an overlay change also reframes the camera; it rebuilds the
+    // meshes either way.
     if (loaded.is_changed() || overlays.is_changed())
         && let Some(bounds) = cx.show(&mut shown, false, loaded.renderable.as_deref())
     {
@@ -539,6 +608,7 @@ impl ShowContext<'_, '_, '_> {
         }
         slot.parts.clear();
         let (client, real, blend) = renderable_parts(r?, self.labels);
+        // Union of every part's bounds.
         let bounds = real
             .iter()
             .filter_map(|p| mesh::bounds(&p.mesh))
@@ -550,8 +620,10 @@ impl ShowContext<'_, '_, '_> {
             .spawn((Transform::IDENTITY, Visibility::default(), layer.clone()))
             .id();
         let mut parts = Vec::new();
+        // Both lists group faces the same way, so they pair up part for part.
         for (c, r) in client.into_iter().zip(real) {
             let mut part = ShownPart {
+                // Filled in once the entity's spawned, just below.
                 entity: Entity::PLACEHOLDER,
                 texture: c.texture,
                 client: self.meshes.add(c.mesh),
@@ -592,6 +664,7 @@ pub fn renderable_parts(r: &Renderable, labels: bool) -> (Vec<mesh::Part>, Vec<m
 /// Which vertices to draw a renderable with.
 #[derive(Debug, Clone, Copy)]
 pub enum Pose<'a> {
+    /// The model's own vertices.
     Rest,
     /// Cache-space vertices of a cache model (an animation frame).
     Cache(&'a [[i32; 3]]),
@@ -599,9 +672,14 @@ pub enum Pose<'a> {
     Pack(&'a [[f32; 3]]),
 }
 
-/// A renderable's parts with client and raw shading (both shadings group
+/// A renderable's parts with 317 and raw shading (both shadings group
 /// faces the same way, so the parts pair up), and whether it has face
-/// alpha. A pose that does not fit the renderable draws it at rest.
+/// alpha. A pose that doesn't fit the renderable (wrong kind, or a vertex
+/// count that doesn't match) draws it at rest.
+///
+/// With `labels` a cache model comes back as one untextured part coloured
+/// by vertex label. Pack models are always one part. 2D renderables give
+/// nothing.
 pub fn posed_parts(
     r: &Renderable,
     labels: bool,
@@ -626,6 +704,7 @@ pub fn posed_parts(
                     mesh::model_parts(m, verts, shading)
                 }
             };
+            // Cache alpha 0 is opaque.
             let blend = m
                 .face_alphas
                 .as_ref()
@@ -641,6 +720,8 @@ pub fn posed_parts(
             let posed;
             let model = match pose {
                 Pose::Pack(v) if v.len() == model.vertices.len() => {
+                    // A copy with the skinned vertices, rounded back to the
+                    // pack's integer grid.
                     posed = PackModel {
                         vertices: v.iter().map(|p| p.map(|c| c.round() as i16)).collect(),
                         ..model.clone()
@@ -656,6 +737,7 @@ pub fn posed_parts(
                     mesh: mesh::mesh_from_pack_model(model, palette, shading),
                 }]
             };
+            // Pack alpha 255 is opaque.
             let blend = model
                 .alphas
                 .as_ref()
@@ -683,6 +765,7 @@ pub fn handles(
         LightingMode::Client => (&part.client, &shown.unlit, &shown.unlit_blend),
         LightingMode::Real => (&part.real, &shown.lit, &shown.lit_blend),
     };
+    // The untextured material, blended only if the model needs it.
     let plain = || if part.blend { blend } else { opaque }.clone();
     let material = part
         .texture
@@ -715,11 +798,14 @@ fn switch_lighting(
 /// has loaded the textures. Empty until then.
 #[derive(Resource, Default)]
 pub struct TextureMaterials {
+    /// Unlit materials, indexed by texture id; `None` for a missing page.
     pub unlit: Vec<Option<Handle<StandardMaterial>>>,
+    /// Engine-lit materials, indexed the same way.
     pub lit: Vec<Option<Handle<StandardMaterial>>>,
 }
 
 impl TextureMaterials {
+    /// Texture `id`'s material for `mode`, if it's loaded.
     pub fn get(&self, id: u16, mode: LightingMode) -> Option<Handle<StandardMaterial>> {
         let list = match mode {
             LightingMode::Client => &self.unlit,
@@ -730,12 +816,15 @@ impl TextureMaterials {
 }
 
 /// A texture page's full-brightness copy as an image, sampled the way the
-/// client samples it: u clamped, v repeating, nearest texel. Zero texels
-/// are transparent unless the page is opaque.
+/// original client samples it: u clamped, v repeating, nearest texel. Zero
+/// texels are transparent unless the page is opaque.
 pub fn texture_image(page: &TexturePage) -> Image {
+    // The first 128 × 128 texels are the full-brightness copy; the darker
+    // copies follow.
     let data = page.texels[..TEXTURE_SIZE * TEXTURE_SIZE]
         .iter()
         .flat_map(|&t| {
+            // Texels are packed 0x00RRGGBB.
             let [_, r, g, b] = t.to_be_bytes();
             let a = if page.opaque || t != 0 { 255 } else { 0 };
             [r, g, b, a]
@@ -760,8 +849,11 @@ pub fn texture_image(page: &TexturePage) -> Image {
     image
 }
 
+/// Texture pages are 128 × 128 texels.
 const TEXTURE_SIZE: usize = 128;
 
+/// Builds [`TextureMaterials`] once, as soon as the classic view has
+/// loaded the textures from a cache.
 fn build_texture_materials(
     view: Option<Res<ClassicView>>,
     mut built: Local<bool>,
@@ -787,6 +879,8 @@ fn build_texture_materials(
         let image = images.add(texture_image(page));
         let base = StandardMaterial {
             base_color_texture: Some(image),
+            // Transparent texels are all-or-nothing, so a cut-out mask
+            // works and keeps depth writes.
             alpha_mode: if page.opaque {
                 AlphaMode::Opaque
             } else {
@@ -812,12 +906,14 @@ fn build_texture_materials(
 /// axes, so scale errors show.
 fn furniture(mut gizmos: Gizmos) {
     let grey = Color::srgba(0.5, 0.5, 0.55, 0.35);
+    // Gizmo grids lie in the xy plane; turn it flat onto the ground.
     gizmos.grid(
         Isometry3d::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         UVec2::new(16, 16),
         Vec2::splat(128.0),
         grey,
     );
+    // Half a tile wide, one storey tall.
     let (w, h) = (64.0, 240.0);
     let c = [
         Vec3::new(-w, 0.0, -w),
@@ -826,6 +922,7 @@ fn furniture(mut gizmos: Gizmos) {
         Vec3::new(-w, 0.0, w),
     ];
     let box_colour = Color::srgba(0.9, 0.8, 0.2, 0.5);
+    // Each side: bottom edge, top edge, and a corner post.
     for i in 0..4 {
         let (a, b) = (c[i], c[(i + 1) % 4]);
         gizmos.line(a, b, box_colour);
@@ -835,6 +932,8 @@ fn furniture(mut gizmos: Gizmos) {
     gizmos.axes(Transform::IDENTITY, 64.0);
 }
 
+/// Adds the 3D viewport: cameras, input, model display and furniture.
+/// The update systems run in order, one after another.
 pub fn plugin(app: &mut App) {
     app.init_resource::<LightingMode>()
         .init_resource::<Overlays>()

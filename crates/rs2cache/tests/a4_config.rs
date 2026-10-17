@@ -1,6 +1,6 @@
-//! Phase A4 check: every definition of every config type decodes; unknown
-//! opcodes are reported with their definition ids; spot checks on well-known
-//! records.
+//! Every definition of every config type decodes, unknown opcodes are
+//! reported with their definition ids, and a few individual definitions
+//! are spot-checked.
 
 mod common;
 

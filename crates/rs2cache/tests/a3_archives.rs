@@ -1,5 +1,4 @@
-//! Phase A3 check: every archive decodes, and the config archive holds the
-//! twelve named entries.
+//! Every archive decodes, and the config archive holds its named entries.
 
 mod common;
 

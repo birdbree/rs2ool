@@ -1,7 +1,7 @@
-//! Phase D6 object states: a location with a morph table lists its
-//! default and child states, each drawing its own model, and the same
-//! object converted into an objects pack lists the same states with the
-//! same options, drawn from the models pack beside it.
+//! A location with a morph table lists its default and child states, each
+//! drawing its own model, and the same object converted into an objects
+//! pack lists the same states with the same options, drawn from the models
+//! pack beside it.
 
 #![cfg(feature = "explorer")]
 
@@ -53,7 +53,7 @@ fn morphing_locations_switch_states_in_cache_and_pack() {
     let (_, r) = load(&cache, &Sel::Record(RecordType::Loc, id)).unwrap();
     assert!(r.is_some() || states.renderables.iter().any(Option::is_some));
 
-    // Convert it as `rs2conv objects --id` would, with the palette.
+    // Convert it as `rs2ool pack objects --id` would, with the palette.
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d6_states");
     let _ = std::fs::remove_dir_all(&out);
     let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());

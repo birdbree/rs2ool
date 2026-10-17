@@ -1,8 +1,10 @@
-//! Actions: export, dump, convert and bake, through the same library calls
-//! the CLIs make (`crate::cache::dump::run`, `rs2convert::run`,
-//! `contentpack::loose`), so every output is byte-identical to the CLI's. They
-//! run as jobs; the output folder is remembered in `settings.json` in the
-//! platform config directory.
+//! The Actions menu: export, dump, convert and bake.
+//!
+//! Each action goes through the same library call the command line makes
+//! ([`crate::cache::dump::run`], `rs2convert::run`, `contentpack::loose`),
+//! so what it writes is byte-identical to the CLI's. Actions run as
+//! [jobs](crate::explorer::jobs), and the output folder is remembered in
+//! `settings.json` in your platform's config directory.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,15 +25,19 @@ use crate::explorer::sources::{Kind, Source, Sources};
 /// What the explorer remembers between runs.
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
+    /// Where actions write; `None` until you choose one.
     pub out_dir: Option<PathBuf>,
 }
 
-/// `settings.json` in the platform config directory.
+/// `settings.json` in the platform config directory, or `None` if the
+/// platform doesn't have one.
 pub fn settings_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "rs2ool").map(|d| d.config_dir().join("settings.json"))
 }
 
 impl Settings {
+    /// Reads the settings, falling back to the defaults if the file's
+    /// missing or won't parse.
     pub fn load(path: &Path) -> Self {
         std::fs::read(path)
             .ok()
@@ -39,6 +45,7 @@ impl Settings {
             .unwrap_or_default()
     }
 
+    /// Writes the settings as pretty JSON, making the directory if needed.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
@@ -48,10 +55,15 @@ impl Settings {
     }
 }
 
-/// A conversion, as an `rs2conv` subcommand.
+/// A conversion, as an `rs2ool pack` subcommand.
+///
+/// The explorer always converts with animations and without parent
+/// overrides or extra sequences.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConvertTarget {
+    /// `materials`: the palette and default material.
     Materials,
+    /// `textures`: the atlas and a material per texture.
     Textures,
     /// One model, or every model.
     Models(Option<u32>),
@@ -59,15 +71,18 @@ pub enum ConvertTarget {
     Npc(u32),
     /// `player-kit --with-anims`.
     PlayerKit,
-    /// Every sprite archive.
+    /// `sprites`: every sprite archive, and the fonts.
     Sprites,
+    /// `floors`.
     Floors,
     /// One object, or every object.
     Objects(Option<u32>),
 }
 
 impl ConvertTarget {
-    /// The conversion of the selected record.
+    /// The conversion that covers the selected record, if there is one.
+    /// Some cover more than the record: a texture converts all textures,
+    /// a sprite or font all sprites, an identity-kit part the whole kit.
     pub fn for_selection(sel: &Sel) -> Option<Self> {
         Some(match sel {
             Sel::Record(RecordType::Model, id) => Self::Models(Some(*id)),
@@ -81,7 +96,8 @@ impl ConvertTarget {
         })
     }
 
-    /// The conversion of every record of a type, where one exists.
+    /// The conversion of every record of a type, where one exists (models
+    /// and locations).
     pub fn whole_type(t: RecordType) -> Option<Self> {
         match t {
             RecordType::Model => Some(Self::Models(None)),
@@ -90,6 +106,7 @@ impl ConvertTarget {
         }
     }
 
+    /// The menu text after "Convert ".
     pub fn label(&self) -> String {
         match self {
             Self::Materials => "materials (palette)".into(),
@@ -106,7 +123,9 @@ impl ConvertTarget {
     }
 }
 
-/// Encode RGBA as a PNG file, as `rs2conv` does.
+/// Writes a `w × h` RGBA buffer to `path` as a PNG, making parent
+/// directories as needed. The same writer `rs2ool pack` hands to
+/// `run::write`.
 pub fn png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
@@ -117,9 +136,9 @@ pub fn png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Run a conversion into `dir` exactly as `rs2conv` would: the same source
-/// cache CRC, the same `rs2convert::run` call and the same writer. Each
-/// written pack is offered as a source.
+/// Runs a conversion into `dir` exactly as `rs2ool pack` would: the same
+/// source cache CRC, the same `rs2convert::run` call and the same writer.
+/// Each written pack is offered as a source.
 pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow::Result<Done> {
     let crc = rs2convert::source_cache_crc(records.cache())?;
     let outcome = match target {
@@ -152,8 +171,8 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
     })
 }
 
-/// Export records as `cachedump dump` would; the output folder is offered
-/// as a dump-directory source.
+/// Exports records as `rs2ool cache dump` would, minus the progress bars;
+/// the output folder is offered as a dump-directory source.
 pub fn dump(records: &Records, mut args: DumpArgs) -> anyhow::Result<Done> {
     args.out.quiet = true;
     let outcome = crate::cache::dump::run(records, &args)?;
@@ -169,7 +188,8 @@ pub fn dump(records: &Records, mut args: DumpArgs) -> anyhow::Result<Done> {
     })
 }
 
-/// `cachedump dump --type T` of one id (`Some`) or of every id, decoded.
+/// The arguments for `rs2ool cache dump --type T --meta` with `--id` (for
+/// `Some`) or `--all`.
 pub fn decoded(t: RecordType, id: Option<u32>, dir: &Path) -> DumpArgs {
     DumpArgs {
         source: SourceArgs {
@@ -191,8 +211,9 @@ pub fn decoded(t: RecordType, id: Option<u32>, dir: &Path) -> DumpArgs {
     }
 }
 
-/// The file bytes of an index-backed record (`cachedump dump --index N
-/// --id ID`, inflated), where the record is one file.
+/// The arguments for `rs2ool cache dump --index N --id ID --meta`, which
+/// writes the inflated file, for record types that are one index file
+/// each (model, anim, midi). `None` for the rest.
 pub fn file_bytes(t: RecordType, id: u32, dir: &Path) -> Option<DumpArgs> {
     let index = match t {
         RecordType::Model => 1,
@@ -218,7 +239,8 @@ pub fn file_bytes(t: RecordType, id: u32, dir: &Path) -> Option<DumpArgs> {
     })
 }
 
-/// Bake a loose record directory into a pack in `out`, as `rs2conv pack`.
+/// Bakes a loose record directory into a pack in `out`, as
+/// `rs2ool pack build` does.
 pub fn bake(dir: &Path, out: &Path) -> anyhow::Result<Done> {
     let path = contentpack::loose::bake(dir, out)?;
     Ok(Done {
@@ -230,20 +252,24 @@ pub fn bake(dir: &Path, out: &Path) -> anyhow::Result<Done> {
 /// What a folder dialog's answer is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pick {
+    /// The output folder.
     OutDir,
+    /// A loose directory to bake.
     Loose,
 }
 
 /// A job an action runs: given the cache and the output folder.
 type ActionFn = Box<dyn FnOnce(Arc<Records<'static>>, PathBuf) -> anyhow::Result<Done> + Send>;
 
-/// Any folder dialog in flight.
+/// The Actions menu's state: any folder dialog in flight.
 #[derive(Resource, Default)]
 pub struct Actions {
     picking: Option<(Pick, Task<Option<PathBuf>>)>,
 }
 
 impl Actions {
+    /// Opens a folder dialog off the UI thread. A second one replaces the
+    /// first.
     fn pick(&mut self, what: Pick) {
         let task = AsyncComputeTaskPool::get().spawn(async move {
             rfd::AsyncFileDialog::new()
@@ -255,7 +281,10 @@ impl Actions {
     }
 }
 
+/// Acts on a folder dialog's answer: stores and saves a new output folder,
+/// or starts baking the chosen loose directory.
 fn poll_pick(mut actions: ResMut<Actions>, mut settings: ResMut<Settings>, mut jobs: ResMut<Jobs>) {
+    // Peek without flagging `Actions` as changed every frame.
     let Some((what, task)) = &mut actions.bypass_change_detection().picking else {
         return;
     };
@@ -264,6 +293,7 @@ fn poll_pick(mut actions: ResMut<Actions>, mut settings: ResMut<Settings>, mut j
     };
     let what = *what;
     actions.picking = None;
+    // `None`: the dialog was cancelled.
     let Some(path) = answer else { return };
     if what == Pick::Loose {
         if let Some(out) = settings.out_dir.clone() {
@@ -274,13 +304,18 @@ fn poll_pick(mut actions: ResMut<Actions>, mut settings: ResMut<Settings>, mut j
     } else {
         settings.out_dir = Some(path);
         if let Some(p) = settings_path() {
+            // Not being able to remember it isn't worth bothering you about.
             let _ = settings.save(&p);
         }
     }
 }
 
-/// The Actions menu. Every action needs an output folder; cache actions
-/// need a cache selection.
+/// Draws the Actions menu and starts the job for whichever entry is
+/// clicked.
+///
+/// Every action needs an output folder. All but baking also need the
+/// selection to be in a cache, and the per-record ones need a cache
+/// record selected.
 pub fn actions_menu(
     ui: &mut egui::Ui,
     actions: &mut Actions,
@@ -303,6 +338,7 @@ pub fn actions_menu(
         }
         ui.separator();
         let out = settings.out_dir.clone();
+        // The selected source's records, if it's a cache.
         let records: Option<Arc<Records<'static>>> = selected
             .source
             .and_then(|s| sources.list.get(s))
@@ -316,6 +352,8 @@ pub fn actions_menu(
             Some(Sel::Record(t, id)) => Some((*t, *id)),
             _ => None,
         };
+        // One menu entry: a button that runs `f` as a job when clicked,
+        // greyed out unless `enabled` and there's a cache and an output.
         let mut run = |ui: &mut egui::Ui, enabled: bool, label: String, f: ActionFn| {
             if ui
                 .add_enabled(enabled && ready, egui::Button::new(&label))
@@ -326,6 +364,8 @@ pub fn actions_menu(
                 ui.close();
             }
         };
+        // Placeholder values for the labels when nothing's selected; those
+        // entries are disabled anyway.
         let (t, id) = record.unwrap_or((RecordType::Model, 0));
         run(
             ui,
@@ -335,6 +375,7 @@ pub fn actions_menu(
         );
         run(
             ui,
+            // Only types that are one index file each.
             record.is_some_and(|(t, _)| file_bytes(t, 0, Path::new("")).is_some()),
             format!("Export {t} {id} (file bytes)"),
             Box::new(move |r, o| {
@@ -400,6 +441,7 @@ pub fn actions_menu(
     });
 }
 
+/// Loads the saved settings and adds the Actions resources.
 pub fn plugin(app: &mut App) {
     let settings = settings_path()
         .map(|p| Settings::load(&p))
@@ -430,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn selections_map_to_rs2conv_commands() {
+    fn selections_map_to_pack_commands() {
         assert_eq!(
             ConvertTarget::for_selection(&Sel::Record(RecordType::Npc, 1)),
             Some(ConvertTarget::Npc(1))

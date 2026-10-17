@@ -9,18 +9,24 @@ use rs2cache::types::record::{Record, RecordType};
 
 use crate::{ConvertError, material_id};
 
+/// Width and height of the atlas, in pixels.
 pub const ATLAS_SIZE: u16 = 1024;
 
 /// One texture's untrimmed RGBA pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextureImage {
+    /// Texture id, 0–49.
     pub id: u16,
+    /// Width in pixels.
     pub width: u16,
+    /// Height in pixels.
     pub height: u16,
+    /// `width × height` RGBA pixels, row by row.
     pub rgba: Vec<u8>,
 }
 
-/// Every texture, padded to its full size as the client does.
+/// Every texture's first sprite, padded back out to its full size as the
+/// original client does. Fails if a texture has no sprite.
 pub fn images(records: &Records) -> Result<Vec<TextureImage>, ConvertError> {
     let mut out = Vec::new();
     for id in records.ids(RecordType::Texture)? {
@@ -48,21 +54,26 @@ pub fn images(records: &Records) -> Result<Vec<TextureImage>, ConvertError> {
 /// The packed atlas and where each texture went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextureAtlas {
+    /// The atlas image.
     pub atlas: Atlas,
+    /// `(texture id, rectangle)` per texture, sorted by id.
     pub rects: Vec<(u16, TextureRect)>,
 }
 
 impl TextureAtlas {
     /// Shelf-pack textures (tallest first, then by id) into one atlas.
+    /// Fails if they don't all fit.
     pub fn build(images: &[TextureImage]) -> Result<Self, ConvertError> {
         let side = usize::from(ATLAS_SIZE);
         let mut order: Vec<&TextureImage> = images.iter().collect();
         order.sort_by_key(|t| (std::cmp::Reverse(t.height), t.id));
         let mut rgba = vec![0u8; side * side * 4];
         let mut rects = Vec::new();
+        // Cursor (x, y) on the current shelf; `shelf` is its height so far.
         let (mut x, mut y, mut shelf) = (0usize, 0usize, 0usize);
         for t in order {
             let (w, h) = (usize::from(t.width), usize::from(t.height));
+            // Out of room on this shelf: start a new one below it.
             if x + w > side {
                 x = 0;
                 y += shelf;
@@ -104,7 +115,7 @@ impl TextureAtlas {
         })
     }
 
-    /// Read one texture back out of the atlas.
+    /// Copy one texture's RGBA pixels back out of the atlas.
     pub fn extract(atlas: &Atlas, r: &TextureRect) -> Vec<u8> {
         let side = usize::from(atlas.width);
         let (x, y, w, h) = (
@@ -120,7 +131,8 @@ impl TextureAtlas {
         out
     }
 
-    /// The `textures` pack.
+    /// The `textures` pack: the atlas as record [`ATLAS_BASE`], and each
+    /// texture's rectangle under its id.
     pub fn pack(&self, source_cache_crc: u32) -> Result<PackWriter, ConvertError> {
         let mut w = PackWriter::new(Kind::Textures, source_cache_crc);
         w.insert(ATLAS_BASE, self.atlas.encode()?);
@@ -141,7 +153,8 @@ impl TextureAtlas {
     }
 }
 
-/// The material for texture `t`.
+/// The material for texture `t`: id `TEXTURE_BASE + t`, texture mode,
+/// repeating every tile.
 pub fn texture_material(t: u16) -> Material {
     Material {
         id: material_id::TEXTURE_BASE + t,

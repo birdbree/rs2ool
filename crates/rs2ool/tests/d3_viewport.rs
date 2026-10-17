@@ -1,6 +1,6 @@
-//! Phase D3 checks: the Man mesh has a vertex per face corner, finite
-//! normals and the model's bounds (y up); arrow keys orbit; switching
-//! lighting swaps prebuilt meshes without building new ones.
+//! A model's mesh has a vertex per face corner, finite normals and the
+//! model's bounds (y up); arrow keys orbit; switching lighting swaps
+//! prebuilt meshes without building new ones.
 
 #![cfg(feature = "explorer")]
 

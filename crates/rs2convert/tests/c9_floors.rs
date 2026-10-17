@@ -1,5 +1,5 @@
-//! Phase C9 check: one floor material per `flo.dat` entry; textured floors
-//! reference existing texture materials; the manifest maps every floor.
+//! One floor material per `flo.dat` entry, textured floors reference
+//! existing texture materials, and the manifest maps every floor.
 
 mod common;
 

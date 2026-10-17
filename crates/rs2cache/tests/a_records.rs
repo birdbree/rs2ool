@@ -1,6 +1,5 @@
-//! Plan A record layer: every record type lists ids, decodes its first and
-//! last id, and produces a metadata sidecar that survives a JSON round
-//! trip.
+//! Every record type lists ids, decodes its first and last id, and produces
+//! a metadata sidecar that survives a JSON round trip.
 
 mod common;
 

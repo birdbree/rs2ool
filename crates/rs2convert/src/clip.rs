@@ -1,17 +1,23 @@
-//! Animation conversion: each frame of a sequence becomes pose keys per
+//! Animation conversion: each frame of a sequence becomes one pose key per
 //! bone.
 //!
-//! The frame's ops are replayed as the client does. Alongside the integer
-//! reference deformation (whose origins are used exactly), every bone
-//! accumulates the affine transform of the ops that move its whole label
-//! set. Each bone's local transform relative to its parent is then
-//! decomposed into a 317-convention rotation (1/256 turn, applied z, x, y)
-//! and a translation. Bones are processed parents first against the
-//! parent's *quantised* transform, so rounding does not accumulate down the
-//! chain.
+//! The frame's ops are replayed the way the original client applies them.
+//! Next to the integer reference deformation (whose origins are used as
+//! is), every bone collects the affine transform of the ops that move its
+//! whole label set. Each bone's transform relative to its parent is then
+//! split into a 317-convention rotation (1/256 turn, applied z, x, y) and a
+//! translation. Bones go parents first, each against its parent's
+//! *quantised* transform, so rounding doesn't pile up down the chain.
 //!
-//! Pack space is y-up: `P = diag(1, −1, 1)` maps cache coordinates to pack
-//! coordinates, and a key rotation `(rx, ry, rz)` means `P · R317 · P`.
+//! Pack space is y up: `P = diag(1, −1, −1)` ([`FLIP`]) maps cache
+//! coordinates to pack coordinates, and a key rotation `(rx, ry, rz)` means
+//! `P · R317 · P`.
+//!
+//! Two things don't make it into keys. Scale ops are folded into each
+//! bone's affine, but a key only holds a rotation and a translation, so
+//! the scaling is lost and shows up as validation error. And only each
+//! sequence frame's primary frame is converted; secondary frames are
+//! ignored.
 
 use std::f64::consts::TAU;
 
@@ -35,8 +41,14 @@ fn v3(p: [i32; 3]) -> DVec3 {
     DVec3::new(p[0].into(), p[1].into(), p[2].into())
 }
 
-/// The client's rotation (cache space) for 8-bit angles: `Ry · Rx · Rz'`.
+/// The original client's rotation for 8-bit angles, as a cache-space
+/// matrix: `Ry · Rx · Rz'`.
+///
+/// `Rz'` turns the opposite way to the textbook z rotation; that's the
+/// original client's sign. Sines and cosines come from the same truncated
+/// tables as [`deform::rotate`], so the two agree to within rounding.
 pub fn rotation_317(rx: i32, ry: i32, rz: i32) -> DMat3 {
+    // (sin, cos) of a 1/256-turn angle, via the 2048-entry tables.
     let sc = |v: i32| {
         let k = ((v & 0xff) * 8) as usize;
         (
@@ -54,10 +66,13 @@ pub fn rotation_317(rx: i32, ry: i32, rz: i32) -> DMat3 {
     rym * rxm * rz
 }
 
-/// The 8-bit 317 angles of a cache-space rotation `Ry · Rx · Rz'`.
+/// The 8-bit 317 angles `[rx, ry, rz]` of a cache-space rotation
+/// `Ry · Rx · Rz'`, each rounded to the nearest 1/256 turn.
 pub fn angles_317(m: DMat3) -> [u8; 3] {
     // m.col(c)[r] is row r, column c.
     let at = |r: usize, c: usize| m.col(c)[r];
+    // Row 1, column 2 is −sin(x angle); the rest come from the entries that
+    // pair sin and cos of y (column 2) and of z (row 1).
     let a = (-at(1, 2)).clamp(-1.0, 1.0).asin();
     let (b, c) = if a.cos().abs() > 1e-6 {
         (at(0, 2).atan2(at(2, 2)), (-at(1, 0)).atan2(at(1, 1)))
@@ -65,10 +80,11 @@ pub fn angles_317(m: DMat3) -> [u8; 3] {
         // Gimbal lock: fold z into y.
         ((-at(2, 0)).atan2(at(0, 0)), 0.0)
     };
+    // Radians to 1/256 turns, wrapped into 0–255.
     [a, b, c].map(|t| ((t / TAU * 256.0).round() as i64).rem_euclid(256) as u8)
 }
 
-/// The key rotation as a pack-space matrix.
+/// A key's rotation as a pack-space matrix: `P · R317 · P`.
 pub fn key_rotation(rot: [u8; 3]) -> DMat3 {
     let p = DMat3::from_diagonal(FLIP);
     p * rotation_317(rot[0].into(), rot[1].into(), rot[2].into()) * p
@@ -76,6 +92,10 @@ pub fn key_rotation(rot: [u8; 3]) -> DMat3 {
 
 /// Per-bone cache-space transforms from the scaled rest mesh to the
 /// deformed (then scaled) mesh, for one frame. Bone 0 (root) is identity.
+///
+/// An op counts towards a bone only when its slot moves every one of the
+/// bone's labels. Origins come from the integer reference, advanced one op
+/// at a time, so they match the original client exactly.
 pub fn bone_transforms(
     creature: &Creature,
     rig: &InferredRig,
@@ -84,6 +104,8 @@ pub fn bone_transforms(
     frame: &Frame,
 ) -> Vec<DAffine3> {
     let mesh = creature.mesh_labels();
+    // verts: the integer reference, advanced op by op. world[b]: bone b's
+    // accumulated transform so far.
     let mut verts = creature.model.vertices.clone();
     let mut world = vec![DAffine3::IDENTITY; rig.bones.len()];
     let mut origin = [0i32; 3];
@@ -92,12 +114,15 @@ pub fn bone_transforms(
             continue;
         };
         let d = [t.dx, t.dy, t.dz];
+        // The slot's labels the mesh actually has.
         let set: std::collections::BTreeSet<u8> = b
             .labels
             .iter()
             .copied()
             .filter(|l| mesh.contains(l))
             .collect();
+        // The op as an affine map. Rotate and scale go about the current
+        // origin: move it to (0, 0, 0), apply, move back.
         let op = match b.kind {
             kind::ORIGIN => None,
             kind::TRANSLATE => Some(DAffine3::from_translation(v3(d))),
@@ -134,6 +159,7 @@ pub fn bone_transforms(
             transforms: vec![*t],
         };
         if b.kind == kind::ORIGIN {
+            // Same integer centroid plus offset as deform::apply_frame.
             let (mut sum, mut n) = ([0i32; 3], 0i32);
             for &l in &b.labels {
                 for &v in groups.0.get(usize::from(l)).into_iter().flatten() {
@@ -149,7 +175,8 @@ pub fn bone_transforms(
                 d
             };
         } else {
-            // apply_frame resets the origin, so restore it around the op.
+            // apply_frame starts each frame with a zero origin, so feed it
+            // the current one along with the op.
             apply_with_origin(&mut verts, groups, &pack.base, &single, origin);
         }
     }
@@ -158,6 +185,8 @@ pub fn bone_transforms(
     world.iter().map(|w| scale * *w * scale.inverse()).collect()
 }
 
+/// Apply frame `f` to `verts` starting from `origin` instead of
+/// (0, 0, 0).
 fn apply_with_origin(
     verts: &mut [[i32; 3]],
     groups: &Groups,
@@ -200,7 +229,8 @@ fn pivot(rig: &InferredRig, b: usize) -> DVec3 {
 /// space for one frame.
 pub type Bound = Vec<Vec<(DVec3, DVec3)>>;
 
-/// Group a frame's vertices by bone, in pack space.
+/// Group a frame's vertices by the bone their label binds to (the root
+/// for unlabelled or unbound vertices), in pack space.
 pub fn bound(creature: &Creature, rig: &InferredRig, reference: &[[i32; 3]]) -> Bound {
     let mut out = vec![Vec::new(); rig.bones.len()];
     let labels = creature.model.vertex_labels.as_deref().unwrap_or_default();
@@ -215,31 +245,42 @@ pub fn bound(creature: &Creature, rig: &InferredRig, reference: &[[i32; 3]]) -> 
     out
 }
 
-/// Keys for one frame. `world` is from [`bone_transforms`]; `bound` holds
-/// each bone's vertices at rest and in the reference deformation. Each
-/// bone's rotation comes from its exact transform, then the quantised
-/// angles and their neighbours are tried, each with the least-squares
-/// translation for the bone's vertices, and the best kept.
+/// Keys for frame `t`, one per bone, root included.
+///
+/// `world` is from [`bone_transforms`]; `bound` holds each bone's vertices
+/// at rest and in the reference deformation. Each bone's angles start from
+/// its exact transform, rounded. Then those angles and their 26 neighbours
+/// (±1 on each axis) are tried, each with the least-squares translation
+/// for the bone's vertices, and the one with the smallest worst-vertex
+/// error wins. A bone with no vertices just takes the rounded angles and
+/// translation.
 pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -> Vec<Key> {
     let mut quantised: Vec<DAffine3> = Vec::with_capacity(rig.bones.len());
     let mut keys = Vec::with_capacity(rig.bones.len());
     let p = DMat3::from_diagonal(FLIP);
     for (b, bone) in rig.bones.iter().enumerate() {
+        // The bone's exact world transform in pack space, as a frame placed
+        // at its rest pivot.
         let skin = flip_affine(world[b]);
         let target = skin * DAffine3::from_translation(pivot(rig, b));
+        // Relative to where the parent's keys actually put it.
         let parent = bone.parent.map_or(DAffine3::IDENTITY, |p| quantised[p]);
         let local = parent.inverse() * target;
+        // Rest offset from the parent's pivot; keys store pos relative to it.
         let rest = pivot(rig, b) - bone.parent.map_or(DVec3::ZERO, |p| pivot(rig, p));
+        // Back to cache convention (P · M · P) to read off 317 angles.
         let exact = angles_317(p * local.matrix3 * p);
         let to_i16 = |t: DVec3| {
             [t.x, t.y, t.z].map(|v| v.round().clamp(i16::MIN.into(), i16::MAX.into()) as i16)
         };
-        // Reference positions in the parent's frame.
+        // Pairs of (rest offset from the bone's pivot, reference position
+        // in the parent's frame).
         let inv = parent.inverse();
         let pts: Vec<(DVec3, DVec3)> = bound[b]
             .iter()
             .map(|(r, d)| (*r - pivot(rig, b), inv.transform_point3(*d)))
             .collect();
+        // (worst-vertex error, angles, pos) of the best try so far.
         let mut best = (f64::INFINITY, exact, to_i16(local.translation - rest));
         if pts.is_empty() {
             best.0 = 0.0;
@@ -257,9 +298,12 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
                         (i32::from(exact[2]) + dz).rem_euclid(256) as u8,
                     ];
                     let r = key_rotation(rot);
+                    // With the rotation fixed, the mean of d − R·o is the
+                    // least-squares translation.
                     let mean =
                         pts.iter().map(|(o, d)| *d - r * *o).sum::<DVec3>() / pts.len() as f64;
                     let pos = to_i16(mean - rest);
+                    // Score with the rounded pos, since that's what's stored.
                     let tr = rest + DVec3::new(pos[0].into(), pos[1].into(), pos[2].into());
                     let err = pts
                         .iter()
@@ -272,6 +316,7 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
             }
         }
         let (_, rot, pos) = best;
+        // Children are fitted against this, not the exact transform.
         quantised.push(parent * local_from_key(rest, rot, pos));
         keys.push(Key {
             t,
@@ -283,14 +328,15 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
     keys
 }
 
-/// A bone's local transform from its rest offset and key.
+/// A bone's local transform from its rest offset and key: translate by
+/// `rest + pos`, after rotating by the key angles.
 pub fn local_from_key(rest: DVec3, rot: [u8; 3], pos: [i16; 3]) -> DAffine3 {
     let t = rest + DVec3::new(pos[0].into(), pos[1].into(), pos[2].into());
     DAffine3::from_translation(t) * DAffine3::from_mat3(key_rotation(rot))
 }
 
-/// Frame lengths in client cycles: the sequence's delay, else the frame's
-/// own, else 1 (as `Animation.method258`).
+/// Frame lengths in original-client cycles: the sequence's delay, else the
+/// frame's own, else 1. That's the same fallback the original client uses.
 pub fn delays(creature: &Creature, s: &Sequence) -> Vec<u16> {
     (0..s.def.frames.len())
         .map(|i| {
@@ -306,6 +352,9 @@ pub fn delays(creature: &Creature, s: &Sequence) -> Vec<u16> {
 }
 
 /// Convert one sequence into a clip driving rig `rig_id`.
+///
+/// Fails if the sequence has more than 255 frames or a frame can't be
+/// found. Frame start times and the duration saturate at `u16::MAX`.
 pub fn convert(
     creature: &Creature,
     rig: &InferredRig,
@@ -337,6 +386,7 @@ pub fn convert(
         ));
     }
     let lengths = delays(creature, s);
+    // Running sum of frame lengths; `at` ends up as the clip's duration.
     let mut frame_start = Vec::with_capacity(n);
     let mut at = 0u32;
     for &d in &lengths {

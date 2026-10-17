@@ -1,4 +1,4 @@
-//! `cachedump verify`: walk every index and id, check every sector chain,
+//! `rs2ool cache verify`: walk every index and id, check every sector chain,
 //! inflate every file, decode every archive, and compare indices 1–4 with
 //! the versionlist.
 
@@ -7,6 +7,8 @@ use rs2cache::{Archive, Cache, CacheError, SectorFault, compress, versionlist};
 
 use crate::cache::Outcome;
 
+/// What [`check`] made of one file. Everything but `Present` and `Absent`
+/// counts as damage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Present,
@@ -16,6 +18,8 @@ enum Status {
     InflateFailed,
 }
 
+/// Reads one file and sorts it into a [`Status`]. Hands back the stored
+/// bytes too, when the chain could be read, for the versionlist check.
 fn check(cache: &Cache, index: u8, id: u32) -> (Status, Option<Vec<u8>>) {
     match cache.read_raw(index, id) {
         Err(CacheError::Absent { .. }) => (Status::Absent, None),
@@ -25,6 +29,7 @@ fn check(cache: &Cache, index: u8, id: u32) -> (Status, Option<Vec<u8>>) {
         },
         Err(_) => (Status::BadSector, None),
         Ok(raw) => {
+            // Index 0 files are archives, so "inflates" means "decodes".
             let ok = if index == 0 {
                 Archive::decode(&raw, None).is_ok()
             } else {
@@ -42,6 +47,7 @@ fn check(cache: &Cache, index: u8, id: u32) -> (Status, Option<Vec<u8>>) {
     }
 }
 
+/// The first 20 ids, space-separated, then a count of the rest.
 fn ids(list: &[u32]) -> String {
     let shown: Vec<String> = list.iter().take(20).map(u32::to_string).collect();
     let more = list.len().saturating_sub(20);
@@ -52,6 +58,10 @@ fn ids(list: &[u32]) -> String {
     }
 }
 
+/// Runs the check and prints the report to stdout.
+///
+/// Returns [`Outcome::Partial`] when any file is damaged. Files that only
+/// differ from the versionlist aren't damage and don't change the outcome.
 pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
     let versions = cache.versionlist().ok();
     let mut damaged = 0usize;
@@ -59,11 +69,14 @@ pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
     let mut details = Vec::new();
     for index in 0..cache.index_count() {
         let n = cache.file_count(index)? as u32;
+        // One `(id, status, modified)` per file, checked in parallel.
         let results: Vec<(u32, Status, bool)> = (0..n)
             .into_par_iter()
             .map(|id| {
                 let (status, raw) = check(cache, index, id);
                 let table = versions.as_ref().and_then(|v| v.table(index));
+                // Modified: the file's own version/CRC trailer disagrees
+                // with the versionlist. No table or no trailer: not checked.
                 let modified = match (
                     table,
                     raw.as_deref().and_then(versionlist::file_version_and_crc),
@@ -77,6 +90,7 @@ pub fn run(cache: &Cache) -> anyhow::Result<Outcome> {
                 (id, status, modified)
             })
             .collect();
+        // Ids with status `s`, in id order.
         let of =
             |s: Status| -> Vec<u32> { results.iter().filter(|r| r.1 == s).map(|r| r.0).collect() };
         let (truncated, bad, inflate) = (

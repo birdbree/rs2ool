@@ -1,5 +1,9 @@
-//! Reverse references for `--xref`, computed once and cached in
-//! `<out>/xref.json`.
+//! Reverse references for `--xref`: which models use a texture, which
+//! models an object uses, and so on.
+//!
+//! Building it decodes every model, definition, sequence and region, so
+//! it's done once and cached in `<out>/xref.json`. Delete that file if the
+//! cache changes underneath it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,21 +15,31 @@ use serde::{Deserialize, Serialize};
 use crate::cache::groups;
 use crate::cache::output::{Output, Provenance};
 
+/// The reverse-reference tables, as stored in `xref.json`.
+///
+/// Every list is sorted and has no repeats, apart from `object_models`,
+/// which keeps a definition's models in its own order.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Xref {
-    /// Model → texture ids its textured faces use.
+    /// Model → texture ids its textured faces use. Models with no textured
+    /// faces aren't listed.
     pub model_textures: BTreeMap<u32, Vec<u16>>,
     /// Texture → models that use it.
     pub texture_models: BTreeMap<u32, Vec<u32>>,
-    /// `loc:<id>`, `npc:<id>`, `obj:<id>` → model ids.
+    /// `loc:<id>`, `npc:<id>`, `obj:<id>` → model ids. An item's list is its
+    /// inventory and equip models, without chat heads.
     pub object_models: BTreeMap<String, Vec<u16>>,
-    /// Sequence → frame packs.
+    /// Sequence → frame packs (index 2 file ids).
     pub sequence_packs: BTreeMap<u32, Vec<u32>>,
     /// Region → location ids placed in it.
     pub region_objects: BTreeMap<u32, Vec<u16>>,
 }
 
 impl Xref {
+    /// Reads `xref.json` from the output directory, or builds the tables
+    /// and writes it there (listed in the manifest like any other file).
+    ///
+    /// A file that won't parse is rebuilt rather than reported.
     pub fn load_or_build(records: &Records, out: &Output) -> anyhow::Result<Self> {
         let path = out.root().join("xref.json");
         if let Ok(bytes) = std::fs::read(&path)
@@ -38,6 +52,9 @@ impl Xref {
         Ok(x)
     }
 
+    /// Builds the tables from scratch. Models and regions that won't
+    /// decode are skipped; a definition or sequence that won't decode
+    /// fails the build.
     pub fn build(records: &Records) -> anyhow::Result<Self> {
         let mut x = Xref::default();
         let models = records.ids(RecordType::Model)?;
@@ -48,7 +65,8 @@ impl Xref {
                     return None;
                 };
                 let types = m.face_types.as_ref()?;
-                // In 317 a textured face's colour is its texture id.
+                // In 317 a textured face's colour is its texture id. Bit 1
+                // of the face type marks a textured face.
                 let used: BTreeSet<u16> = types
                     .iter()
                     .zip(&m.face_colours)
@@ -58,6 +76,7 @@ impl Xref {
                 (!used.is_empty()).then(|| (id, used.into_iter().collect()))
             })
             .collect();
+        // Fill both directions from the same per-model sets.
         for (model, texs) in textures {
             for &t in &texs {
                 x.texture_models.entry(t.into()).or_default().push(model);

@@ -1,7 +1,12 @@
 //! The player kit: the default body built from identity-kit parts, with
-//! the player stance sequences, dressed through the client's 12 equipment
-//! slots. Each slot shows a kit part where the client has one by default,
-//! or an item's equipment model when an item id is typed into it.
+//! the player stance sequences, dressed through the original client's 12
+//! equipment slots.
+//!
+//! Each slot shows a kit part where the original client has one by
+//! default, or an item's equipment model when you type an item id into it.
+//! The parts load once, in the background, the first time the kit is
+//! selected; after that every change rebuilds the dressed model in the
+//! background too.
 
 use std::sync::Arc;
 
@@ -17,15 +22,16 @@ use crate::explorer::renderable::Renderable;
 use crate::explorer::selection::{Loaded, Sel, Selected};
 use crate::explorer::sources::{Source, Sources};
 
-/// The client's equipment slots.
+/// The original client's equipment slots, in its order.
 pub const SLOTS: [&str; 12] = [
     "head", "cape", "amulet", "weapon", "body", "shield", "arms", "legs", "hair", "hands", "feet",
     "jaw",
 ];
 
-/// The identity-kit body part each equipment slot shows when empty, as the
-/// client's default appearance: body → torso, arms, legs, hair → head,
-/// hands, feet, jaw.
+/// The identity-kit body part each equipment slot shows when empty, as in
+/// the original client's default appearance. Parallel to [`SLOTS`]:
+/// body → 2 (torso), arms → 3, legs → 5, hair → 0 (head), hands → 4,
+/// feet → 6, jaw → 1. `None` for slots only items fill.
 pub const SLOT_KIT: [Option<u8>; 12] = [
     None,
     None,
@@ -43,23 +49,29 @@ pub const SLOT_KIT: [Option<u8>; 12] = [
 
 /// The kit parts and the player creature they start from, loaded once.
 pub struct KitBase {
+    /// The cache the parts came from, for looking up item models.
     pub records: Arc<Records<'static>>,
+    /// Every identity-kit part with its merged model.
     pub parts: Vec<(KitPart, Model)>,
+    /// The default player, whose sequences and frame packs every dressed
+    /// model reuses.
     pub creature: Arc<Creature>,
 }
 
 /// What one equipment slot wears.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Slot {
-    /// The identity-kit part shown when no item is worn.
+    /// The identity-kit part (its idk id) shown when no item is worn.
     pub kit: Option<u32>,
     /// An item id; 0 for none.
     pub item: u32,
 }
 
 impl KitBase {
-    /// The parts that can fill kit body part `part` for a body type.
+    /// The selectable parts that can fill kit body part `part` for a body
+    /// type, in cache order.
     pub fn choices(&self, part: u8, female: bool) -> impl Iterator<Item = &KitPart> {
+        // Body type 0 is male, 1 female.
         let body = u8::from(female);
         self.parts
             .iter()
@@ -67,8 +79,8 @@ impl KitBase {
             .filter(move |p| p.slot == part && p.body_type == body && p.selectable)
     }
 
-    /// The client's default appearance: each kit-backed slot's first
-    /// selectable part, no items.
+    /// The default appearance: each kit-backed slot's first selectable
+    /// part, no items.
     pub fn defaults(&self, female: bool) -> [Slot; 12] {
         SLOT_KIT.map(|k| Slot {
             kit: k.and_then(|part| self.choices(part, female).next().map(|p| p.idk)),
@@ -77,8 +89,11 @@ impl KitBase {
     }
 
     /// The player dressed as `slots`: each slot's item equipment model, or
-    /// else its kit part, merged as the client merges a player's models,
-    /// with the player sequences.
+    /// else its kit part, merged as the original client merges a player's
+    /// models, with the player sequences.
+    ///
+    /// Fails if an item won't decode. An item with no equipment model for
+    /// the body type just leaves the slot empty.
     pub fn build(&self, slots: &[Slot; 12], female: bool) -> Result<Renderable, String> {
         let mut models = Vec::new();
         for s in slots {
@@ -98,6 +113,7 @@ impl KitBase {
         let c = Creature::new(
             "player".into(),
             merged,
+            // Scale 128 = 1.0 on every axis.
             [128; 3],
             self.creature.sequences.clone(),
             self.creature.packs.clone(),
@@ -110,7 +126,8 @@ impl KitBase {
     }
 }
 
-/// Load the kit parts and the player creature.
+/// Loads the kit parts and the player creature. Blocking; the explorer
+/// runs it as a task.
 pub fn load_base(records: Arc<Records<'static>>) -> Result<KitBase, String> {
     let index = records.cache().frame_index().map_err(|e| e.to_string())?;
     let (parts, creature) = pipeline::player_kit(&records, &index).map_err(|e| e.to_string())?;
@@ -124,21 +141,29 @@ pub fn load_base(records: Arc<Records<'static>>) -> Result<KitBase, String> {
 /// The player kit's state while it is selected.
 #[derive(Resource, Default)]
 pub struct Kit {
+    /// The loaded parts; `None` until they've loaded.
     pub base: Option<Arc<KitBase>>,
+    /// What each slot wears, parallel to [`SLOTS`].
     pub slots: [Slot; 12],
+    /// Body type: `false` male, `true` female.
     pub female: bool,
+    /// Why the last load or build failed, if it did.
     pub error: Option<String>,
     /// Rebuild the model on the next frame.
     pub dirty: bool,
+    // Whether the kit is the current selection.
     active: bool,
     /// The last dressed model, reapplied if the selection's own load lands
     /// after it (the kit has no record to draw by itself).
     built: Option<Arc<Renderable>>,
+    // The one-off parts load, while it runs.
     loading: Option<Task<Result<KitBase, String>>>,
+    // A rebuild of the dressed model, while it runs.
     building: Option<Task<Result<Renderable, String>>>,
 }
 
 impl Kit {
+    /// Whether the player kit is the current selection.
     pub fn active(&self) -> bool {
         self.active
     }
@@ -173,6 +198,7 @@ fn follow(selected: Res<Selected>, sources: Res<Sources>, mut kit: ResMut<Kit>) 
 /// result becomes the loaded selection's renderable, so every viewport and
 /// the playback bar pick it up.
 fn update(mut kit: ResMut<Kit>, mut loaded: ResMut<Loaded>) {
+    // The UI polls `Kit` every frame anyway, so skip change tracking.
     let kit = kit.bypass_change_detection();
     if let Some(t) = &mut kit.loading
         && let Some(r) = block_on(poll_once(t))
@@ -190,12 +216,15 @@ fn update(mut kit: ResMut<Kit>, mut loaded: ResMut<Loaded>) {
     if !kit.active {
         return;
     }
+    // The selection's own load clears the renderable when it lands; put
+    // the last dressed model back.
     if loaded.renderable.is_none()
         && matches!(loaded.for_sel, Some((_, Sel::PlayerKit)))
         && let Some(b) = &kit.built
     {
         loaded.renderable = Some(b.clone());
     }
+    // One build at a time; changes made meanwhile wait for the next one.
     if kit.dirty
         && kit.building.is_none()
         && let Some(base) = kit.base.clone()
@@ -221,7 +250,8 @@ fn update(mut kit: ResMut<Kit>, mut loaded: ResMut<Loaded>) {
     }
 }
 
-/// The kit's controls: body type, and per slot its kit part and item id.
+/// The kit's controls: body type, Reset, and per slot its kit part and
+/// item id. Draws nothing unless the kit is selected.
 pub fn kit_ui(ui: &mut egui::Ui, kit: &mut Kit) {
     if !kit.active {
         return;
@@ -240,6 +270,7 @@ pub fn kit_ui(ui: &mut egui::Ui, kit: &mut Kit) {
         ui.radio_value(&mut kit.female, false, "male");
         ui.radio_value(&mut kit.female, true, "female");
         if kit.female != before {
+            // Parts are per body type, so switching starts over.
             kit.slots = base.defaults(kit.female);
             changed = true;
         }
@@ -295,6 +326,7 @@ pub fn kit_ui(ui: &mut egui::Ui, kit: &mut Kit) {
     }
 }
 
+/// Adds [`Kit`] and its systems, which run after the selection loaders.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Kit>().add_systems(
         Update,

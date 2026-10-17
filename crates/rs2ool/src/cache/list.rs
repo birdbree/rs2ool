@@ -1,4 +1,9 @@
-//! `cachedump list`.
+//! `rs2ool cache list`: what's in the cache.
+//!
+//! With no flag you get a table of the five indices (files, present,
+//! absent) and then every archive of index 0 with its entry names. One flag
+//! narrows it to an index's ids and sizes, an archive's entries, or a
+//! record type's ids (with names where the type has them).
 
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Records, archive};
@@ -6,6 +11,11 @@ use rs2cache::{Records, archive};
 use crate::cache::Outcome;
 use crate::cache::select::usage;
 
+/// Prints the listing to stdout.
+///
+/// Give at most one of `index`, `archive_name` (a name or a number) and
+/// `kind`; with none, it prints the overview. An index or archive that
+/// doesn't exist is a usage error.
 pub fn run(
     records: &Records,
     index: Option<u8>,
@@ -16,6 +26,7 @@ pub fn run(
     if let Some(index) = index {
         let entries = cache.entries(index).map_err(|e| usage(e.to_string()))?;
         println!("index {index}: {} ids", entries.len());
+        // The slot number is the file id; empty slots are skipped.
         for (id, e) in entries.iter().enumerate() {
             if !e.is_absent() {
                 println!("{id}\t{} bytes", e.size);
@@ -65,6 +76,7 @@ pub fn run(
                 RecordType::Font => rs2cache::sprite::FONTS
                     .get(id as usize)
                     .map(|s| s.to_string()),
+                // A map id packs the region as `rx << 8 | ry`.
                 RecordType::Map => Some(format!("{}_{}", id >> 8, id & 0xff)),
                 _ => None,
             };

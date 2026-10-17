@@ -1,7 +1,7 @@
-//! Phase A6 check: every frame pack decodes with exact section lengths; frame
-//! transform indices are within the base; every frame `seq.dat` references
-//! is defined by exactly one pack; the player stand sequence only moves
-//! labels the Man model has.
+//! Every frame pack decodes with exact section lengths, frame transform
+//! indices stay within the base, every frame `seq.dat` references is
+//! defined by exactly one pack, and a stand sequence only moves labels its
+//! model has.
 
 mod common;
 

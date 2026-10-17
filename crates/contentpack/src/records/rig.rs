@@ -7,27 +7,44 @@
 //! labelBone  256 × u8   (bone for each vertex label; 255 = unbound)
 //! ```
 //!
-//! Bones are ordered so every parent precedes its children.
+//! Each bone is 14 bytes, so a record is `6 + 14 × boneCount + 256` bytes.
+//! Bones are ordered so every parent precedes its children, which also rules
+//! out cycles. Skinning is rigid: a vertex follows the one bone its label is
+//! bound to, with no weights.
 
 use crate::bytes::{Reader, Writer};
 
 use super::{RecordError, finish, magic};
 
+/// Magic at the start of a rig record.
 pub const MAGIC: &[u8; 4] = b"RRIG";
+/// [`Bone::parent`] for a bone with no parent.
 pub const NO_PARENT: u8 = 255;
+/// [`Rig::label_bone`] entry for a label that isn't bound to any bone.
 pub const UNBOUND: u8 = 255;
 
+/// One bone of a rig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bone {
+    /// 32-bit FNV-1a hash of the bone's name, over its UTF-8 bytes.
     pub name_hash: u32,
+    /// Index of the parent bone, always lower than this bone's own;
+    /// [`NO_PARENT`] for none.
     pub parent: u8,
+    /// Pivot relative to the parent's pivot (or the origin, with no parent),
+    /// in pack space.
     pub rest_pos: [i16; 3],
+    /// Rest rotation. Stored, but the tools always write zeros and the pose
+    /// maths ignores it.
     pub rest_rot: [u8; 3],
 }
 
+/// A decoded `rigs` record: the bone hierarchy and the label-to-bone table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rig {
+    /// Bones, parents first. At most 254.
     pub bones: Vec<Bone>,
+    /// Bone index for each vertex label 0–255, or [`UNBOUND`].
     pub label_bone: [u8; 256],
 }
 
@@ -37,6 +54,7 @@ impl Rig {
             return Err(RecordError::Invalid("more than 254 bones".into()));
         }
         for (i, b) in self.bones.iter().enumerate() {
+            // A parent must come strictly earlier, which also rules out cycles.
             if b.parent != NO_PARENT && usize::from(b.parent) >= i {
                 return Err(RecordError::Invalid(format!(
                     "bone {i}'s parent {} does not precede it",
@@ -54,6 +72,7 @@ impl Rig {
         Ok(())
     }
 
+    /// Encode the record, after checking its invariants.
     pub fn encode(&self) -> Result<Vec<u8>, RecordError> {
         self.check()?;
         let mut w = Writer::default();
@@ -70,9 +89,11 @@ impl Rig {
         Ok(w.0)
     }
 
+    /// Decode a record and check its invariants.
     pub fn decode(data: &[u8]) -> Result<Self, RecordError> {
         let mut r = Reader::new(data);
         magic(&mut r, MAGIC)?;
+        // Bone count.
         let n = r.u8()?;
         let mut bones = Vec::with_capacity(n.into());
         for _ in 0..n {

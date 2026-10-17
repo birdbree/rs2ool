@@ -1,8 +1,14 @@
 //! `rs2ool cache`: list, dump, decode, describe and verify a 317 cache, or
 //! browse it.
 //!
-//! Exit codes: 0 ok, 1 usage, 2 cache error, 3 partial failure (some
-//! records failed; they are listed in the manifest or the verify report).
+//! The clap structs here only parse; each converts into its plain
+//! counterpart in `rs2ool::cache` (`IdCli` into `IdArgs` and so on), and
+//! the library does the rest.
+//!
+//! Exit codes: 0 ok; 1 usage (including no cache, or a
+//! `rs2ool::cache::select::UsageError` from the command); 2 cache or I/O
+//! error, meaning any other error; 3 partial failure (some records failed,
+//! and they're listed in the manifest or the verify report).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -12,6 +18,7 @@ use rs2cache::types::record::RecordType;
 use rs2cache::{Cache, Records};
 use rs2ool::cache::{DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, select, verify};
 
+// The `cache` subcommands.
 #[derive(Subcommand)]
 pub enum Cmd {
     /// Print the indices and archives, or the contents of one.
@@ -35,6 +42,7 @@ pub enum Cmd {
     },
 }
 
+// `list` flags; at most one, and none means the overview.
 #[derive(Args)]
 #[group(multiple = false)]
 pub struct ListArgs {
@@ -64,6 +72,7 @@ pub struct IdCli {
     pub all: bool,
 }
 
+// `A-B` into `(A, B)`; an empty range is refused here, at parse time.
 fn parse_range(s: &str) -> Result<(u32, u32), String> {
     let (a, b) = s.split_once('-').ok_or("expected A-B")?;
     let a = a.trim().parse().map_err(|e| format!("{a}: {e}"))?;
@@ -98,6 +107,7 @@ pub struct SourceCli {
     pub group: Option<String>,
 }
 
+// `RX_RY` into `(rx, ry)`; each part has to fit a u8.
 fn parse_region(s: &str) -> Result<(u8, u8), String> {
     let (x, y) = s.split_once('_').ok_or("expected RX_RY, e.g. 50_50")?;
     Ok((
@@ -106,6 +116,8 @@ fn parse_region(s: &str) -> Result<(u8, u8), String> {
     ))
 }
 
+// `dump`'s flags. Clap catches the simple contradictions (`--raw` with
+// `--decode`, `--entry` without `--archive`); `dump::run` catches the rest.
 #[derive(Args, Clone)]
 pub struct DumpCli {
     #[command(flatten)]
@@ -125,6 +137,7 @@ pub struct DumpCli {
     pub out: OutCli,
 }
 
+// Output flags shared by `dump` and `decode`.
 #[derive(Args, Clone)]
 pub struct OutCli {
     /// Output directory.
@@ -144,6 +157,7 @@ pub struct OutCli {
     pub jsonl: bool,
 }
 
+// `decode TYPE`: `dump --type TYPE` with the type up front.
 #[derive(Args, Clone)]
 pub struct DecodeArgs {
     /// Record type.
@@ -154,6 +168,7 @@ pub struct DecodeArgs {
     pub out: OutCli,
 }
 
+// `info --type TYPE --id N`.
 #[derive(Args)]
 pub struct InfoArgs {
     #[arg(long = "type", value_name = "TYPE")]
@@ -193,6 +208,7 @@ impl From<OutCli> for OutArgs {
             meta_only: a.meta_only,
             xref: a.xref,
             jsonl: a.jsonl,
+            // The CLI always shows progress bars.
             quiet: false,
         }
     }
@@ -211,6 +227,7 @@ impl From<DumpCli> for DumpArgs {
     }
 }
 
+/// Runs one `cache` subcommand and turns the result into an exit code.
 pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     #[cfg(feature = "explorer")]
     if let Cmd::Explorer { view, packs } = cmd {
@@ -253,6 +270,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Ok(Outcome::Ok)
             }),
         Cmd::Verify => verify::run(&cache),
+        // Returned early above.
         #[cfg(feature = "explorer")]
         Cmd::Explorer { .. } => unreachable!(),
     };
@@ -261,6 +279,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
         Ok(Outcome::Partial) => ExitCode::from(3),
         Err(e) => {
             eprintln!("error: {e:#}");
+            // A bad selection is a usage error; anything else is 2.
             let usage = e.downcast_ref::<select::UsageError>().is_some();
             ExitCode::from(if usage { 1 } else { 2 })
         }

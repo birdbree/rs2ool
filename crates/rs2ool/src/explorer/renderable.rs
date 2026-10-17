@@ -1,7 +1,15 @@
-//! What the viewports draw, from any source kind: a cache record's model
-//! as the client assembles it, a model a dump directory holds as JSON, a
-//! converted pack model with its pack palette, and for the 2D viewport
-//! textures, sprites, fonts, interfaces and pack sprites.
+//! What the viewports draw, from any source kind.
+//!
+//! That's a cache record's model as the original client assembles it, a
+//! model a dump directory holds as JSON, a converted pack model with its
+//! pack palette, and, for the 2D viewport, textures, sprites, fonts,
+//! interfaces and pack images.
+//!
+//! Packs don't know about each other, so anything that needs a second pack
+//! (a palette, a rig, clips, strings) looks for it beside the first one.
+//! Packs are written to `<out>/<kind>/<hash>.pack`, so "beside" means
+//! `<out>/<other kind>/*.pack`. This module also maps cache ids to pack ids
+//! and back, for compare mode.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,10 +34,15 @@ use crate::explorer::selection::Sel;
 use crate::explorer::sources::Source;
 use crate::explorer::viewport2d::{InterfaceScene, Rgba, interface_scene};
 
+/// Something a viewport can draw. [`Renderable::is_2d`] says which one.
 pub enum Renderable {
+    /// A cache model, or a definition's model assembled from its parts.
     CacheModel(Model),
+    /// A `model/<id>.json` file from a dump directory.
     DumpedModel(Model),
+    /// A model from a models pack.
     PackModel {
+        /// The decoded pack model.
         model: PackModel,
         /// The palette of the materials pack beside the models pack, when
         /// one is there.
@@ -38,30 +51,42 @@ pub enum Renderable {
     /// A cache texture or sprite sheet; textures show on their untrimmed
     /// canvas.
     Sheet {
+        /// The decoded sheet.
         sheet: SpriteSheet,
+        /// Draw sub-sprites on their full canvas rather than trimmed.
         untrimmed: bool,
     },
+    /// A cache font, drawn as a glyph sheet.
     Font(Font),
+    /// A cache interface, laid out ready to draw.
     Interface(InterfaceScene),
     /// A pack sprite or texture atlas.
     Image(Rgba),
     /// A cache NPC with its sequences, for playback; `model` is its rest
     /// pose with the scale applied.
     Creature {
+        /// The NPC's model, rig source and resolved sequences.
         creature: Arc<Creature>,
+        /// Rest pose, scaled.
         model: Model,
     },
     /// A converted creature: its model, rig and clips (by clip id).
     PackCreature {
+        /// The creature's pack model.
         model: PackModel,
+        /// The palette from the materials pack beside it, if any.
         palette: Option<Arc<Vec<[u8; 3]>>>,
+        /// Its rig, from the rigs pack beside it.
         rig: Box<Rig>,
+        /// Its clips from the anims pack beside it, as `(clip id, clip)`,
+        /// sorted by id.
         clips: Vec<(u32, Clip)>,
     },
 }
 
 impl Renderable {
-    /// The decoded cache-format model, for the drawers that need one.
+    /// The cache-format model, for the drawers that need one (the classic
+    /// renderer, playback). `None` for pack models and 2D things.
     pub fn model(&self) -> Option<&Model> {
         match self {
             Renderable::CacheModel(m)
@@ -83,8 +108,10 @@ impl Renderable {
     }
 }
 
-/// The renderable a selection resolves to, if it has one. `record` is the
-/// cache record already decoded for the inspector.
+/// The renderable a selection resolves to, if it has one.
+///
+/// `record` is the cache record already decoded for the inspector, so it
+/// isn't decoded twice. Blocking, like everything that reads a source.
 pub fn load_renderable(
     source: &Source,
     sel: &Sel,
@@ -156,6 +183,7 @@ pub fn load_renderable(
                 }))
             };
             match reader.manifest.kind {
+                // Falls through to the model handling below.
                 Kind::Models => {}
                 Kind::Sprites => {
                     return Ok(SpriteRecord::decode(&bytes)
@@ -171,6 +199,8 @@ pub fn load_renderable(
             }
             let model = PackModel::decode(&bytes).map_err(|e| e.to_string())?;
             let palette = sibling_palette(path).map(Arc::new);
+            // A creature model with its rig beside it can play; otherwise
+            // it's a static model.
             if let Some((rig, clips)) = creature_rig(*id).and_then(|r| sibling_rig(path, r)) {
                 return Ok(Some(Renderable::PackCreature {
                     model,
@@ -185,7 +215,8 @@ pub fn load_renderable(
     }
 }
 
-/// The id of a dumped model file (`model/<id>.json`).
+/// The id of a dumped model file (`model/<id>.json`); `None` for any
+/// other path, sidecars included.
 pub fn dumped_model_id(rel: &Path) -> Option<u32> {
     let mut parts = rel.iter();
     if parts.next()? != "model" {
@@ -201,10 +232,15 @@ pub fn dumped_model_id(rel: &Path) -> Option<u32> {
 /// An object's states, in the order the objects pack lists them: the
 /// location itself, then each morph child. Each has a label, its options
 /// and what it draws.
+///
+/// The three lists run in parallel, one entry per state.
 #[derive(Default)]
 pub struct States {
+    /// What the state picker shows, e.g. `default (loc 12)` or `state 1`.
     pub labels: Vec<String>,
+    /// The state's right-click options, empty ones left out.
     pub options: Vec<Vec<String>>,
+    /// What each state draws; `None` when it draws nothing.
     pub renderables: Vec<Option<Arc<Renderable>>>,
 }
 
@@ -215,6 +251,8 @@ pub struct States {
 pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Option<States> {
     match (source, sel, record) {
         (Source::Cache { records, .. }, _, Some(Record::Loc(d))) => {
+            // Every morph child id; the `Option`s are slots the table
+            // leaves empty.
             let children: Vec<u16> = d
                 .morph
                 .iter()
@@ -226,6 +264,7 @@ pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Optio
                 return None;
             }
             let mut st = States::default();
+            // Adds one location definition as a state.
             let mut push = |label: String, r: &Record| {
                 let Record::Loc(def) = r else { return };
                 st.labels.push(label);
@@ -252,6 +291,8 @@ pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Optio
             let o = ObjectRecord::decode(&reader.get(*id)?.ok()?).ok()?;
             let models = sibling_packs(path, Kind::Models);
             let palette = sibling_palette(path).map(Arc::new);
+            // The object option table: record `STRINGS_DOMAIN << 8` of the
+            // first strings pack beside it that has one.
             let strings: Vec<String> = sibling_packs(path, Kind::Strings)
                 .iter()
                 .find_map(|p| decode_strings(&p.get(OBJECT_STRINGS << 8)?.ok()?).ok())
@@ -259,6 +300,7 @@ pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Optio
             let mut st = States::default();
             for (i, s) in o.states.iter().enumerate() {
                 st.labels.push(format!("state {i}"));
+                // Options are string ids; show `#id` for any the table lacks.
                 st.options.push(
                     s.options
                         .iter()
@@ -288,8 +330,10 @@ pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Optio
 }
 
 /// The rig a converted creature model is skinned by: NPC `n`'s model is
-/// skinned by rig `n`, the player body by the player rig.
+/// skinned by rig `n`, the player body by the player rig. `None` for any
+/// other model.
 pub fn creature_rig(model: u32) -> Option<u32> {
+    // The top nibble of a pack model id says what it is.
     match model & 0xF000_0000 {
         ids::CREATURE_MODEL => Some(model & 0x0FFF_FFFF),
         ids::PLAYER_MODEL => Some(ids::PLAYER_RIG),
@@ -298,7 +342,7 @@ pub fn creature_rig(model: u32) -> Option<u32> {
 }
 
 /// The packs of `kind` written beside a pack (`<out>/<kind>/*.pack`),
-/// sorted.
+/// sorted by path. Ones that won't open are skipped.
 fn sibling_packs(pack: &Path, kind: Kind) -> Vec<PackReader> {
     let Some(out) = pack.parent().and_then(Path::parent) else {
         return Vec::new();
@@ -318,7 +362,8 @@ fn sibling_packs(pack: &Path, kind: Kind) -> Vec<PackReader> {
 }
 
 /// Rig `rig` and its clips (anim ids `rig << 16 | seq`) from the rigs and
-/// anims packs beside a models pack.
+/// anims packs beside a models pack. `None` when no rigs pack there has
+/// it; no clips is fine.
 pub fn sibling_rig(pack: &Path, rig: u32) -> Option<(Rig, Vec<(u32, Clip)>)> {
     let r = sibling_packs(pack, Kind::Rigs)
         .iter()
@@ -338,8 +383,8 @@ pub fn sibling_rig(pack: &Path, rig: u32) -> Option<(Rig, Vec<(u32, Clip)>)> {
 }
 
 /// The palette from a materials pack written beside a models pack: packs
-/// are written to `<out>/<kind>/<hash>.pack`, so it is in
-/// `<out>/materials/`.
+/// are written to `<out>/<kind>/<hash>.pack`, so it's in
+/// `<out>/materials/`. The first pack there (by path) with a palette wins.
 pub fn sibling_palette(pack: &Path) -> Option<Vec<[u8; 3]>> {
     let out = pack.parent()?.parent()?;
     let mut paths: Vec<PathBuf> = std::fs::read_dir(out.join(Kind::Materials.name()))
@@ -354,9 +399,10 @@ pub fn sibling_palette(pack: &Path) -> Option<Vec<[u8; 3]>> {
     })
 }
 
-/// The same model in another source: a cache model or NPC and the pack
-/// record it converts to, either way round, or a dumped model file and
-/// its cache record. Returns the source index and selection.
+/// The same model in another source, for compare mode: a cache model or
+/// NPC and the pack record it converts to, either way round, or a dumped
+/// model file and its cache record (or else its pack record). Returns the
+/// source index and selection, or `None` when no other open source has it.
 pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, Sel)> {
     let src = sources.get(from)?;
     // What the selection is, as a cache record.
@@ -373,6 +419,7 @@ pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, 
         _ => None,
     }?;
     let pack_id = cache_to_pack(cache_ref);
+    // Every other source's index, in the order they were opened.
     let others = || (0..sources.len()).filter(move |&i| i != from);
     // Prefer a different kind of source: cache ↔ pack, dump → cache.
     let in_pack = |i: usize| match (&sources[i], pack_id) {
@@ -383,6 +430,7 @@ pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, 
         }
         _ => None,
     };
+    // Any cache will do; it's assumed to be the one the pack came from.
     let in_cache = |i: usize| match &sources[i] {
         Source::Cache { .. } => Some((i, Sel::Record(cache_ref.0, cache_ref.1))),
         _ => None,
@@ -395,7 +443,8 @@ pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, 
     }
 }
 
-/// The pack model record a cache record converts to.
+/// The pack model record a cache record converts to: a model keeps its
+/// id, an NPC becomes `CREATURE_MODEL | id`. `None` for other types.
 pub fn cache_to_pack((t, id): (RecordType, u32)) -> Option<u32> {
     match t {
         RecordType::Model if id < ids::CREATURE_MODEL => Some(id),
@@ -404,7 +453,8 @@ pub fn cache_to_pack((t, id): (RecordType, u32)) -> Option<u32> {
     }
 }
 
-/// The cache record a pack model record was converted from.
+/// The cache record a pack model record was converted from; the inverse of
+/// [`cache_to_pack`]. `None` for kit parts, the player body and the like.
 pub fn pack_to_cache(id: u32) -> Option<(RecordType, u32)> {
     match id & 0xF000_0000 {
         0 => Some((RecordType::Model, id)),

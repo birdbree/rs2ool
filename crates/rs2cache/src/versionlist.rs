@@ -1,16 +1,25 @@
 //! The versionlist archive (index 0, archive 5).
 //!
-//! `<type>_version` is a `u16` per file and `<type>_crc` an `i32` per file,
-//! for types model, anim, midi and map (indices 1–4). Every stored file in
-//! those indices ends with its 2-byte version, and its CRC32 is computed
-//! over the bytes before it. `model_index` and `midi_index` are a byte per
-//! file; `anim_index` a `u16` per global frame id.
+//! Entries are named by type: model, anim, midi and map (indices 1–4).
+//!
+//! ```text
+//! <type>_version   u16 per file   the 2-byte version each stored file ends with
+//! <type>_crc       u32 per file   CRC-32 of the stored bytes before that version
+//! model_index      u8 per model
+//! midi_index       u8 per MIDI file
+//! anim_index       u16 per global frame id (only its length means anything)
+//! map_index        7-byte records, decoded by crate::map::map_index
+//! ```
+//!
+//! The tables carry no count: an entry's length over the record size is
+//! the count, and a trailing partial record is ignored.
 
 use crate::types::versionlist::{FileTable, VersionList};
 
 use crate::archive::Archive;
 use crate::io::{Cursor, IoError};
 
+// Whole records only; `len / 2` drops any odd trailing byte.
 fn u16s(data: &[u8]) -> Result<Vec<u16>, IoError> {
     let mut c = Cursor::new(data);
     (0..data.len() / 2).map(|_| c.u16()).collect()

@@ -1,20 +1,37 @@
-//! The 317 client's frame application, reproduced in integer arithmetic so
-//! it matches the client vertex for vertex. This is the *reference
-//! deformation* that converted clips are validated against, and that the
-//! explorer's cache playback uses.
+//! The original client's frame application, redone in the same integer
+//! arithmetic so it matches vertex for vertex.
+//!
+//! This is the *reference deformation*: converted clips are validated
+//! against it, and the explorer's cache playback uses it. A frame is a list
+//! of transforms, each pointing at a slot in the frame base. The slot says
+//! what kind of op it is and which vertex labels it moves:
+//!
+//! ```text
+//! origin     origin = centroid of the slot's vertices + (dx, dy, dz)
+//!            (just (dx, dy, dz) when the slot has no vertices)
+//! translate  v += (dx, dy, dz)
+//! rotate     v = origin + R(dx, dy, dz) · (v − origin)
+//! scale      v = origin + (v − origin) · (dx, dy, dz) / 128
+//! ```
+//!
+//! The origin starts at (0, 0, 0) for each frame and carries over from one
+//! op to the next until another origin op replaces it.
 
 use std::sync::OnceLock;
 
 use rs2cache::types::anim::{BaseTransform, Frame, kind};
 use rs2cache::types::model::Model;
 
-/// The client's 2048-entry sine and cosine tables (16.16 fixed point).
+/// The original client's 2048-entry sine and cosine tables (16.16 fixed
+/// point).
 fn tables() -> &'static ([i32; 2048], [i32; 2048]) {
     static T: OnceLock<([i32; 2048], [i32; 2048])> = OnceLock::new();
     T.get_or_init(|| {
         let mut sin = [0; 2048];
         let mut cos = [0; 2048];
         for k in 0..2048 {
+            // About 2π / 2048. It's the constant the original client uses,
+            // so the truncated values come out identical.
             let a = k as f64 * 0.003_067_961_5;
             sin[k] = (65536.0 * a.sin()) as i32;
             cos[k] = (65536.0 * a.cos()) as i32;
@@ -23,19 +40,28 @@ fn tables() -> &'static ([i32; 2048], [i32; 2048]) {
     })
 }
 
+/// Sine of a 2048-per-turn angle, in 16.16 fixed point (65536 = 1.0).
+/// Angles wrap.
 pub fn sin(k: usize) -> i32 {
     tables().0[k & 2047]
 }
 
+/// Cosine of a 2048-per-turn angle, in 16.16 fixed point. Angles wrap.
 pub fn cos(k: usize) -> i32 {
     tables().1[k & 2047]
 }
 
-/// Vertices grouped by label, as the client builds them (`method469`).
+/// Vertex indices grouped by label, as the original client groups them
+/// before applying frames.
 #[derive(Debug, Clone)]
-pub struct Groups(pub Vec<Vec<usize>>);
+pub struct Groups(
+    /// Entry `l` lists the vertices labelled `l`, in vertex order. There's
+    /// one entry per label up to the highest one used.
+    pub Vec<Vec<usize>>,
+);
 
 impl Groups {
+    /// Group vertices by their labels (`labels[v]` is vertex `v`'s label).
     pub fn new(labels: &[u8]) -> Self {
         let max = labels.iter().copied().max().map_or(0, usize::from);
         let mut g = vec![Vec::new(); if labels.is_empty() { 0 } else { max + 1 }];
@@ -45,6 +71,8 @@ impl Groups {
         Self(g)
     }
 
+    /// Every vertex carrying any of `labels`, label by label. Labels past
+    /// the highest one in the mesh are just skipped.
     fn of<'a>(&'a self, labels: &'a [u8]) -> impl Iterator<Item = usize> + 'a {
         labels
             .iter()
@@ -54,10 +82,15 @@ impl Groups {
     }
 }
 
-/// Rotate a point about the origin by 317 angles (8-bit, 1/256 turn) in
-/// the client's order and sign convention: z (roll), then x, then y.
+/// Rotate a point about (0, 0, 0) by 317 angles (8-bit, 1/256 turn) in the
+/// original client's order and sign convention: z (roll), then x, then y.
+///
+/// Only the low byte of each angle counts. Each step truncates with `>> 16`,
+/// exactly as the original client does, so results can be a unit off a
+/// float rotation.
 pub fn rotate(v: [i32; 3], rx: i32, ry: i32, rz: i32) -> [i32; 3] {
     let [mut x, mut y, mut z] = v;
+    // 1/256 turn to a table index: one unit is 8 of the 2048 steps.
     let (kx, ky, kz) = (
         ((rx & 0xff) * 8) as usize,
         ((ry & 0xff) * 8) as usize,
@@ -84,7 +117,11 @@ pub fn rotate(v: [i32; 3], rx: i32, ry: i32, rz: i32) -> [i32; 3] {
     [x, y, z]
 }
 
-/// Apply one frame to `vertices` in place, exactly as `Model.method470`.
+/// Apply one frame to `vertices` in place, exactly as the original client
+/// applies it.
+///
+/// Transforms that point past the end of `base`, and slot kinds other than
+/// origin, translate, rotate and scale (alpha, say), are ignored.
 pub fn apply_frame(
     vertices: &mut [[i32; 3]],
     groups: &Groups,
@@ -99,6 +136,8 @@ pub fn apply_frame(
         let d = [t.dx, t.dy, t.dz];
         match b.kind {
             kind::ORIGIN => {
+                // Integer centroid of the slot's vertices (truncating, as
+                // the original client does), then the frame's offset.
                 let (mut sum, mut n) = ([0i32; 3], 0i32);
                 for v in groups.of(&b.labels) {
                     for a in 0..3 {
@@ -132,6 +171,7 @@ pub fn apply_frame(
                 }
             }
             kind::SCALE => {
+                // d is in 1/128 units: 128 leaves the axis alone.
                 for v in groups.of(&b.labels) {
                     for a in 0..3 {
                         vertices[v][a] = (vertices[v][a] - origin[a]) * d[a] / 128 + origin[a];
@@ -144,7 +184,8 @@ pub fn apply_frame(
 }
 
 /// The model's vertices after applying `frame`, then the definition's
-/// scale (the client scales after animating).
+/// scale. (The original client scales after animating, so this order
+/// matters.)
 pub fn deformed(
     model: &Model,
     groups: &Groups,
@@ -158,7 +199,8 @@ pub fn deformed(
     v
 }
 
-/// Scale every vertex by `scale / 128` per axis, as `Model.method478`.
+/// Scale every vertex by `scale / 128` per axis, truncating, as the
+/// original client does. `[128; 3]` is a no-op and skips the loop.
 pub fn apply_scale(vertices: &mut [[i32; 3]], scale: [i32; 3]) {
     if scale == [128; 3] {
         return;

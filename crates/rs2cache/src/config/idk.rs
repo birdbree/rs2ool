@@ -5,6 +5,7 @@ use crate::types::config::IdkDef;
 use super::{ConfigType, opcodes, paired_recolours};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `idk.dat` (identity-kit parts).
 pub struct Idk;
 
 impl ConfigType for Idk {
@@ -23,7 +24,7 @@ impl ConfigType for Idk {
             chat_head_models: [None; 5],
             unknown_opcodes: Vec::new(),
         };
-        // The client's recolour arrays have six slots.
+        // The original client's recolour arrays have six slots each.
         let (mut from, mut to) = ([0u16; 6], [0u16; 6]);
         d.unknown_opcodes = opcodes(Idk::KIND, id, c, |op, c| {
             match op {
@@ -36,8 +37,8 @@ impl ConfigType for Idk {
                 40..=45 => from[usize::from(op - 40)] = c.u16()?,
                 50..=55 => to[usize::from(op - 50)] = c.u16()?,
                 60..=64 => d.chat_head_models[usize::from(op - 60)] = Some(c.u16()?),
-                // In range for the client's opcode test but past the end of
-                // its arrays; the value is still a u16.
+                // In range for the original client's opcode test but past
+                // the end of its arrays; the value is still a u16.
                 46..=49 | 56..=59 | 65..=69 => {
                     c.skip(2)?;
                     return Ok(false);

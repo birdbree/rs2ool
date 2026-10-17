@@ -1,6 +1,6 @@
 [package]
 name = "rs2ool"
-description = "Read, convert and browse a RuneScape 2 revision-317 cache"
+description = "Read, convert and browse an RS2 revision-317 cache"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

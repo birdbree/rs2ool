@@ -1,17 +1,25 @@
 //! Animation frame-pack decoder (index 2).
 //!
-//! The last 8 bytes are four `u16` section lengths. Sections start at offset
-//! 0, in order:
+//! The last 8 bytes are four `u16` section lengths, L1–L4. The sections
+//! start at offset 0 and run back to back, with the frame base after them:
 //!
-//! 1. `frameCount u16`, then per frame `{frameId u16, slotCount u8}`; its
-//!    length field excludes the leading count.
-//! 2. One mask byte per frame per base slot `0..slotCount` (bit 1 = dx,
-//!    2 = dy, 4 = dz present).
-//! 3. The signed-smart deltas the masks announce.
-//! 4. One delay byte per frame.
+//! ```text
+//! section 1, at 0              frameCount u16, then per frame
+//!                              {frameId u16, slotCount u8}
+//! section 2, at L1 + 2         per frame, per slot 0..slotCount: mask u8
+//!                              (bit 1 = dx, 2 = dy, 4 = dz follows)
+//! section 3, at + L2           the signed smarts the masks announce
+//! section 4, at + L3           per frame: delay u8
+//! frame base, at + L4          count u8, kind u8 × count, then per slot
+//!                              labelCount u8 and that many labels
+//! trailer                      L1, L2, L3, L4 as u16
+//! ```
 //!
-//! The frame base follows: `count u8`, a type byte per slot, then per slot
-//! `labelCount u8` and that many label bytes.
+//! Yes, L1 leaves out section 1's own leading count, hence the `+ 2`. The
+//! four sections are read in step, one frame at a time.
+//!
+//! Frame ids are global 16-bit ids; nothing in the id says which pack holds
+//! it. [`FrameIndex`] builds that map by scanning every pack.
 
 use std::collections::BTreeMap;
 
@@ -22,20 +30,44 @@ use crate::io::{Cursor, IoError};
 
 const TRAILER: usize = 8;
 
+/// A frame pack that wouldn't decode.
 #[derive(Debug, Error)]
 pub enum FrameError {
+    /// The file is shorter than the trailer.
     #[error("{len} bytes is too short for the 8-byte trailer")]
-    TooShort { len: usize },
+    TooShort {
+        /// File length.
+        len: usize,
+    },
+    /// The frame base would start past the trailer.
     #[error("sections need {need} bytes before the trailer but {have} are present")]
-    SectionOverrun { need: usize, have: usize },
+    SectionOverrun {
+        /// Where the base would start.
+        need: usize,
+        /// Bytes before the trailer.
+        have: usize,
+    },
+    /// A section or the base ran out mid-read.
     #[error("truncated: {0}")]
     Truncated(#[from] IoError),
+    /// A frame covers more slots than the base has.
     #[error("frame {frame} uses {slots} base slots but the base has {base}")]
-    SlotOutOfRange { frame: u16, slots: u8, base: usize },
+    SlotOutOfRange {
+        /// Global frame id.
+        frame: u16,
+        /// The frame's slot count.
+        slots: u8,
+        /// The base's slot count.
+        base: usize,
+    },
+    /// Strict mode only: a section wasn't read to exactly its stated length.
     #[error("section {section} ends at {end} but its length says {expected}")]
     SectionLength {
+        /// Section 1–4, or 5 for the frame base.
         section: u8,
+        /// Where reading actually stopped.
         end: usize,
+        /// Where the trailer says it should stop.
         expected: usize,
     },
 }
@@ -43,15 +75,22 @@ pub enum FrameError {
 /// Section start offsets, from the trailer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
+    /// Section 1, frame ids and slot counts (always 0).
     pub ids: usize,
+    /// Section 2, masks.
     pub masks: usize,
+    /// Section 3, signed-smart values.
     pub deltas: usize,
+    /// Section 4, delays.
     pub delays: usize,
+    /// The frame base.
     pub base: usize,
+    /// Bytes before the trailer.
     pub body_len: usize,
 }
 
 impl Layout {
+    /// Read the trailer and work out where each section starts.
     pub fn read(data: &[u8]) -> Result<Self, FrameError> {
         let body_len = data
             .len()
@@ -59,6 +98,7 @@ impl Layout {
             .ok_or(FrameError::TooShort { len: data.len() })?;
         let mut c = Cursor::at(data, body_len)?;
         let lens = [c.u16()?, c.u16()?, c.u16()?, c.u16()?].map(usize::from);
+        // L1 doesn't count section 1's leading frameCount u16.
         let masks = lens[0] + 2;
         let deltas = masks + lens[1];
         let delays = deltas + lens[2];
@@ -81,11 +121,12 @@ impl Layout {
 }
 
 /// Decode an inflated frame pack. With `strict`, every section must be read
-/// to exactly its stated length.
+/// to exactly its stated length, which is handy for proving the layout.
 pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
     let l = Layout::read(data)?;
     let body = &data[..l.body_len];
 
+    // Read the base first: frames need its slot kinds to expand.
     let mut c = Cursor::at(body, l.base)?;
     let n = c.u8()?;
     let kinds = c.bytes(n.into())?.to_vec();
@@ -103,6 +144,7 @@ pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
     let mut masks = Cursor::at(body, l.masks)?;
     let mut deltas = Cursor::at(body, l.deltas)?;
     let mut delays = Cursor::at(body, l.delays)?;
+    // Walk all four sections in step, one frame at a time.
     let count = ids.u16()?;
     let mut frames = Vec::with_capacity(count.into());
     for _ in 0..count {
@@ -117,17 +159,20 @@ pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
             });
         }
         let mut transforms = Vec::new();
+        // The last slot this frame used, of any kind.
         let mut last_used: Option<usize> = None;
         let mut alpha = false;
         for slot in 0..usize::from(slots) {
             let mask = masks.u8()?;
+            // Mask 0: the frame doesn't touch this slot.
             if mask == 0 {
                 continue;
             }
             let k = base[slot].kind;
             if k != kind::ORIGIN {
                 // Apply the nearest skipped origin before this slot, so the
-                // transform pivots where the base intends.
+                // transform pivots where the base intends. Only look back as
+                // far as the slot after the last one used.
                 let floor = last_used.map_or(0, |u| u + 1);
                 if let Some(origin) = (floor..slot).rev().find(|&s| base[s].kind == kind::ORIGIN) {
                     transforms.push(FrameTransform {
@@ -138,6 +183,7 @@ pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
                     });
                 }
             }
+            // An unset component means "no change": 0, or 1.0 for scale.
             let default = if k == kind::SCALE { 128 } else { 0 };
             let mut read = |bit: u8| -> Result<i32, IoError> {
                 Ok(if mask & bit != 0 {
@@ -164,6 +210,7 @@ pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
     }
 
     if strict {
+        // (section number, where reading stopped, where it should have).
         let ends = [
             (1, ids.pos(), l.masks),
             (2, masks.pos(), l.deltas),
@@ -184,24 +231,30 @@ pub fn decode_with(data: &[u8], strict: bool) -> Result<FramePack, FrameError> {
     Ok(FramePack { base, frames })
 }
 
-/// Decode an inflated frame pack as the client does, without requiring the
-/// sections to be read exactly.
+/// Decode an inflated frame pack as the original client does: trust the
+/// section offsets and don't check where each section ends.
 pub fn decode(data: &[u8]) -> Result<FramePack, FrameError> {
     decode_with(data, false)
 }
 
-/// Global frame id → index-2 file, built from every pack's id list. The 317
-/// client loads every pack at startup; nothing in the cache stores this map.
+/// Global frame id → index-2 file, built from every pack's id list.
+///
+/// Nothing in the cache stores this map (the original client just loads
+/// every pack at startup), and the versionlist's `anim_index` isn't it.
+/// [`Cache::frame_index`](crate::Cache::frame_index) builds one from every
+/// present pack.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FrameIndex {
+    /// Which file defines each frame id. When several do, the last one
+    /// scanned wins.
     pub pack_of: BTreeMap<u16, u32>,
     /// Frame ids that more than one pack defines, with every pack.
     pub duplicates: BTreeMap<u16, Vec<u32>>,
 }
 
 impl FrameIndex {
-    /// Read only the id lists of `packs`, as `(file id, inflated bytes)`.
-    /// On error, returns the file that failed.
+    /// Read only the id lists of `packs`, given as `(file id, inflated
+    /// bytes)`. On error, returns the file that failed with its error.
     pub fn build<'a>(
         packs: impl IntoIterator<Item = (u32, &'a [u8])>,
     ) -> Result<Self, (u32, FrameError)> {
@@ -219,6 +272,7 @@ impl FrameIndex {
         Ok(out)
     }
 
+    /// The file that defines `frame`, if any.
     pub fn pack_for(&self, frame: u16) -> Option<u32> {
         self.pack_of.get(&frame).copied()
     }
@@ -232,6 +286,7 @@ pub fn frame_ids(data: &[u8]) -> Result<Vec<u16>, FrameError> {
     let mut ids = Vec::with_capacity(n.into());
     for _ in 0..n {
         ids.push(c.u16()?);
+        // Skip the slot count.
         c.skip(1)?;
     }
     Ok(ids)

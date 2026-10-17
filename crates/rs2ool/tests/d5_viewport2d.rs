@@ -1,6 +1,6 @@
-//! Phase D5 check: the compass sprite renders crisp at 4× (nearest
-//! filtering, each texel exactly four physical pixels), `p12_full` lays
-//! out 256 glyphs, and an interface nests its children with their sprites.
+//! A sprite renders crisp at 4× (nearest filtering, each texel exactly four
+//! physical pixels), a font lays out 256 glyphs, and an interface nests its
+//! children with their sprites.
 
 #![cfg(feature = "explorer")]
 

@@ -1,7 +1,7 @@
-//! Render real models with the classic renderer: the Man (smooth-shaded,
-//! with priorities) and a textured model. Checks coverage and that every
+//! Renders real models with the classic renderer: a smooth-shaded model
+//! with priorities and a textured model. Checks coverage and that every
 //! drawn pixel comes from the HSL table or a texture, and writes PPM frames
-//! under the target temp directory for inspection.
+//! under the target temp directory for a look.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;

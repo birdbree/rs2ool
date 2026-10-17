@@ -1,6 +1,6 @@
 [package]
 name = "rs2convert"
-description = "Converts RS2 317 cache records into client packs, with rig inference and validation"
+description = "Converts RS2 317 cache records into content packs, with rig inference and validation"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

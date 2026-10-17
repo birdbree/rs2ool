@@ -1,4 +1,8 @@
-//! Model conversion: 317 model → `models` record.
+//! Model conversion: a decoded 317 model to a `models` record.
+//!
+//! Vertices go to pack space, untextured faces get a palette index,
+//! textured faces get a texture material slot and per-corner UVs, and
+//! transparency flips to alpha (255 opaque).
 
 use contentpack::records::model::PackModel;
 use glam::DVec3;
@@ -34,8 +38,13 @@ fn to_i16(v: i32, what: &str) -> Result<i16, ConvertError> {
     i16::try_from(v).map_err(|_| ConvertError::Invalid(format!("{what} {v} does not fit i16")))
 }
 
-/// Convert a decoded model into pack space ([`space::to_pack`]: y and z
-/// negated, a rotation). Faces keep their winding.
+/// Convert a decoded model to a pack model.
+///
+/// Vertices go through [`space::to_pack`] (y and z negated, which is a
+/// rotation, so faces keep their winding). A textured face whose texture
+/// id is 50 or more, or whose texture triangle is missing, falls back to
+/// its colour as a palette face and logs a warning. Fails when a vertex
+/// coordinate doesn't fit in `i16`.
 ///
 /// [`space::to_pack`]: crate::space::to_pack
 pub fn convert(m: &Model, palette: &Palette) -> Result<PackModel, ConvertError> {
@@ -61,6 +70,7 @@ pub fn convert(m: &Model, palette: &Palette) -> Result<PackModel, ConvertError> 
         if is_textured(m, i) {
             // A textured face's colour is its texture id.
             let types = m.face_types.as_ref().expect("textured implies types");
+            // The bits above the low two pick the face's P/M/N triangle.
             let triple = usize::from(types[i] >> 2);
             let slot = material_id::TEXTURE_BASE + colour;
             if colour < 50
@@ -81,10 +91,13 @@ pub fn convert(m: &Model, palette: &Palette) -> Result<PackModel, ConvertError> 
         }
         palette_indices[i] = palette.index_of(colour);
     }
+    // 317 transparency is 0 for opaque; pack alpha is 255 for opaque.
     let alphas = m
         .face_alphas
         .as_ref()
         .map(|a| a.iter().map(|&t| 255 - t).collect());
+    // A model-wide priority becomes a per-face list, unless it's the
+    // default 0.
     let priorities = match &m.face_priorities {
         Some(p) => Some(p.clone()),
         None if m.priority != 0 => Some(vec![m.priority; f]),

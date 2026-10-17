@@ -1,7 +1,6 @@
-//! Phase A9 check: every media and title sprite entry decodes; the compass
-//! is a single opaque 51×51 sprite; the four fonts have 256 glyphs; interfaces
-//! decode fully, every layer child exists, and the inventory tab is a layer
-//! holding a 4×7 inventory.
+//! Every media and title sprite entry decodes, the four fonts have 256
+//! glyphs, interfaces decode fully with every layer child present, and a
+//! few individual records are spot-checked.
 
 mod common;
 

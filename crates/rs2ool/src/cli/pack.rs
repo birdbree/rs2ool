@@ -1,7 +1,9 @@
-//! `rs2ool pack`: convert 317 cache records into low-poly client packs,
-//! inspect and build packs, or browse them.
+//! `rs2ool pack`: convert 317 cache records into packs, inspect and build
+//! packs, or browse them.
 //!
-//! Exit codes: 0 ok, 1 usage, 2 cache or I/O error, 3 partial failure.
+//! Exit codes: 0 ok; 1 usage, which past parsing only means no cache for
+//! a converting command; 2 any other error, cache or I/O; 3 a converted
+//! clip over the validation threshold (everything's still written).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -11,12 +13,14 @@ use contentpack::PackReader;
 
 use super::convert;
 
+// The `pack` subcommands. Everything but `inspect`, `build` and
+// `explorer` reads the cache and goes through `convert::Ctx`.
 #[derive(Subcommand)]
 pub enum Cmd {
     /// Print a pack's manifest and index.
     Inspect { pack: PathBuf },
-    /// Build the client palette from every model colour and write the
-    /// materials pack (palette and default material) plus palette.png.
+    /// Build the palette from every model colour and write the materials
+    /// pack (palette and default material) plus palette.png.
     Materials(Out),
     /// Pack the 50 textures into an atlas, with a material per texture.
     Textures(Out),
@@ -88,6 +92,7 @@ pub enum Cmd {
     },
 }
 
+// Flags shared by `npc` and `player-kit`.
 #[derive(clap::Args)]
 pub struct AnimArgs {
     /// Also infer the rig's clips and validate them.
@@ -111,6 +116,7 @@ pub struct Ids {
     pub all: bool,
 }
 
+// The `-o` every converting command takes.
 #[derive(clap::Args)]
 pub struct Out {
     /// Pack directory; packs go to <dir>/<kind>/<hash>.pack.
@@ -118,6 +124,8 @@ pub struct Out {
     pub dir: PathBuf,
 }
 
+/// `pack inspect`: the hash, the manifest as one line of JSON, then a
+/// tab-separated row per index entry.
 fn inspect(path: &std::path::Path) -> anyhow::Result<()> {
     let r = PackReader::open(path)?;
     println!("hash\t{}", r.hash);
@@ -129,6 +137,7 @@ fn inspect(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs one `pack` subcommand and turns the result into an exit code.
 pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     let result = match cmd {
         #[cfg(feature = "explorer")]
@@ -149,6 +158,8 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
+            // Reading the source cache's CRC (every pack records it) can
+            // fail too; that error rides along until a command uses `ctx`.
             let ctx = convert::Ctx::new(&cache);
             match cmd {
                 Cmd::Materials(o) => ctx.and_then(|c| c.materials(&o.dir)),
@@ -162,12 +173,14 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 } => ctx.and_then(|c| c.npc(id, &anims, &seq, &out.dir)),
                 Cmd::Sprites {
                     archive,
+                    // Every sprite is already the default without --archive.
                     all: _,
                     out,
                 } => ctx.and_then(|c| c.sprites(archive.as_deref(), &out.dir)),
                 Cmd::Objects { ids, out } => ctx.and_then(|c| c.objects(&ids, &out.dir)),
                 Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
                 Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
+                // Handled in the outer match.
                 _ => unreachable!(),
             }
         }

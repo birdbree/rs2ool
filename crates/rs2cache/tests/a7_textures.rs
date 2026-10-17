@@ -1,5 +1,5 @@
-//! Phase A7 check: the 50 textures decode as single sprites that pad to
-//! 64×64 or 128×128, with visible content.
+//! The 50 textures decode as single sprites that pad to 64×64 or 128×128,
+//! with visible content.
 
 mod common;
 

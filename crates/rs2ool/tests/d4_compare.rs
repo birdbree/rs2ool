@@ -1,7 +1,6 @@
-//! Phase D4 check: cache model 215 and its converted pack record resolve
-//! to renderables from both sources, "Match" pairs them, they draw at the
-//! same size, and a deliberately mis-scaled pack record does not; the
-//! compare cameras share the one orbit state.
+//! A cache model and its converted pack record resolve to renderables from
+//! both sources, pair up, and draw at the same size, while a deliberately
+//! mis-scaled pack record doesn't; the compare cameras share one orbit.
 
 #![cfg(feature = "explorer")]
 
@@ -38,7 +37,7 @@ fn cache_model_and_pack_record_compare() {
     let Source::Cache { records, .. } = &cache else {
         unreachable!()
     };
-    // Convert model 215 and the palette as `rs2conv` would.
+    // Convert model 215 and the palette as `rs2ool pack` would.
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d4_compare");
     let _ = std::fs::remove_dir_all(&out);
     let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());

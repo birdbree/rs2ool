@@ -1,6 +1,6 @@
-//! Plan B checks, run against the cache in `RS2_CACHE` (skipped without
-//! one). Outputs go under Cargo's per-target temp directory; the cache is
-//! only read.
+//! `rs2ool cache` end to end, against the cache in `RS2_CACHE` (skipped
+//! without one). Outputs go under Cargo's per-target temp directory; the
+//! cache is only read.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

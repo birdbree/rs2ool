@@ -5,6 +5,7 @@ use crate::types::config::FloDef;
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `flo.dat` (floor types).
 pub struct Flo;
 
 impl ConfigType for Flo {

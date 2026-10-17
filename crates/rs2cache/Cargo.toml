@@ -1,6 +1,6 @@
 [package]
 name = "rs2cache"
-description = "Reader for the RuneScape 2 revision-317 cache"
+description = "Reader for the RS2 revision-317 cache"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

@@ -1,5 +1,5 @@
-//! Phases C4–C7 checks: creature assembly, rig inference, clip conversion
-//! and validation, on Man and on three non-humanoids, plus the player kit.
+//! Creature assembly, rig inference, clip conversion and validation, on a
+//! humanoid and on non-humanoids, plus the player kit.
 
 mod common;
 

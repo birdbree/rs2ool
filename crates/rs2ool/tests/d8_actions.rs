@@ -1,6 +1,6 @@
-//! Phase D8 check: converting the Man from the GUI's action yields packs
-//! byte-identical to `rs2ool pack npc --id 1 --with-anims`, and exporting a
-//! record writes the same files as `rs2ool cache dump`.
+//! Converting an NPC from the GUI's action yields packs byte-identical to
+//! `rs2ool pack npc --id 1 --with-anims`, and exporting a record writes the
+//! same files as `rs2ool cache dump`.
 
 #![cfg(feature = "explorer")]
 
@@ -61,7 +61,7 @@ fn gui_actions_match_the_clis() {
     };
     let d = dir.to_str().unwrap();
 
-    // Convert the Man.
+    // Convert the NPC.
     let (gui, cli_out) = (tmp("convert-gui"), tmp("convert-cli"));
     let done = convert(records, &ConvertTarget::Npc(1), &gui).unwrap();
     cli(&[

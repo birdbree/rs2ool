@@ -1,53 +1,91 @@
-//! `models` record.
+//! `models` record: one triangle mesh in pack space.
 //!
 //! ```text
 //! magic "RMDL", version u8 = 2
 //! vertexCount u16, faceCount u16, flags u8, attachCount u8
-//! vertices      vertexCount × {x, y, z i16}          (y up, z = −cache z)
+//! vertices      vertexCount × {x, y, z i16}          (x = cache x, y = −cache y, z = −cache z)
 //! faces         faceCount × {a, b, c}                (u8 when vertexCount < 256, else u16)
-//! materialSlot  faceCount × u8
-//! paletteIndex  faceCount × u16
+//! materialSlot  faceCount × u8                       (material id per face)
+//! paletteIndex  faceCount × u16                      (palette entry per face)
 //! [UV]          faceCount × {u0, v0, u1, v1, u2, v2 u8}
 //! [ALPHA]       faceCount × u8                       (255 = opaque)
-//! [PRIORITY]    faceCount × u8                       (draw-order render flag)
-//! [LABELS]      vertexCount × u8
+//! [PRIORITY]    faceCount × u8                       (draw-order priority)
+//! [LABELS]      vertexCount × u8                     (vertex label per vertex)
 //! attach points attachCount × {nameHash u32, x, y, z i16, yaw u8}
 //! ```
+//!
+//! Bracketed sections are there only when their [`flags`] bit is set, and
+//! always in this order. No flag says how wide face indices are: the vertex
+//! count does, so read it first.
 
 use crate::bytes::{Reader, Writer};
 
 use super::{RecordError, finish, magic};
 
+/// Magic at the start of a model record.
 pub const MAGIC: &[u8; 4] = b"RMDL";
 
+/// Bits of the header's `flags` byte, one per optional section. Bits 4–7
+/// are unused.
 pub mod flags {
+    /// Per-face texture coordinates follow.
     pub const UV: u8 = 1;
+    /// Per-face alpha follows.
     pub const ALPHA: u8 = 2;
+    /// Per-face draw-order priority follows.
     pub const PRIORITY: u8 = 4;
+    /// Per-vertex labels follow.
     pub const LABELS: u8 = 8;
 }
 
+/// A named point on the model.
+///
+/// The format carries these, but the conversions never write any, so in
+/// practice `attachCount` is 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttachPoint {
+    /// Hash of the point's name.
     pub name_hash: u32,
+    /// Position in pack space.
     pub position: [i16; 3],
+    /// Yaw. Nothing here pins down its units.
     pub yaw: u8,
 }
 
+/// A decoded `models` record.
+///
+/// The per-face vectors all have one entry per face and `labels` has one
+/// per vertex; [`encode`](Self::encode) and [`decode`](Self::decode) both
+/// check that, and that every face index is in range.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PackModel {
+    /// Vertex positions in pack space (y and z negated from the cache).
     pub vertices: Vec<[i16; 3]>,
+    /// Triangles as indices into `vertices`. Winding is the cache's, since
+    /// the axis flip is a rotation.
     pub faces: Vec<[u16; 3]>,
+    /// Material id per face, so only materials 0–255 are reachable.
     pub material_slots: Vec<u8>,
+    /// Palette entry per face, an index into the `materials` pack's palette
+    /// record.
     pub palette_indices: Vec<u16>,
+    /// `(u, v)` for corners a, b and c per face, 0–255 across the texture.
+    /// `None` when the model has no UV section.
     pub uvs: Option<Vec<[u8; 6]>>,
+    /// Opacity per face; 255 is opaque. `None` when every face is opaque.
     pub alphas: Option<Vec<u8>>,
+    /// Draw-order priority per face. `None` when the section's left out.
     pub priorities: Option<Vec<u8>>,
+    /// Label per vertex, which a rig binds to a bone. `None` means every
+    /// vertex has label 0.
     pub labels: Option<Vec<u8>>,
+    /// Named points; at most 255.
     pub attach_points: Vec<AttachPoint>,
 }
 
 impl PackModel {
+    /// The header's flags byte, worked out from which optional sections are
+    /// `Some`.
     pub fn flags(&self) -> u8 {
         let mut f = 0;
         if self.uvs.is_some() {
@@ -91,8 +129,10 @@ impl PackModel {
         Ok(())
     }
 
+    /// Encode the record, after checking its invariants.
     pub fn encode(&self) -> Result<Vec<u8>, RecordError> {
         self.check()?;
+        // Under 256 vertices every index fits a byte, so faces use u8s.
         let small = self.vertices.len() < 256;
         let mut w = Writer::default();
         w.bytes(MAGIC)
@@ -120,6 +160,7 @@ impl PackModel {
         for uv in self.uvs.iter().flatten() {
             w.bytes(uv);
         }
+        // Alpha then priority, each only if present.
         for a in [&self.alphas, &self.priorities].into_iter().flatten() {
             w.bytes(a);
         }
@@ -136,10 +177,13 @@ impl PackModel {
         Ok(w.0)
     }
 
+    /// Decode a record and check its invariants.
     pub fn decode(data: &[u8]) -> Result<Self, RecordError> {
         let mut r = Reader::new(data);
         magic(&mut r, MAGIC)?;
+        // Vertex and face counts.
         let (v, f) = (usize::from(r.u16()?), usize::from(r.u16()?));
+        // Which optional sections follow.
         let fl = r.u8()?;
         let attach = usize::from(r.u8()?);
         let small = v < 256;

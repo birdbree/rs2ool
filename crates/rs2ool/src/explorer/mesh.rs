@@ -1,5 +1,14 @@
-//! Bevy meshes from decoded models and converted pack models. Every face
-//! gets its own three vertices so normals are hard (flat shading).
+//! Bevy meshes from decoded models and converted pack models.
+//!
+//! Every face gets its own three vertices, so normals are hard and
+//! everything's flat-shaded. Colours are either the raw face colours (for
+//! the engine's lights) or have the original client's flat directional
+//! lighting baked in, so they can be drawn unlit and look the way that
+//! client draws them.
+//!
+//! Cache positions go through [`world`] on the way in. Pack models are
+//! already in that space, since pack space is the cache with y and z
+//! negated too.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
@@ -7,17 +16,22 @@ use contentpack::palette::{hsl_to_rgb, split};
 use contentpack::records::model::PackModel;
 use rs2cache::types::model::Model;
 
-/// The client's flat lighting parameters: ambient, contrast and the light
-/// direction in cache coordinates.
+/// The original client's flat lighting parameters: ambient, contrast and
+/// the light direction in cache coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lighting {
+    /// The lightness every face starts from before the directional term
+    /// (a total of 128 leaves the colour as stored).
     pub ambient: i32,
+    /// Divides the directional term down; bigger is flatter.
     pub contrast: i32,
+    /// Towards the light, in cache space (y down). Doesn't need to be unit
+    /// length.
     pub direction: [i32; 3],
 }
 
-/// The NPC lighting the client uses (`EntityDef`): ambient 64, contrast
-/// 850, light from (−30, −50, −30).
+/// The lighting the original client gives NPC models: ambient 64,
+/// contrast 850, light from (−30, −50, −30).
 pub const NPC_LIGHTING: Lighting = Lighting {
     ambient: 64,
     contrast: 850,
@@ -29,8 +43,8 @@ pub const NPC_LIGHTING: Lighting = Lighting {
 pub enum Shading {
     /// Raw face colours, for real (engine) lighting.
     Raw,
-    /// The client's flat directional term baked into the colours, drawn
-    /// unlit.
+    /// The original client's flat directional term baked into the colours,
+    /// drawn unlit.
     Client(Lighting),
 }
 
@@ -42,15 +56,18 @@ pub fn world(v: [i32; 3]) -> [f32; 3] {
     [v[0] as f32, -v[1] as f32, -v[2] as f32]
 }
 
+/// A packed `0xRRGGBB` colour as 0–1 floats.
 fn rgb(c: u32) -> [f32; 3] {
     let [r, g, b] = split(c);
     [r, g, b].map(|v| f32::from(v) / 255.0)
 }
 
-/// The client's flat-face lightness for a face normal (cache coordinates):
-/// `ambient + dot(L, n̂·256) / (1.5 · contrast · |L| / 256)`.
+/// The original client's flat-face lightness for a face normal (cache
+/// coordinates, any length): `ambient + dot(L, n̂·256) / (1.5 · contrast ·
+/// |L| / 256)`, in integer maths like the original. 128 means unchanged.
 pub fn face_lightness(normal: [i32; 3], l: &Lighting) -> i32 {
     let [mut nx, mut ny, mut nz] = normal;
+    // Halve until the squares can't overflow i32, as the original does.
     while nx.abs() > 8192 || ny.abs() > 8192 || nz.abs() > 8192 {
         nx >>= 1;
         ny >>= 1;
@@ -58,15 +75,20 @@ pub fn face_lightness(normal: [i32; 3], l: &Lighting) -> i32 {
     }
     let len = (f64::from(nx * nx + ny * ny + nz * nz)).sqrt() as i32;
     let len = len.max(1);
+    // Normal scaled to length 256.
     let (nx, ny, nz) = (nx * 256 / len, ny * 256 / len, nz * 256 / len);
     let [lx, ly, lz] = l.direction;
     let llen = (f64::from(lx * lx + ly * ly + lz * lz)).sqrt() as i32;
+    // `k + k / 2` below is the 1.5 · contrast · |L| / 256 divisor.
     let k = (l.contrast * llen) >> 8;
     l.ambient + (lx * nx + ly * ny + lz * nz) / (k + k / 2).max(1)
 }
 
-/// A 317 HSL colour with the lightness applied, as `Model.method481`.
+/// A 317 HSL colour with a face lightness applied, the way the original
+/// client lights a flat face: the 7-bit luminance is scaled by
+/// `lightness / 128` and clamped to 2–126. Hue and saturation stay put.
 pub fn lit_hsl(hsl: u16, lightness: i32) -> u16 {
+    // Bits 0–6 are luminance; the upper 9 bits are hue and saturation.
     let lum = ((lightness * i32::from(hsl & 0x7f)) >> 7).clamp(2, 126);
     (hsl & 0xff80) | lum as u16
 }
@@ -83,8 +105,13 @@ fn cross(a: [i32; 3], b: [i32; 3]) -> [i32; 3] {
     ]
 }
 
-/// Build a mesh from a decoded model. Positions are cache units with y
-/// negated (y up); `labels` recolours vertices by label instead.
+/// Builds one mesh from a decoded model, posed at `vertices` (the model's
+/// own, or an animation frame's).
+///
+/// Positions are cache units mapped through [`world`], so y and z are
+/// negated and y is up. Textured faces get a flat stand-in colour; use
+/// [`model_parts`] to draw textures. `labels` colours each vertex by its
+/// label instead of the face colour.
 pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, labels: bool) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
@@ -92,9 +119,10 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
     let mut colors = Vec::with_capacity(n);
     for (i, f) in m.faces.iter().enumerate() {
         let p = f.map(|v| vertices[usize::from(v)]);
-        // The client lights with the cache-space cross product.
+        // The original client lights with the cache-space cross product.
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
         let nrm = flat_normal(p.map(world));
+        // Bit 1 of the face type marks a textured face.
         let textured = m.face_types.as_ref().is_some_and(|t| t[i] & 2 != 0);
         let hsl = m.face_colours[i];
         let base = if textured {
@@ -105,6 +133,7 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
                 Shading::Client(l) => rgb(hsl_to_rgb(lit_hsl(hsl, face_lightness(normal, &l)))),
             }
         };
+        // Cache alpha is transparency (0 = opaque); flip it to opacity.
         let alpha = m
             .face_alphas
             .as_ref()
@@ -127,6 +156,8 @@ pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, label
 
 /// A distinct colour per label, for the labels overlay.
 pub fn label_colour(l: u8) -> [f32; 3] {
+    // Multiplying by 47 scatters neighbouring labels round the hue wheel;
+    // `h` is the hue in sixths.
     let h = f32::from(l.wrapping_mul(47)) / 255.0 * 6.0;
     let x = 1.0 - (h % 2.0 - 1.0).abs();
     match h as u8 {
@@ -139,11 +170,13 @@ pub fn label_colour(l: u8) -> [f32; 3] {
     }
 }
 
-/// Build a mesh from a converted pack model and the pack palette (grey
-/// without one). Pack space is the explorer's world space. With client
-/// shading the face normal is taken back to cache space for the client's
-/// lightness term, applied to the colour's HSL lightness as the client
-/// applies it to its 7-bit luminance.
+/// Builds a mesh from a converted pack model and the pack palette (grey
+/// without one, magenta for an index past its end).
+///
+/// Pack space is the explorer's world space. With [`Shading::Client`] the
+/// face normal is taken back to cache space for the original client's
+/// lightness term, which is applied to the colour's HSL lightness the way
+/// that client applies it to its 7-bit luminance.
 pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading: Shading) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
@@ -153,6 +186,7 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
         // Pack space is the explorer's world space (y and z negated).
         let p = f.map(|v| m.vertices[usize::from(v)].map(f32::from));
         let nrm = flat_normal(p);
+        // A face with a material slot is textured: flat stand-in colour.
         let base = if m.material_slots[i] != 0 {
             [0.55, 0.5, 0.45]
         } else {
@@ -164,6 +198,7 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
         let base = match shading {
             Shading::Raw => base,
             Shading::Client(l) => {
+                // Back to cache space; negating y and z is its own inverse.
                 let c = f.map(|v| {
                     let [x, y, z] = m.vertices[usize::from(v)].map(i32::from);
                     [x, -y, -z]
@@ -172,6 +207,7 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
                 scale_lightness(base, lightness as f32 / 128.0)
             }
         };
+        // Pack alpha is already opacity (255 = opaque).
         let alpha = m.alphas.as_ref().map_or(1.0, |a| f32::from(a[i]) / 255.0);
         for q in p {
             pos.push(q);
@@ -182,11 +218,14 @@ pub fn mesh_from_pack_model(m: &PackModel, palette: Option<&[[u8; 3]]>, shading:
     build(pos, normals, colors)
 }
 
-/// An RGB colour with its HSL lightness multiplied by `k` (clamped).
+/// An RGB colour with its HSL lightness multiplied by `k`, clamped to the
+/// same 2/128–126/128 range the original client's luminance gets.
 fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
+    // RGB → HSL, swap in the new lightness, HSL → RGB.
     let (max, min) = (r.max(g).max(b), r.min(g).min(b));
     let l = (max + min) / 2.0;
     let target = (l * k).clamp(2.0 / 128.0, 126.0 / 128.0);
+    // Grey: no hue to keep.
     if max == min {
         return [target; 3];
     }
@@ -196,6 +235,7 @@ fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
     } else {
         d / (max + min)
     };
+    // Hue in 0–1.
     let h = if max == r {
         (g - b) / d + if g < b { 6.0 } else { 0.0 }
     } else if max == g {
@@ -203,6 +243,7 @@ fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
     } else {
         (r - g) / d + 4.0
     } / 6.0;
+    // The usual HSL → RGB helpers: `q` and `p` bound each channel.
     let q = if target < 0.5 {
         target * (1.0 + s)
     } else {
@@ -224,8 +265,9 @@ fn scale_lightness([r, g, b]: [f32; 3], k: f32) -> [f32; 3] {
     [channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0)]
 }
 
-/// The flat normal of a y-up triangle whose winding came from the y-down
-/// cache: flipping y mirrors the triangle, so the normal is `e2 × e1`.
+/// The unit flat normal of a world-space triangle, taken as `e2 × e1`
+/// (the reverse of the `e1 × e2` the cache-space lighting uses). Straight
+/// up for a degenerate triangle.
 fn flat_normal(p: [[f32; 3]; 3]) -> [f32; 3] {
     let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
     let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
@@ -242,6 +284,7 @@ fn flat_normal(p: [[f32; 3]; 3]) -> [f32; 3] {
     }
 }
 
+/// A triangle list from per-corner positions, normals and colours.
 fn build(pos: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> Mesh {
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -252,7 +295,8 @@ fn build(pos: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> M
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
 }
 
-/// Axis-aligned bounds of a mesh's positions.
+/// Axis-aligned bounds of a mesh's positions, as `(min, max)`. `None` for
+/// an empty mesh.
 pub fn bounds(mesh: &Mesh) -> Option<([f32; 3], [f32; 3])> {
     let bevy::mesh::VertexAttributeValues::Float32x3(p) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)?
@@ -271,34 +315,41 @@ pub fn bounds(mesh: &Mesh) -> Option<([f32; 3], [f32; 3])> {
 
 /// One part of a model: the faces drawn with one texture (or none).
 pub struct Part {
-    /// `None` for untextured faces.
+    /// Texture id, 0–49; `None` for untextured faces.
     pub texture: Option<u16>,
+    /// The part's faces, with UVs.
     pub mesh: Mesh,
 }
 
-/// The client's shade for a textured face as a brightness factor: the
-/// shade picks one of four darker texture copies (1, ⅞, ¾, ⅝) and halves
-/// again past 64.
+/// The original client's shade for a textured face as a brightness
+/// factor: the shade picks one of four darker texture copies (1, ⅞, ¾, ⅝)
+/// and halves again from 64 up.
 pub fn texture_shade(shade: i32) -> f32 {
+    // Bits 4–5 pick the copy.
     let level = [1.0, 0.875, 0.75, 0.625][((shade >> 4) & 3) as usize];
     if shade >= 64 { level * 0.5 } else { level }
 }
 
 /// Texture coordinates for a textured face's corners from its P/M/N
 /// triangle: u along M − P and v along N − P (not clamped; the material
-/// clamps u and repeats v, as the client does).
+/// clamps u and repeats v, as the original client does).
 pub fn texture_uvs(corners: [[i32; 3]; 3], p: [i32; 3], m: [i32; 3], n: [i32; 3]) -> [[f32; 2]; 3] {
+    // Solve `d = u·e1 + v·e2` for each corner offset `d` by least squares
+    // (the 2 × 2 normal equations), which also copes with corners slightly
+    // off the P/M/N plane.
     let f = |v: [i32; 3]| v.map(|c| c as f64);
     let (pp, e1, e2) = (f(p), f(m), f(n));
     let e1 = [e1[0] - pp[0], e1[1] - pp[1], e1[2] - pp[2]];
     let e2 = [e2[0] - pp[0], e2[1] - pp[1], e2[2] - pp[2]];
     let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // The Gram matrix [[a, b], [b, c]] and its determinant.
     let (a, b, c) = (dot(e1, e1), dot(e1, e2), dot(e2, e2));
     let det = a * c - b * b;
     corners.map(|v| {
         let d = f(v);
         let d = [d[0] - pp[0], d[1] - pp[1], d[2] - pp[2]];
         let (d1, d2) = (dot(d, e1), dot(d, e2));
+        // M, N and P in a line: no sensible mapping.
         if det.abs() < 1e-9 {
             [0.0, 0.0]
         } else {
@@ -310,7 +361,13 @@ pub fn texture_uvs(corners: [[i32; 3]; 3], p: [i32; 3], m: [i32; 3], n: [i32; 3]
     })
 }
 
-/// A model split into parts by texture, with UVs on textured parts.
+/// A model posed at `vertices`, split into parts by texture, with UVs on
+/// textured parts. The untextured part (if any) comes first, then
+/// textures by id.
+///
+/// A face counts as textured when its type says so, its P/M/N triangle
+/// exists and its texture id is under 50; otherwise it's drawn in its
+/// colour.
 pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Part> {
     let mut groups: std::collections::BTreeMap<Option<u16>, Buffers> = Default::default();
     for (i, f) in m.faces.iter().enumerate() {
@@ -318,6 +375,8 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
         let nrm = flat_normal(p.map(world));
         let ty = m.face_types.as_ref().map_or(0, |t| t[i]);
+        // Bit 1 marks a textured face; the bits above it index its P/M/N
+        // triangle.
         let triple = m
             .textured_faces
             .get(usize::from(ty >> 2))
@@ -329,13 +388,16 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
         let (key, colour, uv, alpha) = match triple {
             Some(&[tp, tm, tn]) if m.face_colours[i] < 50 => {
                 let at = |v: u16| vertices[usize::from(v)];
+                // A textured face's colour is its texture id.
                 let shade = match shading {
                     Shading::Raw => 1.0,
+                    // Flip lightness into a 0–127 darkness for the copies.
                     Shading::Client(l) => {
                         texture_shade(127 - face_lightness(normal, &l).clamp(0, 127))
                     }
                 };
-                // The client draws textured faces without face alpha.
+                // The original client draws textured faces without face
+                // alpha.
                 (
                     Some(m.face_colours[i]),
                     [shade; 3],

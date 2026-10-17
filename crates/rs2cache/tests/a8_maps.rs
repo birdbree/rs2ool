@@ -1,6 +1,5 @@
-//! Phase A8 check: every region in `map_index` decodes with its tile file
-//! consumed exactly; Lumbridge has locations on plane 0 and bridge tiles on
-//! plane 1; every location type is 0–22.
+//! Every region in `map_index` decodes with its tile file consumed exactly,
+//! every location type is 0–22, and one region's planes are spot-checked.
 
 mod common;
 

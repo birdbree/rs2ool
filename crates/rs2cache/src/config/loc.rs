@@ -5,6 +5,7 @@ use crate::types::config::{LocDef, LocModel};
 use super::{ConfigType, action, morph, opcodes, opt_u16, recolours};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `loc.dat` (world objects).
 pub struct Loc;
 
 impl ConfigType for Loc {
@@ -50,6 +51,8 @@ impl ConfigType for Loc {
             morph: None,
             unknown_opcodes: Vec::new(),
         };
+        // Op 19's value, op 75's value and whether any of ops 30–34 showed
+        // up; all three feed the derivations after the loop.
         let mut interactive: Option<u8> = None;
         let mut support_items: Option<u8> = None;
         let mut has_action_strings = false;
@@ -92,6 +95,7 @@ impl ConfigType for Loc {
                 29 => d.ambient = c.i8()?,
                 39 => d.contrast = c.i8()?,
                 30..=34 => {
+                    // Counts even when the action is "hidden".
                     has_action_strings = true;
                     d.actions[usize::from(op - 30)] = action(c)?;
                 }
@@ -115,10 +119,12 @@ impl ConfigType for Loc {
             }
             Ok(true)
         })?;
-        // The client's post-decode derivations.
+        // The original client's post-decode derivations, in its order:
+        // `support_items` must see `solid` after `hollow` has cleared it.
         d.has_actions = match interactive {
             Some(v) => v == 1,
             None => {
+                // An untyped model (op 5) counts as type 10.
                 let typed_as_10 = d
                     .models
                     .first()

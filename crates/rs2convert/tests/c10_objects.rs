@@ -1,7 +1,6 @@
-//! Phase C10 check: every `loc.dat` definition converts; object 1276 (a
-//! tree) is furniture with its definition's footprint; every definition
-//! with a morph table has more than one state; wall definitions produce
-//! kits entries.
+//! Every `loc.dat` definition converts, footprints carry over, every
+//! definition with a morph table has more than one state, and wall
+//! definitions produce kits entries.
 
 mod common;
 
@@ -74,8 +73,7 @@ fn every_object_converts() {
         &common[..common.len().min(8)],
         kits.manifest.record_count
     );
-    // No 317 door has a morph table (the server swaps door objects), so the
-    // plan's door example is checked as "every morph definition".
+    // Every definition with a morph table gets more than one state.
     assert!(morphs > 0);
     assert!(kits.manifest.record_count > 0);
 }

@@ -1,5 +1,5 @@
-//! Phase C1 check: a pack holding one synthetic model reads back with the
-//! record byte-identical.
+//! A pack holding one synthetic model reads back with the record
+//! byte-identical.
 
 use contentpack::records::model::{AttachPoint, PackModel};
 use contentpack::{Kind, PackReader, PackWriter};

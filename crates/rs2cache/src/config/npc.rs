@@ -1,10 +1,11 @@
-//! `npc.dat`.
+//! `npc.dat`: non-player characters.
 
 use crate::types::config::NpcDef;
 
 use super::{ConfigType, action, morph, opcodes, recolours};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `npc.dat` (npcs).
 pub struct Npc;
 
 impl ConfigType for Npc {
@@ -64,6 +65,7 @@ impl ConfigType for Npc {
                     let n = c.u8()?;
                     d.chat_head_models = (0..n).map(|_| c.u16()).collect::<Result<_, _>>()?;
                 }
+                // Read and thrown away.
                 90..=92 => c.skip(2)?,
                 93 => d.draw_minimap_dot = false,
                 95 => d.combat_level = Some(c.u16()?),
@@ -71,6 +73,7 @@ impl ConfigType for Npc {
                 98 => d.scale_y = c.u16()?,
                 99 => d.visible = true,
                 100 => d.ambient = c.i8()?,
+                // Multiplied by 5, as the original client does.
                 101 => d.contrast = i16::from(c.i8()?) * 5,
                 102 => d.head_icon = Some(c.u16()?),
                 103 => d.turn_speed = c.u16()?,

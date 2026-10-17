@@ -1,6 +1,6 @@
 [package]
 name = "contentpack"
-description = "Content-pack container and record encoders for the low-poly client"
+description = "Content-pack container, record encoders and palette tools"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

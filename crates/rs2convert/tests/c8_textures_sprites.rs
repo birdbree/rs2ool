@@ -1,6 +1,5 @@
-//! Phase C8 check: the texture atlas round-trips every texture pixel-exact,
-//! every sprite round-trips through its pack record, and the compass is a
-//! single opaque 51×51 sprite.
+//! The texture atlas round-trips every texture pixel-exact, and every
+//! sprite round-trips through its pack record.
 
 mod common;
 

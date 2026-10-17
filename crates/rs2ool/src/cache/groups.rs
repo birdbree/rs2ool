@@ -1,4 +1,12 @@
-//! Dependency-closure groups for `dump --group`.
+//! Dependency groups for `dump --group`: a record plus everything it pulls
+//! in.
+//!
+//! - `npc:<id>`: the NPC, its body and chat-head models, its stand and
+//!   walk sequences, and the frame packs those sequences use.
+//! - `item:<id>`: the item, its inventory model and every equip and
+//!   chat-head model.
+//! - `player-kit`: every identity-kit part and its models, plus
+//!   [`PLAYER_SEQUENCES`] and their frame packs.
 
 use std::collections::BTreeSet;
 
@@ -8,19 +16,27 @@ use rs2cache::types::record::{Record, RecordType};
 
 use crate::cache::select::usage;
 
-/// The player's stance sequences. They are not in the cache (the server
-/// sends them in each player's appearance block); these are the standard
-/// 317 values: stand, turn, walk, turn 180°, turn 90° each way, run.
+/// The player's stance sequences: stand, turn, walk, turn 180°, turn 90°
+/// each way, run.
+///
+/// They aren't in the cache; the server sends them in each player's
+/// appearance block. These are the standard 317 values.
 pub const PLAYER_SEQUENCES: [u32; 7] = [808, 823, 819, 820, 821, 822, 824];
 
-/// Resolve a group name to the records it covers, each once, sorted.
+/// Resolves a group name to the records it covers, each once, sorted by
+/// type and then id.
+///
+/// An unknown group or a missing id is a usage error. A sequence that
+/// won't decode is quietly left out, frames and all.
 pub fn resolve(records: &Records, name: &str) -> anyhow::Result<Vec<(RecordType, u32)>> {
     let mut out = BTreeSet::new();
     let (kind, arg) = name.split_once(':').unwrap_or((name, ""));
+    // Parses the `<id>` after the colon, for the groups that need one.
     let id = || -> anyhow::Result<u32> {
         arg.parse()
             .map_err(|_| usage(format!("group {kind} needs an id, e.g. {kind}:1")))
     };
+    // Sequences to chase down to their frame packs once the match is done.
     let mut seqs = Vec::new();
     match kind {
         "npc" => {
@@ -113,10 +129,12 @@ pub fn resolve(records: &Records, name: &str) -> anyhow::Result<Vec<(RecordType,
     Ok(out.into_iter().collect())
 }
 
-/// The frame packs a sequence's frames live in.
+/// The frame packs (index 2 file ids) a sequence's frames live in,
+/// secondary frames included. Frames no pack defines are skipped.
 pub fn packs(seq: &SeqDef, index: &rs2cache::anim::FrameIndex) -> BTreeSet<u32> {
     seq.frames
         .iter()
+        // Each step's primary frame id, then its secondary one if it has one.
         .flat_map(|f| std::iter::once(f.frame).chain(f.secondary))
         .filter_map(|f| index.pack_for(f))
         .collect()

@@ -1,10 +1,22 @@
 //! Raw file access: the five index files and the sector chains in
 //! `main_file_cache.dat`.
 //!
-//! An index record is 6 bytes, `size u24, firstSector u24`. The data file is
-//! a run of 520-byte sectors, each an 8-byte header
-//! `{fileId u16, chunk u16, nextSector u24, indexType u8}` followed by up to
-//! 512 bytes of payload. `indexType` is the index number plus one.
+//! ```text
+//! main_file_cache.idxN   6 bytes per file id
+//!   size          u24   stored size in bytes
+//!   firstSector   u24   0 = absent
+//!
+//! main_file_cache.dat    520-byte sectors
+//!   fileId        u16   must match the file being read
+//!   chunk         u16   0, 1, 2, … along the chain
+//!   nextSector    u24   0 = end of chain
+//!   indexType     u8    index number + 1
+//!   payload       up to 512 bytes
+//! ```
+//!
+//! Reading a file follows its chain from `firstSector`, checking every
+//! header, until `size` bytes are in hand. Index 0 holds the jag archives
+//! ([`crate::archive`]); indices 1–4 hold models, frame packs, MIDI and maps.
 
 use std::fmt;
 use std::fs;
@@ -16,8 +28,11 @@ use thiserror::Error;
 /// Number of index files in a 317 cache.
 pub const INDEX_COUNT: u8 = 5;
 
+/// Bytes per sector in the data file, header included.
 pub const SECTOR_SIZE: usize = 520;
+/// Bytes of sector header.
 pub const SECTOR_HEADER: usize = 8;
+/// Payload bytes per sector (512).
 pub const SECTOR_PAYLOAD: usize = SECTOR_SIZE - SECTOR_HEADER;
 const INDEX_RECORD: usize = 6;
 
@@ -28,17 +43,24 @@ pub enum SectorFault {
     OutOfRange,
     /// The sector's header or payload runs past the end of the data file.
     Short,
+    /// The header names a different file.
     FileIdMismatch {
+        /// The file id in the header.
         found: u16,
     },
+    /// The header's chunk number isn't the next one in the chain.
     ChunkMismatch {
+        /// The chunk number in the header.
         found: u16,
     },
+    /// The header names a different index.
     TypeMismatch {
+        /// The `indexType` byte (index + 1) in the header.
         found: u8,
     },
     /// `nextSector` is 0 but the index record says more bytes remain.
     ChainEnded {
+        /// Bytes still to read.
         remaining: u32,
     },
 }
@@ -58,25 +80,51 @@ impl fmt::Display for SectorFault {
     }
 }
 
+/// An error opening the cache or reading a raw file from it.
 #[derive(Debug, Error)]
 pub enum CacheError {
+    /// A cache file couldn't be opened, mapped or read.
     #[error("cannot read {path}: {source}")]
     Io {
+        /// The file in question.
         path: PathBuf,
+        /// The underlying error.
         source: std::io::Error,
     },
+    /// The index number is out of range.
     #[error("index {0} does not exist; a 317 cache has indices 0 to 4")]
     NoSuchIndex(u8),
+    /// The file id is past the end of its index.
     #[error("index {index} has {count} files; there is no file {id}")]
-    NoSuchFile { index: u8, id: u32, count: usize },
+    NoSuchFile {
+        /// Index number.
+        index: u8,
+        /// Requested file id.
+        id: u32,
+        /// How many file ids the index has.
+        count: usize,
+    },
+    /// The file's index record has no first sector, so there's nothing
+    /// there. Usually you'll want to skip these rather than fail.
     #[error("file {index}/{id} is absent (its index record has no first sector)")]
-    Absent { index: u8, id: u32 },
+    Absent {
+        /// Index number.
+        index: u8,
+        /// File id.
+        id: u32,
+    },
+    /// A sector along the file's chain is broken.
     #[error("file {index}/{id}: chunk {chunk} at sector {sector}: {fault}")]
     BadSector {
+        /// Index number.
         index: u8,
+        /// File id.
         id: u32,
+        /// The chunk number expected at this point in the chain.
         chunk: u16,
+        /// The sector being read.
         sector: u32,
+        /// What was wrong with it.
         fault: SectorFault,
     },
 }
@@ -84,11 +132,14 @@ pub enum CacheError {
 /// One 6-byte index record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IndexEntry {
+    /// Stored size in bytes (24-bit).
     pub size: u32,
+    /// First sector of the chain (24-bit); 0 means the file is absent.
     pub sector: u32,
 }
 
 impl IndexEntry {
+    // Two big-endian u24s, padded to u32 with a leading zero byte.
     fn parse(b: &[u8]) -> Self {
         Self {
             size: u32::from_be_bytes([0, b[0], b[1], b[2]]),
@@ -96,7 +147,8 @@ impl IndexEntry {
         }
     }
 
-    /// The client treats a record with no first sector as missing.
+    /// Whether there's no file here. The original client treats a record
+    /// with no first sector as missing.
     pub fn is_absent(&self) -> bool {
         self.sector == 0
     }
@@ -105,10 +157,13 @@ impl IndexEntry {
 /// One sector visited while reading a file, for metadata sidecars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SectorVisit {
+    /// Sector number in the data file.
     pub sector: u32,
+    /// Its chunk number along the chain, starting at 0.
     pub chunk: u16,
 }
 
+// The data file's bytes: memory-mapped for a real cache, owned for tests.
 enum Backing {
     Mapped(Mmap),
     Owned(Vec<u8>),
@@ -166,7 +221,8 @@ impl Cache {
         Ok(Self::build(Backing::Mapped(dat), &idx))
     }
 
-    /// Build a cache from in-memory bytes. Used by tests with synthetic data.
+    /// Build a cache from in-memory bytes: the data file and one buffer per
+    /// index file. Handy for tests with synthetic data.
     pub fn from_bytes(dat: Vec<u8>, indices: &[Vec<u8>]) -> Self {
         Self::build(Backing::Owned(dat), indices)
     }
@@ -175,6 +231,7 @@ impl Cache {
         let indices = indices
             .iter()
             .map(|raw| {
+                // A trailing partial record is ignored.
                 raw.chunks_exact(INDEX_RECORD)
                     .map(IndexEntry::parse)
                     .collect()
@@ -193,6 +250,7 @@ impl Cache {
         Ok(self.entries(index)?.len())
     }
 
+    /// Every index record of `index`, by file id, absent ones included.
     pub fn entries(&self, index: u8) -> Result<&[IndexEntry], CacheError> {
         self.indices
             .get(usize::from(index))
@@ -200,6 +258,7 @@ impl Cache {
             .ok_or(CacheError::NoSuchIndex(index))
     }
 
+    /// The index record of file `id` in `index`.
     pub fn entry(&self, index: u8, id: u32) -> Result<IndexEntry, CacheError> {
         let entries = self.entries(index)?;
         usize::try_from(id)
@@ -219,7 +278,8 @@ impl Cache {
     }
 
     /// Read a file's stored bytes (still compressed) by following its sector
-    /// chain, validating every sector header.
+    /// chain, checking every sector header on the way. An absent file is
+    /// [`CacheError::Absent`].
     pub fn read_raw(&self, index: u8, id: u32) -> Result<Vec<u8>, CacheError> {
         self.read_chain(index, id, |_| ())
     }
@@ -266,6 +326,7 @@ impl Cache {
             if start >= dat.len() {
                 return Err(bad(chunk, sector, SectorFault::OutOfRange));
             }
+            // The last sector may be only partly used; read just what's left.
             let take = (size - out.len()).min(SECTOR_PAYLOAD);
             let Some(block) = dat.get(start..start + SECTOR_HEADER + take) else {
                 return Err(bad(chunk, sector, SectorFault::Short));
@@ -275,8 +336,8 @@ impl Cache {
             let found_chunk = u16::from_be_bytes([h[2], h[3]]);
             let next = u32::from_be_bytes([0, h[4], h[5], h[6]]);
             let kind = h[7];
-            // The header stores the id as 16 bits; compare the same way the
-            // client does, against the requested id.
+            // The header stores the id as 16 bits; compare it with the
+            // requested id the same way the original client does.
             if u32::from(file_id) != id {
                 return Err(bad(
                     chunk,
@@ -301,6 +362,8 @@ impl Cache {
             visit(SectorVisit { sector, chunk });
             out.extend_from_slice(&block[SECTOR_HEADER..]);
             sector = next;
+            // Wrapping only matters for a chain over 32 MB, which a broken
+            // cache could fake; it keeps that a sector error, not a panic.
             chunk = chunk.wrapping_add(1);
         }
         Ok(out)

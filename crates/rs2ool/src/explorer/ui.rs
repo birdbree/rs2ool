@@ -1,6 +1,9 @@
-//! The egui layout: menu bar, source tree (left), inspector (right), jobs
-//! and playback (bottom); the remaining central rect is published as
-//! [`ViewportRect`] for the cameras.
+//! The egui layout: menu bar, source tree (left), inspector (right), and
+//! object states, playback and jobs (bottom).
+//!
+//! Whatever's left in the middle is published as [`ViewportRect`] for the
+//! cameras and painters. This module also keeps the Back history and the
+//! "reveal this record in the tree" request that inspector links make.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -26,19 +29,29 @@ pub struct Layout;
 /// The central area left for the viewports, in physical pixels.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub struct ViewportRect {
+    /// Top-left corner, from the window's top-left.
     pub position: UVec2,
+    /// Width and height, at least 1 × 1.
     pub size: UVec2,
 }
 
+/// Height of one row in the tree lists and the hex view, in logical
+/// pixels; virtual scrolling depends on it being fixed.
 const ROW_HEIGHT: f32 = 18.0;
 
 /// Selection history and a pending "reveal this record in the tree".
 #[derive(Resource, Default)]
 pub struct Nav {
+    /// Earlier selections, newest last; **◀ Back** pops one.
     pub back: Vec<Selected>,
+    /// A cache record to open and scroll to in the tree next frame, as
+    /// `(source, type, id)`.
     pub reveal: Option<(usize, RecordType, u32)>,
 }
 
+/// One list in the tree: the search box, the "N of M" count, and the
+/// rows. Clicking a row writes `selected`. If `reveal` points into this
+/// list, it clears the search, scrolls to the row and uses the request up.
 fn list_ui(
     ui: &mut egui::Ui,
     key: ListKey,
@@ -49,6 +62,7 @@ fn list_ui(
     reveal: &mut Option<(usize, RecordType, u32)>,
 ) {
     lists.request(key, source);
+    // The id to scroll to, if the reveal request is for this list.
     let target = match (key, *reveal) {
         (ListKey::Type(ksi, kt), Some((rsi, rt, id))) if ksi == rsi && kt == rt => Some(id),
         _ => None,
@@ -79,16 +93,19 @@ fn list_ui(
                 .auto_shrink([false, true]);
             if let Some(id) = target {
                 if let Some(i) = shown.iter().position(|r| r.id == id) {
+                    // Land the row a little below the top, not flush with it.
                     area = area.vertical_scroll_offset((i as f32 * ROW_HEIGHT - 100.0).max(0.0));
                 }
                 *reveal = None;
             }
+            // Only the visible rows get laid out, so long lists stay cheap.
             area.show_rows(ui, ROW_HEIGHT, shown.len(), |ui, range| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 for r in &shown[range] {
                     let sel = match key {
                         ListKey::Type(_, t) => Sel::Record(t, r.id),
                         ListKey::Pack(_) => Sel::PackRecord(r.id),
+                        // A dump row's name is its relative path.
                         ListKey::Dump(_) => Sel::DumpFile(r.name.clone().into()),
                     };
                     let is = selected.source == Some(si) && selected.sel.as_ref() == Some(&sel);
@@ -104,6 +121,7 @@ fn list_ui(
     }
 }
 
+/// The whole source tree, one collapsible node per source.
 fn tree_ui(
     ui: &mut egui::Ui,
     sources: &Sources,
@@ -138,6 +156,7 @@ fn tree_ui(
                         *selected = kit;
                     }
                     for &t in RecordType::ALL {
+                        // Force the type's node open when a reveal targets it.
                         let open = matches!(*reveal, Some((rsi, rt, _)) if rsi == si && rt == t);
                         egui::CollapsingHeader::new(t.name())
                             .id_salt((si, t.name()))
@@ -160,6 +179,7 @@ fn tree_ui(
 /// Key/value rows: keys in a fixed-width column, values wrapping within the
 /// panel. (`egui::Grid` gives columns unbounded width, so values in it
 /// never wrap.)
+///
 /// Values that refer to other records (per [`inspector::link_type`]) show
 /// each id as a link; the clicked one is returned.
 fn grid(
@@ -254,6 +274,8 @@ fn compare_ui(
     }
 }
 
+/// The inspector: Back, then the metadata, fields and bytes sections.
+/// Sets `back` when Back is clicked, and returns a clicked link.
 fn inspector_ui(
     ui: &mut egui::Ui,
     loaded: &Loaded,
@@ -301,6 +323,7 @@ fn inspector_ui(
             }
             if let Some(bytes) = inspector::raw_bytes(data) {
                 egui::CollapsingHeader::new(format!("bytes ({})", bytes.len())).show(ui, |ui| {
+                    // 16 bytes a line, the last one maybe short.
                     let lines = bytes.len().div_ceil(16);
                     egui::ScrollArea::vertical()
                         .id_salt("hex")
@@ -342,12 +365,15 @@ struct UiState<'w> {
     settings: Res<'w, Settings>,
 }
 
+/// Draws every panel, applies what was clicked, and publishes what's left
+/// for the viewport.
 fn layout(
     mut contexts: EguiContexts,
     mut st: UiState,
     window: Single<&Window, With<PrimaryWindow>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    // A full-window background `Ui` the panels carve space out of.
     let mut root = egui::Ui::new(
         ctx.clone(),
         "root".into(),
@@ -355,6 +381,8 @@ fn layout(
             .layer_id(egui::LayerId::background())
             .max_rect(ctx.viewport_rect()),
     );
+    // Each panel hands back its thickness (logical pixels) for the
+    // viewport maths at the end.
     let top = egui::Panel::top("menu")
         .show(&mut root, |ui| {
             ui.horizontal(|ui| {
@@ -408,6 +436,8 @@ fn layout(
         .response
         .rect
         .height();
+    // Work on copies so a click only counts as a change (and goes in the
+    // Back history) when it really differs.
     let mut sel = st.selected.clone();
     let mut reveal = st.nav.reveal.take();
     let left = egui::Panel::left("tree")
@@ -442,6 +472,7 @@ fn layout(
         .default_size(340.0)
         .size_range(200.0..=480.0)
         .show(&mut root, |ui| {
+            // Same trick: only write `Compare` back when the box was toggled.
             let mut c = *st.compare;
             compare_ui(ui, &mut c, &st.compare_sel, &st.sources, &st.compare_loaded);
             kit_ui(ui, &mut st.kit);
@@ -455,6 +486,8 @@ fn layout(
         .response
         .rect
         .width();
+    // Back wins over a link click in the same frame. Either way the
+    // record is revealed in the tree.
     if back && let Some(prev) = st.nav.back.pop() {
         if let (Some(si), Some(Sel::Record(t, id))) = (prev.source, &prev.sel) {
             st.nav.reveal = Some((si, *t, *id));
@@ -518,6 +551,7 @@ fn layout(
     for (kind, path) in open {
         st.sources.open_path(kind, path);
     }
+    // Panels are measured in logical pixels; the cameras want physical ones.
     let scale = window.scale_factor();
     let pos = UVec2::new((left * scale) as u32, (top * scale) as u32);
     let full = UVec2::new(window.physical_width(), window.physical_height());
@@ -528,12 +562,15 @@ fn layout(
         position: pos,
         size: size.max(UVec2::ONE),
     };
+    // Only write on a real change so `ViewportRect` change detection means
+    // something.
     if *st.rect != new {
         *st.rect = new;
     }
     Ok(())
 }
 
+/// Adds the layout system and its resources.
 pub fn plugin(app: &mut App) {
     app.init_resource::<ViewportRect>()
         .init_resource::<Nav>()

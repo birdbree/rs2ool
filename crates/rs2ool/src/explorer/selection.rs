@@ -1,5 +1,10 @@
-//! What is selected, and its decoded form. Selecting spawns a decode on the
-//! compute pool; the result lands in [`Loaded`].
+//! What's selected, and its decoded form.
+//!
+//! There are two selection slots: [`Selected`], the main one, and
+//! [`CompareSelected`], compare mode's right pane. Changing either spawns a
+//! decode on the compute pool, and the result lands in the matching
+//! [`Loaded`] a few frames later. Everything that draws or inspects reads
+//! `Loaded`, never the source directly.
 
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -15,7 +20,7 @@ use crate::explorer::sources::{Source, Sources, detach};
 /// One selectable thing within a source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Sel {
-    /// A record of a cache (or a decoded record in a dump directory).
+    /// A record of a cache, by type and id.
     Record(RecordType, u32),
     /// A record of a pack, by id.
     PackRecord(u32),
@@ -25,13 +30,19 @@ pub enum Sel {
     PlayerKit,
 }
 
-/// The systems that decode selections; the kit's runs after them.
+/// The systems that start and finish selection decodes. The kit's
+/// systems run after them.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LoadSet;
 
+/// The main selection: a source and something in it.
+///
+/// Set both fields together; a load starts only once both are `Some`.
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
 pub struct Selected {
+    /// Index into [`Sources::list`].
     pub source: Option<usize>,
+    /// What's selected in that source.
     pub sel: Option<Sel>,
 }
 
@@ -41,6 +52,7 @@ pub struct CompareSelected(pub Selected);
 
 /// A selection resource that a [`Loaded`] follows.
 pub trait Slot: Resource {
+    /// The selection this slot holds.
     fn selection(&self) -> &Selected;
 }
 
@@ -56,44 +68,67 @@ impl Slot for CompareSelected {
     }
 }
 
-/// A decoded selection.
+/// A decoded selection, what the inspector shows.
 pub enum LoadedData {
+    /// A cache record.
     Record {
+        /// The decoded record.
         record: Box<Record>,
+        /// Its metadata sidecar, as `rs2ool cache info` prints it.
         meta: Box<Meta>,
     },
+    /// A pack record.
     Pack {
+        /// The pack's kind.
         kind: contentpack::Kind,
+        /// The record id.
         id: u32,
+        /// The record's bytes as stored.
         bytes: Vec<u8>,
+        /// A readable summary, from [`describe_pack_record`].
         decoded: String,
     },
+    /// A file in a dump directory.
     Dump {
+        /// Relative to the dump directory.
         path: PathBuf,
+        /// The parsed contents, for a `.json` file that parses.
         json: Option<serde_json::Value>,
+        /// The file's bytes.
         bytes: Vec<u8>,
     },
     /// Something with no record of its own, described by rows.
-    Note { rows: Vec<(String, String)> },
+    Note {
+        /// `(key, value)` rows for the inspector.
+        rows: Vec<(String, String)>,
+    },
 }
 
+/// A decode in flight: what the inspector shows, what the viewport draws,
+/// and the object states, or the error text.
 type LoadTask = Task<Result<(LoadedData, Option<Renderable>, Option<States>), String>>;
 
 /// The decoded form of the selection in slot `S` (the main selection by
 /// default; [`CompareSelected`] for compare mode's right pane).
 #[derive(Resource)]
 pub struct Loaded<S = Selected> {
-    /// The selection the current data belongs to.
+    /// The selection the current data belongs to, as `(source, sel)`.
     pub for_sel: Option<(usize, Sel)>,
+    /// What the inspector shows; `None` before the first load or after an
+    /// error.
     pub data: Option<Arc<LoadedData>>,
     /// What the viewports draw for it, if anything.
     pub renderable: Option<Arc<Renderable>>,
     /// An object's states, when it has more than its default; `state` is
     /// the one shown (its renderable is `renderable`).
     pub states: Option<Arc<States>>,
+    /// Index of the state shown, into `states`; 0 when there are none.
     pub state: usize,
+    /// Why the last load failed, if it did.
     pub error: Option<String>,
+    // The decode in flight and the selection it's for.
     pending: Option<((usize, Sel), LoadTask)>,
+    // Ties the resource to its slot type without storing one.
     slot: PhantomData<fn() -> S>,
 }
 
@@ -113,12 +148,18 @@ impl<S> Default for Loaded<S> {
 }
 
 impl<S> Loaded<S> {
+    /// Whether a decode is still running. The old data stays put until it
+    /// finishes.
     pub fn is_loading(&self) -> bool {
         self.pending.is_some()
     }
 }
 
-/// Decode a pack record for display, by kind.
+/// Decodes a pack record into a readable summary, by kind.
+///
+/// Small records come out as `{:#?}`; big ones (palettes, atlases, clips)
+/// as a one-line summary. A record that won't decode says so instead of
+/// failing.
 pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> String {
     use contentpack::Kind;
     use contentpack::records::*;
@@ -128,6 +169,7 @@ pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> S
             material::decode_palette(bytes).map(|p| format!("palette, {} entries", p.len()))
         }
         Kind::Materials => material::Material::decode(bytes).map(|m| format!("{m:#?}")),
+        // Atlas ids have the ATLAS_BASE bit set; the rest are texture rects.
         Kind::Textures if id & texture::ATLAS_BASE != 0 => {
             texture::Atlas::decode(bytes).map(|a| format!("atlas {}x{}", a.width, a.height))
         }
@@ -142,6 +184,7 @@ pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> S
                 c.keys.len()
             )
         }),
+        // A sprites pack also holds font metrics; try a sprite first.
         Kind::Sprites => sprite::SpriteRecord::decode(bytes)
             .map(|s| {
                 format!(
@@ -159,7 +202,9 @@ pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> S
     r.unwrap_or_else(|e| format!("cannot decode: {e}"))
 }
 
-/// Decode a selection for the inspector and resolve what it draws.
+/// Decodes a selection for the inspector and works out what it draws.
+///
+/// Blocking; the explorer calls it from a task.
 pub fn load(source: &Source, sel: &Sel) -> Result<(LoadedData, Option<Renderable>), String> {
     let data = decode(source, sel)?;
     let record = match &data {
@@ -170,6 +215,7 @@ pub fn load(source: &Source, sel: &Sel) -> Result<(LoadedData, Option<Renderable
     Ok((data, renderable))
 }
 
+/// The inspector half of [`load`].
 fn decode(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
     match (source, sel) {
         (Source::Cache { records, .. }, Sel::Record(t, id)) => {
@@ -223,6 +269,9 @@ fn decode(source: &Source, sel: &Sel) -> Result<LoadedData, String> {
     }
 }
 
+/// Starts a decode when slot `S` changes, unless that selection is already
+/// loaded. A newer selection replaces a pending one, whose result is
+/// dropped.
 fn start<S: Slot>(selected: Res<S>, sources: Res<Sources>, mut loaded: ResMut<Loaded<S>>) {
     if !selected.is_changed() {
         return;
@@ -251,6 +300,7 @@ fn start<S: Slot>(selected: Res<S>, sources: Res<Sources>, mut loaded: ResMut<Lo
     loaded.pending = Some((key, task));
 }
 
+/// Moves a finished decode into `Loaded<S>`.
 fn poll<S: Slot>(mut loaded: ResMut<Loaded<S>>) {
     // Poll without marking `Loaded` changed: systems that react to a new
     // selection must only see a change when the result lands.
@@ -288,6 +338,7 @@ fn poll<S: Slot>(mut loaded: ResMut<Loaded<S>>) {
     }
 }
 
+/// Adds both selection slots and their loaders.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Selected>()
         .init_resource::<Loaded>()

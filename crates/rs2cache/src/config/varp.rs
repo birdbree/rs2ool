@@ -5,6 +5,7 @@ use crate::types::config::VarpDef;
 use super::{ConfigType, opcodes};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `varp.dat` (varps).
 pub struct Varp;
 
 impl ConfigType for Varp {
@@ -38,6 +39,7 @@ impl ConfigType for Varp {
                 5 => d.client_code = Some(c.u16()?),
                 6 => d.op6 = true,
                 7 => d.op7 = Some(c.i32()?),
+                // Two opcodes, one flag.
                 8 | 11 => d.flagged = true,
                 10 => d.op10 = Some(c.string()?),
                 12 => d.op12 = Some(c.i32()?),

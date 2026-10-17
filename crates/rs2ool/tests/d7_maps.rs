@@ -1,5 +1,5 @@
-//! Phase D7 check: Lumbridge (50_50) builds terrain for planes 0–2 and
-//! models for its locations, including the castle's upper floors.
+//! A region builds terrain for planes 0–2 and models for its locations,
+//! including those on upper planes.
 
 #![cfg(feature = "explorer")]
 

@@ -5,6 +5,7 @@ use crate::types::config::{ObjDef, StackVariant};
 use super::{ConfigType, action, opcodes, recolours};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `obj.dat` (items).
 pub struct Obj;
 
 impl ConfigType for Obj {
@@ -64,6 +65,7 @@ impl ConfigType for Obj {
                 6 => d.icon_yaw = c.u16()?,
                 7 => d.icon_offset_x = c.i16()?,
                 8 => d.icon_offset_y = c.i16()?,
+                // Read and thrown away.
                 10 => c.skip(2)?,
                 11 => d.stackable = true,
                 12 => d.value = c.i32()?,
@@ -97,6 +99,8 @@ impl ConfigType for Obj {
                         item: c.u16()?,
                         count: c.u16()?,
                     };
+                    // A repeated slot replaces the earlier one; keep the list
+                    // sorted by slot whatever order the opcodes come in.
                     d.stack_variants.retain(|s| s.slot != slot);
                     d.stack_variants.push(v);
                     d.stack_variants.sort_by_key(|s| s.slot);
@@ -105,6 +109,7 @@ impl ConfigType for Obj {
                 111 => d.scale_y = c.u16()?,
                 112 => d.scale_z = c.u16()?,
                 113 => d.ambient = c.i8()?,
+                // Multiplied by 5, as the original client does.
                 114 => d.contrast = i16::from(c.i8()?) * 5,
                 115 => d.team = c.u8()?,
                 _ => return Ok(false),

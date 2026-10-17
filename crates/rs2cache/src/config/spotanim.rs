@@ -5,6 +5,7 @@ use crate::types::config::SpotAnimDef;
 use super::{ConfigType, opcodes, paired_recolours};
 use crate::io::{Cursor, IoError};
 
+/// [`ConfigType`] for `spotanim.dat` (graphic effects).
 pub struct SpotAnim;
 
 impl ConfigType for SpotAnim {
@@ -26,6 +27,7 @@ impl ConfigType for SpotAnim {
             recolours: Vec::new(),
             unknown_opcodes: Vec::new(),
         };
+        // Six recolour slots each, paired up once the stream ends.
         let (mut from, mut to) = ([0u16; 6], [0u16; 6]);
         d.unknown_opcodes = opcodes(SpotAnim::KIND, id, c, |op, c| {
             match op {
@@ -38,6 +40,8 @@ impl ConfigType for SpotAnim {
                 8 => d.contrast = c.u8()?,
                 40..=45 => from[usize::from(op - 40)] = c.u16()?,
                 50..=55 => to[usize::from(op - 50)] = c.u16()?,
+                // Inside the original client's opcode ranges but past its
+                // six slots: read the u16 to stay aligned, then report it.
                 46..=49 | 56..=59 => {
                     c.skip(2)?;
                     return Ok(false);

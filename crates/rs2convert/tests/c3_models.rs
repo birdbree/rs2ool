@@ -1,6 +1,6 @@
-//! Phase C3 check: every model converts with matching counts, the pack of
-//! all of them reads back with one record per model, and the Man model is
-//! right side up (y up) after conversion.
+//! Every model converts with matching counts, a pack of all of them reads
+//! back with one record per model, and a converted model comes out right
+//! side up (y up).
 
 mod common;
 

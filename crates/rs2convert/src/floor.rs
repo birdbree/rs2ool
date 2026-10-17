@@ -16,6 +16,12 @@ use crate::{ConvertError, material_id};
 pub const STRINGS_DOMAIN: u32 = 1;
 
 /// The floors' materials pack and strings pack (locale 0).
+///
+/// Floor `f` becomes material `FLOOR_BASE + f` ([`material_id::FLOOR_BASE`]):
+/// texture mode when it has a texture, otherwise palette mode with the
+/// nearest palette entry to its RGB (black when it has none). The
+/// materials manifest gets a `floors` map of
+/// `flo id → { material, name }`, where `name` indexes the string table.
 pub fn packs(
     records: &Records,
     palette: &Palette,

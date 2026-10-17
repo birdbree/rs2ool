@@ -1,6 +1,15 @@
 //! Map regions as terrain: one mesh per plane from corner heights, tiles
 //! coloured from their `flo.dat` underlay and overlay, and locations placed
-//! as their models. A viewer only; neighbouring regions are not stitched.
+//! as their models. A viewer only; neighbouring regions aren't stitched.
+//!
+//! The first half is plain geometry (testable without Bevy). The second
+//! builds a region off the UI thread, spawns it, keeps the camera inside
+//! it and draws the N/W/E/S overlay. The last part is the world map: plane
+//! 0 of every region as one image.
+//!
+//! Tile `(x, y)` of a region sits at world `(x · 128, −height, −y · 128)`:
+//! the cache's y-down, z-along-tile-y space with y and z negated, so y is
+//! up and north (tile +y) is −z. Heights are indexed `x * 64 + y`.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Mesh, PrimitiveTopology};
@@ -11,10 +20,13 @@ use rs2cache::types::map::{Location, Plane, REGION_SIZE, Region};
 /// World units per tile.
 pub const TILE: f32 = 128.0;
 
+/// A floor id's colour as RGBA floats. `None` for 0 (no floor), an id past
+/// the table, or a floor with no colour of its own.
 fn flo_colour(flos: &[FloDef], id: u8) -> Option<[f32; 4]> {
     if id == 0 {
         return None;
     }
+    // Map floor ids are 1-based; 0 means none.
     let f = flos.get(usize::from(id) - 1)?;
     let c = f.rgb?;
     let [r, g, b] = split(c);
@@ -26,8 +38,11 @@ fn flo_colour(flos: &[FloDef], id: u8) -> Option<[f32; 4]> {
     ])
 }
 
-/// World position of a tile corner (y up; north is −z).
+/// World position of a tile corner (y up; north is −z). `x` and `y` run
+/// 0–64; the far edge has no heights of its own, so it reuses the last
+/// row and column.
 pub fn corner(plane: &Plane, x: usize, y: usize) -> [f32; 3] {
+    // Clamp to the region's own heights rather than reading a neighbour's.
     let (cx, cy) = (x.min(REGION_SIZE - 1), y.min(REGION_SIZE - 1));
     let h = plane.heights[cx * REGION_SIZE + cy];
     [x as f32 * TILE, -h as f32, -(y as f32) * TILE]
@@ -35,6 +50,11 @@ pub fn corner(plane: &Plane, x: usize, y: usize) -> [f32; 3] {
 
 /// The terrain mesh of one plane, or `None` when the plane has no floor
 /// tiles. Plane 0 draws every tile; upper planes only tiles with a floor.
+///
+/// Each tile is two triangles split corner to corner. An overlay with
+/// shape 0 covers both; a shaped one only paints the first, with the
+/// underlay in the other. That's a stand-in for the original client's
+/// real tile shapes.
 pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh> {
     let p = region.planes.get(plane)?;
     let (mut pos, mut col) = (Vec::new(), Vec::new());
@@ -46,6 +66,7 @@ pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh
             if plane > 0 && under.is_none() && over.is_none() {
                 continue;
             }
+            // Underlay first; a tile with neither gets a dull green.
             let base = under.or(over).unwrap_or([0.25, 0.3, 0.2, 1.0]);
             // Full overlays cover the tile; shaped ones cover one triangle.
             let (first, second) = match (over, p.shapes[i]) {
@@ -53,6 +74,7 @@ pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh
                 (Some(o), _) => (o, base),
                 (None, _) => (base, base),
             };
+            // The tile's corners, going round from (x, y).
             let (a, b, c, d) = (
                 corner(p, x, y),
                 corner(p, x + 1, y),
@@ -70,6 +92,7 @@ pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh
     if pos.is_empty() {
         return None;
     }
+    // One flat normal per triangle (e1 × e2), copied to its three corners.
     let normals = pos
         .chunks(3)
         .flat_map(|t| {
@@ -97,8 +120,14 @@ pub fn plane_mesh(region: &Region, plane: usize, flos: &[FloDef]) -> Option<Mesh
 }
 
 /// Where a location sits: the centre of its footprint at the ground height
-/// of its tile, rotated by `rotation × 90°`.
+/// of its tile, and its turn `rotation × 90°` in radians. Without a
+/// definition the footprint is one tile.
+///
+/// The caller applies the turn as a rotation of minus that angle about y,
+/// which matches the classic scene's quarter turns once y and z are
+/// negated.
 pub fn placement(region: &Region, l: &Location, def: Option<&LocDef>) -> ([f32; 3], f32) {
+    // Odd rotations turn the footprint sideways.
     let (w, h) = def.map_or((1, 1), |d| {
         if l.rotation & 1 == 1 {
             (d.size_y, d.size_x)
@@ -138,8 +167,12 @@ use crate::explorer::viewport3d::{LightingMode, Limits, OrbitCamera, TextureMate
 
 /// Everything a region scene needs, computed on the task pool.
 pub struct Built {
+    /// The decoded region.
     pub region: Region,
+    /// Every floor definition, indexed by floor id − 1.
     pub flos: Vec<FloDef>,
+    /// The definition of each location id placed in the region that
+    /// decodes.
     pub defs: BTreeMap<u16, LocDef>,
     /// The model each `(location id, type)` draws, where it draws one.
     pub models: BTreeMap<(u16, u8), Model>,
@@ -150,16 +183,20 @@ pub struct Built {
 /// A region prepared for the classic renderer, in cache coordinates (y
 /// down, z along the tile y axis).
 pub struct ClassicScene {
-    /// One flat-RGB terrain model per plane, with its vertices.
+    /// One flat-RGB terrain model per plane that has tiles: its plane, the
+    /// model and its vertices.
     pub terrain: Vec<(u8, rs2classic::LitModel, Vec<[i32; 3]>)>,
-    /// Each placed object: its plane, lit model and world vertices.
+    /// Each placed object: its plane, lit model and vertices already
+    /// turned and moved into place.
     pub objects: Vec<(u8, Arc<rs2classic::LitModel>, Vec<[i32; 3]>)>,
-    /// The region's centre, for the camera target.
+    /// The region's middle at plane 0's ground height there, for the
+    /// camera target.
     pub centre: [i32; 3],
 }
 
-/// Rotate a vertex by `steps` quarter turns as the client places objects
-/// (`Model.method473`: x' = z, z' = −x per step).
+/// Rotates a vertex by `steps` quarter turns the way the original client
+/// turns a placed object: x' = z, z' = −x per step. Only the low two bits
+/// of `steps` count.
 fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
     let [mut x, y, mut z] = v;
     for _ in 0..steps & 3 {
@@ -170,7 +207,10 @@ fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
     [x, y, z]
 }
 
-/// Prepare a built region for the classic renderer.
+/// Prepares a built region for the classic renderer.
+///
+/// Terrain is simpler than the modern mesh: one colour per tile, overlay
+/// first. Objects are lit with the object lighting.
 pub fn classic_scene(
     region: &Region,
     flos: &[FloDef],
@@ -189,12 +229,15 @@ pub fn classic_scene(
                     continue;
                 }
                 let c = colour.unwrap_or([0.25, 0.3, 0.2, 1.0]);
+                // Back to `0xRRGGBB` for the flat-colour model.
                 let packed = ((c[0] * 255.0) as u32) << 16
                     | ((c[1] * 255.0) as u32) << 8
                     | (c[2] * 255.0) as u32;
+                // Corner height, clamped at the far edge like `corner`.
                 let h = |cx: usize, cy: usize| {
                     p.heights[cx.min(REGION_SIZE - 1) * REGION_SIZE + cy.min(REGION_SIZE - 1)]
                 };
+                // Four corners per tile, two triangles on them.
                 let base = verts.len() as u16;
                 for (cx, cy) in [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)] {
                     verts.push([cx as i32 * 128, h(cx, cy), cy as i32 * 128]);
@@ -208,6 +251,7 @@ pub fn classic_scene(
             terrain.push((pi as u8, rs2classic::LitModel::flat_rgb(faces, rgb), verts));
         }
     }
+    // Light each distinct model once; placements share it.
     let lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> = models
         .iter()
         .map(|(k, m)| {
@@ -231,6 +275,8 @@ pub fn classic_scene(
         });
         let i = usize::from(l.x) * REGION_SIZE + usize::from(l.y);
         let ground = region.planes[usize::from(l.plane)].heights[i];
+        // The footprint's centre: tile corner plus half its size (64 = half
+        // a tile).
         let (ox, oz) = (
             i32::from(l.x) * 128 + i32::from(w) * 64,
             i32::from(l.y) * 128 + i32::from(h) * 64,
@@ -242,6 +288,7 @@ pub fn classic_scene(
         objects.push((l.plane, lm.clone(), verts.collect()));
     }
     let half = (REGION_SIZE as i32 * 128) / 2;
+    // Height at tile (32, 32).
     let mid = region.planes[0].heights[REGION_SIZE * REGION_SIZE / 2 + REGION_SIZE / 2];
     ClassicScene {
         terrain,
@@ -250,7 +297,11 @@ pub fn classic_scene(
     }
 }
 
-/// Decode what a region scene needs.
+/// Decodes what a region scene needs: the floors, the placed locations'
+/// definitions and the model for each `(id, type)` placed. Blocking.
+///
+/// A floor that won't decode fails the build; a location that won't is
+/// skipped.
 pub fn build(records: &Records, region: Region) -> Result<Built, String> {
     let e = |e: rs2cache::Error| e.to_string();
     let flos = records
@@ -265,8 +316,10 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
         .collect::<Result<Vec<_>, _>>()?;
     let mut defs = BTreeMap::new();
     let mut models = BTreeMap::new();
+    // Each distinct `(id, type)` once, however often it's placed.
     let wanted: BTreeSet<(u16, u8)> = region.locations.iter().map(|l| (l.id, l.kind)).collect();
     for (id, kind) in wanted {
+        // Decode each definition once; skip ids that won't decode.
         if let std::collections::btree_map::Entry::Vacant(v) = defs.entry(id) {
             if let Ok(Record::Loc(d)) = records.decode(RecordType::Loc, id.into()) {
                 v.insert(d);
@@ -293,16 +346,22 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
 /// Marks a spawned region entity with its plane.
 #[derive(Component)]
 pub struct RegionPart {
+    /// The plane, 0–3, for the plane checkboxes.
     pub plane: u8,
 }
 
+/// The region viewer's state.
 #[derive(Resource)]
 pub struct RegionScene {
     /// The region on screen (`x << 8 | y`).
     pub region: Option<u16>,
+    /// Which planes are shown; all four to start.
     pub planes: [bool; 4],
+    // Everything spawned for the region, to despawn on the next one.
     entities: Vec<Entity>,
+    // A region being built, with its id.
     pending: Option<(u16, Task<Result<Built, String>>)>,
+    /// Why the last build failed, if it did.
     pub error: Option<String>,
     /// The region prepared for the classic renderer.
     pub classic: Option<Arc<ClassicScene>>,
@@ -321,6 +380,8 @@ impl Default for RegionScene {
     }
 }
 
+/// Starts building the region when a map record is loaded, or clears the
+/// scene when something else is.
 fn start(
     loaded: Res<Loaded>,
     selected: Res<Selected>,
@@ -363,6 +424,8 @@ type TexturedMesh = (Option<u16>, Handle<Mesh>);
 #[derive(Component)]
 pub struct RegionTexture(pub u16);
 
+/// Spawns a finished region: terrain per plane, then every placed
+/// location, and puts the camera above the middle, bounded to the region.
 fn spawn(
     mut scene: ResMut<RegionScene>,
     textures: Res<TextureMaterials>,
@@ -371,6 +434,7 @@ fn spawn(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut cams: Query<&mut OrbitCamera>,
 ) {
+    // Peek at the task without flagging the scene as changed every frame.
     let Some((id, task)) = &mut scene.bypass_change_detection().pending else {
         return;
     };
@@ -417,6 +481,8 @@ fn spawn(
             scene.entities.push(e);
         }
     }
+    // Meshes per distinct model, shared by every placement of it. Regions
+    // always use the 317 lighting.
     let handles: BTreeMap<(u16, u8), Vec<TexturedMesh>> = built
         .models
         .iter()
@@ -462,6 +528,7 @@ fn spawn(
         .map(|&h| -h as f32)
         .fold(f32::INFINITY, f32::min);
     for mut o in &mut cams {
+        // Middle of the region (world z is negative going north).
         o.target = Vec3::new(half, 0.0, -half);
         o.distance = 7000.0;
         o.pitch = 0.9;
@@ -475,7 +542,7 @@ fn spawn(
     }
 }
 
-/// Give textured parts spawned before the textures loaded their material.
+/// Gives textured parts spawned before the textures loaded their material.
 fn refresh_textures(
     textures: Res<TextureMaterials>,
     mut q: Query<(&RegionTexture, &mut MeshMaterial3d<StandardMaterial>)>,
@@ -490,6 +557,7 @@ fn refresh_textures(
     }
 }
 
+/// Shows and hides region parts to match the plane checkboxes.
 fn plane_visibility(scene: Res<RegionScene>, mut q: Query<(&RegionPart, &mut Visibility)>) {
     if !scene.is_changed() {
         return;
@@ -506,7 +574,8 @@ fn plane_visibility(scene: Res<RegionScene>, mut q: Query<(&RegionPart, &mut Vis
     }
 }
 
-/// The region one step from `id` (north is +y).
+/// The region `(dx, dy)` regions from `id` (north is +y), or `None` off
+/// the 256 × 256 grid.
 pub fn neighbour(id: u16, dx: i32, dy: i32) -> Option<u16> {
     let (x, y) = (i32::from(id >> 8) + dx, i32::from(id & 0xff) + dy);
     ((0..256).contains(&x) && (0..256).contains(&y)).then_some((x << 8 | y) as u16)
@@ -541,6 +610,7 @@ fn overlay(
                         ui.spinner();
                     }
                 });
+                // A 3 × 3 grid with N, W, E and S round an empty middle.
                 egui::Grid::new("steps").show(ui, |ui| {
                     ui.label("");
                     if ui.button("N").clicked() {
@@ -573,6 +643,7 @@ fn overlay(
                 }
             });
         });
+    // Stepping is a new selection, with Back history and a tree reveal.
     if let (Some(next), Some(si)) = (go, selected.source) {
         let old = std::mem::replace(
             &mut *selected,
@@ -592,14 +663,22 @@ fn overlay(
 
 /// One pixel per tile, north up, from overlay (else underlay) colours.
 pub struct WorldImage {
+    /// Width in pixels: 64 per region column.
     pub width: usize,
+    /// Height in pixels: 64 per region row.
     pub height: usize,
+    /// `width × height × 4` bytes, row by row from the top (north).
     pub rgba: Vec<u8>,
-    /// Region coordinates of the image's top-left region.
+    /// Region coordinates of the image's top-left region: the lowest x
+    /// and the highest y.
     pub origin: (u16, u16),
+    /// Every region id that exists; the rest of the image is black.
     pub regions: BTreeSet<u16>,
 }
 
+/// Decodes every region and paints plane 0 into one image covering the
+/// bounding box of all regions. Blocking and slow; the explorer runs it
+/// once, as a task. Regions that won't decode stay black.
 pub fn world_image(records: &Records) -> Result<WorldImage, String> {
     let e = |e: rs2cache::Error| e.to_string();
     let flos: Vec<FloDef> = records
@@ -617,6 +696,7 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
         .into_iter()
         .map(|i| i as u16)
         .collect();
+    // The bounding box of every region, in region coordinates.
     let (xs, ys): (Vec<u16>, Vec<u16>) = ids.iter().map(|i| (i >> 8, i & 0xff)).unzip();
     let (x0, x1) = (
         *xs.iter().min().unwrap_or(&0),
@@ -636,6 +716,7 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
             continue;
         };
         let p = &r.planes[0];
+        // The region's place in the box.
         let (rx, ry) = (usize::from(r.x - x0 as u8), usize::from(r.y - y0 as u8));
         for x in 0..REGION_SIZE {
             for y in 0..REGION_SIZE {
@@ -643,6 +724,7 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
                 let c = flo_colour(&flos, p.overlays[i])
                     .or_else(|| flo_colour(&flos, p.underlays[i]))
                     .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                // Flip vertically: image rows go down, tile y goes north.
                 let (px, py) = (rx * REGION_SIZE + x, h - 1 - (ry * REGION_SIZE + y));
                 let o = (py * w + px) * 4;
                 rgba[o..o + 4].copy_from_slice(&[
@@ -666,7 +748,8 @@ pub fn world_image(records: &Records) -> Result<WorldImage, String> {
 /// egui's largest texture side.
 const MAX_TEXTURE: usize = 2048;
 
-/// Upload the world image as tiles no larger than egui allows.
+/// Uploads the world image as tiles no larger than egui allows, each with
+/// its offset in the image.
 fn tiles(ctx: &egui::Context, img: &WorldImage) -> Vec<(egui::TextureHandle, egui::Vec2)> {
     let mut out = Vec::new();
     for ty in (0..img.height).step_by(MAX_TEXTURE) {
@@ -675,6 +758,7 @@ fn tiles(ctx: &egui::Context, img: &WorldImage) -> Vec<(egui::TextureHandle, egu
                 MAX_TEXTURE.min(img.width - tx),
                 MAX_TEXTURE.min(img.height - ty),
             );
+            // Copy the tile out row by row.
             let mut rgba = Vec::with_capacity(w * h * 4);
             for y in ty..ty + h {
                 rgba.extend_from_slice(
@@ -693,17 +777,25 @@ fn tiles(ctx: &egui::Context, img: &WorldImage) -> Vec<(egui::TextureHandle, egu
     out
 }
 
+/// The world map window's state.
 #[derive(Resource, Default)]
 pub struct WorldMap {
+    /// Whether the window is open (**View › World map**).
     pub open: bool,
+    // The finished image, kept for the session.
     image: Option<Arc<WorldImage>>,
+    // The build, while it runs.
     pending: Option<Task<Result<WorldImage, String>>>,
     /// The image cut into tiles within egui's 2048-pixel texture limit,
     /// with each tile's offset in the image.
     tiles: Vec<(egui::TextureHandle, egui::Vec2)>,
+    // Why the build failed; it isn't retried.
     error: Option<String>,
 }
 
+/// The world map window: builds the image from the first open cache the
+/// first time it's opened, draws it, outlines the region on screen, and
+/// opens a region when you click it.
 fn world_window(
     mut contexts: EguiContexts,
     mut world: ResMut<WorldMap>,
@@ -771,6 +863,8 @@ fn world_window(
                 }
                 // Outline the region on screen.
                 if let Some(id) = scene.region {
+                    // Regions from the top-left, 64 points (one per tile)
+                    // each.
                     let (rx, ry) = (
                         f32::from(id >> 8) - f32::from(img.origin.0),
                         f32::from(img.origin.1) - f32::from(id & 0xff),
@@ -789,6 +883,7 @@ fn world_window(
                 if resp.clicked()
                     && let Some(p) = resp.interact_pointer_pos()
                 {
+                    // Click position back to region coordinates.
                     let d = p - resp.rect.min;
                     let rx = img.origin.0 + (d.x / 64.0) as u16;
                     let ry = img.origin.1.saturating_sub((d.y / 64.0) as u16);
@@ -814,6 +909,7 @@ fn world_window(
     Ok(())
 }
 
+/// Adds the region viewer and the world map.
 pub fn plugin(app: &mut App) {
     app.init_resource::<RegionScene>()
         .init_resource::<WorldMap>()

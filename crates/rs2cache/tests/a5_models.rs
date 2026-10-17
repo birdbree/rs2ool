@@ -1,5 +1,5 @@
-//! Phase A5 check: every model decodes, its sections fill the file exactly,
-//! and well-known models have plausible bounds.
+//! Every model decodes with its sections filling the file exactly, and a
+//! few individual models have plausible bounds.
 
 mod common;
 

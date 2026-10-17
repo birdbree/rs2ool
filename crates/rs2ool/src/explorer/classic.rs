@@ -1,6 +1,12 @@
 //! The classic renderer view: the selected model drawn by `rs2classic` (a
-//! reimplementation of the 317 client's software renderer) into a pixel
-//! buffer, shown nearest-neighbour over the viewport.
+//! reimplementation of the original client's software renderer) into a
+//! pixel buffer, shown nearest-neighbour over the viewport.
+//!
+//! It shares the modern view's [`OrbitCamera`]: [`scene_view`] turns the
+//! orbit into a classic camera, and [`classic_fov`] gives the modern
+//! cameras the matching field of view, so flipping renderers keeps the
+//! framing. A frame is only redrawn when something it depends on changes
+//! (see [`FrameKey`]).
 
 use std::sync::Arc;
 
@@ -21,26 +27,34 @@ use crate::explorer::viewport3d::{Compare, OrbitCamera, Shown, WorldCamera};
 /// Which renderer draws the model.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderMode {
-    /// Bevy, with client or engine lighting.
+    /// Bevy, with 317 or engine lighting. The default.
     #[default]
     Modern,
-    /// The client's software renderer.
+    /// The original client's software renderer, via `rs2classic`.
     Classic,
 }
 
+/// The classic renderer's state: what to draw and the last frame.
 #[derive(Resource)]
 pub struct ClassicView {
-    /// The lit model and its vertices (cache space, where the modern
-    /// view draws them too).
+    /// The selection's lit model and its vertices, in cache space. `None`
+    /// when the selection has no cache-format model.
     pub model: Option<(Arc<LitModel>, Vec<[i32; 3]>)>,
     /// The model at the playing animation frame, relit, when one plays.
+    /// Drawn instead of `model`.
     pub pose: Option<(Arc<LitModel>, Vec<[i32; 3]>)>,
+    /// The 50 textures from the first open cache, once loaded. Missing
+    /// ones are left empty.
     pub textures: Option<Arc<Textures>>,
-    /// Screen pixels per classic pixel.
+    /// Screen pixels per classic pixel, 1–4.
     pub scale: u32,
+    /// Clear colour, `0xRRGGBB`.
     pub background: u32,
+    // The texture load, while it runs.
     loading: Option<Task<Option<Textures>>>,
+    // The frame as an egui texture, reused between frames.
     texture: Option<egui::TextureHandle>,
+    // What the current frame was drawn from.
     last: Option<FrameKey>,
 }
 
@@ -59,8 +73,8 @@ impl Default for ClassicView {
     }
 }
 
-/// Load the 50 textures from the first cache source, once, off the UI
-/// thread.
+/// Loads the 50 textures from the first cache source, once, off the UI
+/// thread. Waits quietly until a cache is open.
 fn load_textures(sources: Res<Sources>, mut view: ResMut<ClassicView>) {
     if view.textures.is_some() {
         return;
@@ -94,7 +108,8 @@ fn load_textures(sources: Res<Sources>, mut view: ResMut<ClassicView>) {
     }));
 }
 
-/// Light the selected model when the selection changes.
+/// Lights the selected model when the selection changes, with the NPC
+/// lighting.
 fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
     if !loaded.is_changed() {
         return;
@@ -109,6 +124,8 @@ fn prepare(loaded: Res<Loaded>, mut view: ResMut<ClassicView>) {
 }
 
 /// Whether the classic renderer is drawing.
+///
+/// A system parameter, so systems can ask without fetching both resources.
 #[derive(SystemParam)]
 pub struct ClassicOn<'w> {
     mode: Res<'w, RenderMode>,
@@ -124,7 +141,7 @@ impl ClassicOn<'_> {
     }
 }
 
-/// Hide the Bevy model while the classic renderer is showing.
+/// Hides the Bevy model while the classic renderer is showing.
 fn visibility(on: ClassicOn, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
     let Some(e) = shown.main.entity else { return };
     if let Ok(mut v) = q.get_mut(e) {
@@ -146,6 +163,7 @@ fn visibility(on: ClassicOn, shown: Res<Shown>, mut q: Query<&mut Visibility>) {
 ///
 /// [`mesh::world`]: crate::explorer::mesh::world
 pub fn scene_view(o: &OrbitCamera) -> rs2classic::View {
+    // World to cache: negate y and z back, to whole units.
     let to_cache = |v: Vec3| {
         [
             v.x.round() as i32,
@@ -155,18 +173,23 @@ pub fn scene_view(o: &OrbitCamera) -> rs2classic::View {
     };
     let eye = to_cache(o.transform().translation);
     let target = to_cache(o.target);
+    // Eye-to-target direction, in cache space.
     let d = [
         f64::from(target[0] - eye[0]),
         f64::from(target[1] - eye[1]),
         f64::from(target[2] - eye[2]),
     ];
+    // Radians to the original client's 2048-per-turn angle units.
     let units = |r: f64| (r / std::f64::consts::TAU * 2048.0).round() as i32;
+    // Yaw from the ground direction, pitch from the drop over the
+    // horizontal distance (y is down, so looking down is positive).
     let yaw = units((-d[0]).atan2(d[2]));
     let pitch = units(d[1].atan2((d[0] * d[0] + d[2] * d[2]).sqrt()));
     rs2classic::View { eye, yaw, pitch }
 }
 
-/// The classic projection's focal length in classic pixels (`x << 9 / z`).
+/// The classic projection's focal length in classic pixels: it projects
+/// `x << 9 / z`, and `1 << 9` is 512.
 const FOCAL: f32 = 512.0;
 
 /// Give the modern cameras the classic projection's vertical field of view
@@ -193,11 +216,14 @@ fn match_fov(
 /// The vertical field of view of a classic frame `height` physical pixels
 /// tall drawn at `scale` physical pixels per classic pixel.
 pub fn classic_fov(height: u32, scale: u32) -> f32 {
+    // Half the frame height in classic pixels; the half-angle's tangent is
+    // that over the focal length.
     let half = height as f32 / scale as f32 / 2.0;
     2.0 * (half / FOCAL).atan()
 }
 
-/// Draw a region scene: terrain planes, then objects far to near.
+/// Draws a region scene: terrain planes, then objects far to near, skipping
+/// planes that are switched off.
 pub fn render_scene(
     fb: &mut Framebuffer,
     scene: &ClassicScene,
@@ -210,6 +236,8 @@ pub fn render_scene(
             rs2classic::render_in_view(fb, lit, verts, view, textures);
         }
     }
+    // Painter's algorithm: each object's depth is its first vertex's
+    // camera-space z. Ties keep scene order.
     let mut order: Vec<(i32, usize)> = scene
         .objects
         .iter()
@@ -224,6 +252,9 @@ pub fn render_scene(
     }
 }
 
+/// Renders and paints the classic frame, when the classic renderer is on
+/// and there's a model or a region to draw. A single model wins over a
+/// region.
 fn draw(
     mut contexts: EguiContexts,
     on: ClassicOn,
@@ -239,6 +270,7 @@ fn draw(
     }
     let ctx = contexts.ctx_mut()?.clone();
     let scale = view.scale.max(1);
+    // The frame in classic pixels: the viewport divided by the pixel size.
     let (w, h) = (
         (rect.size.x / scale).max(1) as usize,
         (rect.size.y / scale).max(1) as usize,
@@ -262,6 +294,7 @@ fn draw(
             .map(|m| Arc::as_ptr(&m.0) as usize),
         textures: view.textures.is_some(),
     });
+    // Same frame as last time: just paint the old texture again.
     if key == view.last && view.texture.is_some() {
         paint(&ctx, &view, &rect, &window, w, h, scale);
         return Ok(());
@@ -288,7 +321,9 @@ fn draw(
     Ok(())
 }
 
-/// Paint the classic frame over the viewport.
+/// Paints the classic frame over the viewport, `scale` physical pixels per
+/// classic pixel, from the top-left (a few pixels may be left uncovered at
+/// the right and bottom).
 fn paint(
     ctx: &egui::Context,
     view: &ClassicView,
@@ -314,7 +349,8 @@ fn paint(
     );
 }
 
-/// What a classic frame depends on.
+/// What a classic frame depends on. Floats are kept as bits so the key can
+/// be `Eq`; models and scenes by `Arc` address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameKey {
     size: (usize, usize),
@@ -325,6 +361,8 @@ pub struct FrameKey {
     textures: bool,
 }
 
+/// Adds the classic renderer's resources and systems. Drawing runs after
+/// the panel layout.
 pub fn plugin(app: &mut App) {
     app.init_resource::<RenderMode>()
         .init_resource::<ClassicView>()

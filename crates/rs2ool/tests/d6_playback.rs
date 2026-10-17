@@ -1,7 +1,7 @@
-//! Phase D6 check: Man's walk sequence plays at the client's speed (its
-//! frame delays at 20 ms per cycle), and the converted Man plays the same
+//! An NPC's walk sequence plays at the original client's speed (frame
+//! delays at 20 ms per cycle), and its converted version plays the same
 //! clip in step: at every frame the skinned pack vertices sit where the
-//! client's deformation puts the cache vertices.
+//! reference deformation puts the cache vertices.
 
 #![cfg(feature = "explorer")]
 
@@ -55,7 +55,7 @@ fn man_walks_at_client_speed_and_in_step_with_its_conversion() {
     clock.advance(1.0);
     assert_eq!(clock.frame, 1);
 
-    // The converted Man, written as `rs2conv npc --id 1 --with-anims` would.
+    // The converted NPC, written as `rs2ool pack npc --id 1 --with-anims` would.
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d6_playback");
     let _ = std::fs::remove_dir_all(&out);
     let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());

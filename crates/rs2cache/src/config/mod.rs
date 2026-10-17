@@ -1,14 +1,27 @@
 //! Config archive decoders.
 //!
-//! `loc`, `npc` and `obj` are indexed: the `.idx` entry is `count u16` then a
-//! `length u16` per definition, and definition `n` starts in the `.dat` at
-//! 2 plus the lengths before it. The other types are sequential: the `.dat`
-//! is `count u16` then the definitions back to back. Each definition is an
-//! opcode stream ending with opcode 0.
+//! `loc`, `npc` and `obj` are indexed; the other types are sequential:
 //!
-//! An opcode a decoder does not know is logged at `warn`, recorded in the
-//! definition's `unknown_opcodes`, and skipped without consuming data, which
-//! is what the 317 client does.
+//! ```text
+//! indexed      <type>.idx   count u16, then length u16 per definition
+//!              <type>.dat   count u16, then the definitions; definition n
+//!                           starts at 2 + the lengths before it
+//! sequential   <type>.dat   count u16, then the definitions back to back
+//! ```
+//!
+//! A definition's id is its position. Each one is an opcode stream ending
+//! with opcode 0. An opcode a decoder doesn't know is logged at `warn`,
+//! recorded in the definition's `unknown_opcodes`, and skipped without
+//! reading anything, which is what the original client does. If that opcode
+//! did carry data, everything after it gets misread, same as in the original
+//! client.
+//!
+//! Shared encodings: a recolour list is `count u8, {from u16, to u16} ×
+//! count`; 65535 in a `u16` id usually means none; an option string of
+//! `"hidden"` (any case) means none.
+//!
+//! Each type has a unit struct implementing [`ConfigType`]; decode with
+//! [`decode_all`], [`decode_one`] or [`Cache::config`](crate::Cache::config).
 
 pub mod flo;
 pub mod idk;
@@ -26,39 +39,61 @@ use thiserror::Error;
 use crate::archive::{self, Archive};
 use crate::io::{Cursor, IoError};
 
+/// A config table or definition that wouldn't decode.
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    /// The config archive has no entry by this name.
     #[error("config archive has no {0}")]
     MissingEntry(&'static str),
+    /// The count or the `.idx` lengths ran out.
     #[error("{kind} index: {source}")]
-    Index { kind: &'static str, source: IoError },
-    #[error("{kind} {id}: {source}")]
-    Definition {
+    Index {
+        /// Type name, such as `"loc"`.
         kind: &'static str,
-        id: u32,
+        /// The failed read.
         source: IoError,
     },
+    /// A definition ran out of data before its terminating 0.
+    #[error("{kind} {id}: {source}")]
+    Definition {
+        /// Type name.
+        kind: &'static str,
+        /// Definition id.
+        id: u32,
+        /// The failed read.
+        source: IoError,
+    },
+    /// The `.dat` and `.idx` counts of an indexed type disagree.
     #[error("{kind}: the .dat holds {dat} definitions but the .idx lists {idx}")]
     CountMismatch {
+        /// Type name.
         kind: &'static str,
+        /// Count at the start of the `.dat`.
         dat: u16,
+        /// Count at the start of the `.idx`.
         idx: u16,
     },
+    /// The requested id is past the end of the table.
     #[error("{kind} has {count} definitions; there is no {id}")]
     NoSuchDefinition {
+        /// Type name.
         kind: &'static str,
+        /// Requested id.
         id: u32,
+        /// How many definitions there are.
         count: usize,
     },
 }
 
 /// One config record type.
 pub trait ConfigType {
+    /// The decoded definition struct, from [`crate::types::config`].
     type Def;
     /// Name used in errors and on the command line (`"loc"`).
     const KIND: &'static str;
+    /// The `.dat` entry name (`"loc.dat"`).
     const DAT: &'static str;
-    /// The `.idx` entry, for indexed types.
+    /// The `.idx` entry for indexed types; `None` for sequential ones.
     const IDX: Option<&'static str>;
     /// Decode one definition from `c`, which is positioned at its first
     /// opcode. Reads up to and including the terminating opcode 0.
@@ -80,6 +115,7 @@ pub fn offsets<T: ConfigType>(
     };
     let mut c = Cursor::new(entry(config, idx)?);
     let count = c.u16().map_err(index_err)?;
+    // Definitions start right after the .dat's own count.
     let mut at = 2usize;
     let mut out = Vec::with_capacity(count.into());
     for _ in 0..count {
@@ -125,6 +161,7 @@ pub fn decode_all<T: ConfigType>(config: &Archive) -> Result<Vec<T::Def>, Config
             })
             .collect(),
         None => {
+            // Sequential: one cursor walks every definition back to back.
             let mut c = Cursor::new(dat);
             let count = c.u16().map_err(|source| ConfigError::Index {
                 kind: T::KIND,
@@ -169,7 +206,8 @@ pub fn decode_one<T: ConfigType>(config: &Archive, id: u32) -> Result<T::Def, Co
     }
 }
 
-/// Number of definitions of type `T`.
+/// Number of definitions of type `T`, from the `.idx` count when there is
+/// one, else the `.dat` count.
 pub fn count<T: ConfigType>(config: &Archive) -> Result<usize, ConfigError> {
     let name = T::IDX.unwrap_or(T::DAT);
     Cursor::new(entry(config, name)?)
@@ -223,7 +261,8 @@ pub(crate) fn recolours(c: &mut Cursor) -> Result<Vec<Recolour>, IoError> {
 }
 
 /// Pair parallel `from`/`to` arrays up to the first zero `from`, as the
-/// client applies the fixed-size recolour arrays of idk and spotanim.
+/// original client applies the fixed-size recolour arrays of idk and
+/// spotanim.
 pub(crate) fn paired_recolours(from: &[u16], to: &[u16]) -> Vec<Recolour> {
     from.iter()
         .zip(to)

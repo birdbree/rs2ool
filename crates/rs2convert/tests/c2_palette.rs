@@ -1,5 +1,5 @@
-//! Phase C2 check: the 1024-entry palette quantises the model corpus with a
-//! mean error under 6 and a max under 24 RGB units.
+//! The 1024-entry palette quantises the model colours with a mean error
+//! under 6 and a max under 24 RGB units.
 
 mod common;
 

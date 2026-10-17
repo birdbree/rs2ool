@@ -1,5 +1,23 @@
-//! Validation: re-skin the converted model with the rig and clip records as
-//! the client would, and compare with the 317 reference deformation.
+//! Validation: pose the stored rig and clip, skin the creature with them,
+//! and see how far that lands from the original client's deformation.
+//!
+//! [`validate`] takes the creature's scaled rest mesh ([`Creature::rest`]),
+//! maps it to pack space, and skins it against a rig and clip that have
+//! already been encoded and decoded, so you're checking exactly what's
+//! stored. The reference is [`Creature`]'s unscaled mesh deformed by
+//! [`deform::deformed`], also mapped to pack space. Errors are plain
+//! distances in cache units (the mapping is a rotation, so it doesn't
+//! change them).
+//!
+//! The pose formula, from the records alone:
+//!
+//! ```text
+//! local_b = T(restPos_b + pos) · R(rot)   if bone b has a key at t
+//!         = T(restPos_b)                  otherwise
+//! world_b = world_parent · local_b        (root: local_b)
+//! pivot_b = pivot_parent + restPos_b      (root: restPos_b)
+//! skinned = world_b · (v − pivot_b)       b = labelBone[label], 0 if unbound
+//! ```
 
 use contentpack::records::anim::Clip;
 use contentpack::records::model::PackModel;
@@ -11,35 +29,55 @@ use crate::clip::local_from_key;
 use crate::creature::{Creature, Sequence};
 use crate::deform::{self, Groups};
 
-/// Error threshold in cache units; a clip above it is flagged.
+/// Error threshold in cache units. A clip whose worst vertex goes over it
+/// gets flagged.
 pub const THRESHOLD: f64 = 4.0;
 
+/// One vertex's error at one frame.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorstVertex {
+    /// Vertex index in the merged mesh.
     pub vertex: usize,
+    /// The vertex's label (0 when the mesh has none).
     pub label: u8,
+    /// The bone it was skinned by (0 when its label is unbound).
     pub bone: u8,
+    /// Distance from the reference position, in cache units.
     pub error: f64,
 }
 
+/// The error for one frame of a clip.
 #[derive(Debug, Clone, Serialize)]
 pub struct FrameReport {
+    /// Frame index in the sequence.
     pub frame: usize,
+    /// Largest vertex error.
     pub max: f64,
+    /// Mean over all vertices.
     pub mean: f64,
+    /// Up to five worst vertices, largest error first. Equal errors stay in
+    /// vertex order.
     pub worst: Vec<WorstVertex>,
 }
 
+/// The error for a whole clip.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClipReport {
+    /// The sequence id the clip came from.
     pub sequence: u32,
+    /// Largest frame `max`.
     pub max: f64,
+    /// Mean of the frame means.
     pub mean: f64,
+    /// Whether `max` is over [`THRESHOLD`].
     pub flagged: bool,
+    /// Per-frame reports. Frames that couldn't be found are left out.
     pub frames: Vec<FrameReport>,
 }
 
-/// World transforms of every bone at frame `t`, from the records.
+/// World transforms of every bone at frame `t`, from the records alone.
+/// A bone with no key at `t` sits at its rest offset, unrotated. Assumes
+/// parents come before children, which a decoded rig guarantees.
 pub fn pose(rig: &Rig, clip: &Clip, t: u8) -> Vec<DAffine3> {
     let mut world: Vec<DAffine3> = Vec::with_capacity(rig.bones.len());
     for (b, bone) in rig.bones.iter().enumerate() {
@@ -65,9 +103,9 @@ pub fn pose(rig: &Rig, clip: &Clip, t: u8) -> Vec<DAffine3> {
     world
 }
 
-/// A converted model's vertices (pack space) at frame `t` of a clip,
-/// skinned by the rig as the client will: each vertex follows the bone its
-/// label binds to (bone 0 when unbound).
+/// A pack model's vertices (pack space) at frame `t` of a clip, skinned by
+/// the rig: each vertex follows the bone its label binds to (bone 0 when
+/// unbound or unlabelled).
 pub fn skinned(model: &PackModel, rig: &Rig, clip: &Clip, t: u8) -> Vec<[f32; 3]> {
     let world = pose(rig, clip, t);
     let pivots = rest_pivots(rig);
@@ -105,7 +143,10 @@ pub fn rest_pivots(rig: &Rig) -> Vec<DVec3> {
     out
 }
 
-/// Compare a clip against the reference deformation for every frame.
+/// Compare a clip against the reference deformation, frame by frame.
+///
+/// `rig` and `clip` should be decoded records, so the report covers exactly
+/// what's stored. See the module docs for what's skinned and compared.
 pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> ClipReport {
     let labels = creature.model.vertex_labels.clone().unwrap_or_default();
     let groups = Groups::new(&labels);

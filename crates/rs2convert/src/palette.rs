@@ -1,4 +1,10 @@
-//! The client palette, built from every model face colour in the cache.
+//! The 1024-entry RGB palette, built from every model face colour in the
+//! cache.
+//!
+//! Untextured faces in a `models` record carry a palette index rather than a
+//! 317 HSL colour. The palette is a weighted k-means over every distinct
+//! face colour in the cache, and it's stored as one record in the
+//! `materials` pack next to the palette-mode material.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +19,7 @@ use serde::Serialize;
 
 use crate::{ConvertError, material_id};
 
-/// Entries in the client palette (indices are `u16`).
+/// How many entries the palette has. Indices are `u16`, but this is the cap.
 pub const PALETTE_SIZE: usize = 1024;
 const ITERATIONS: usize = 100;
 
@@ -52,23 +58,30 @@ pub fn corpus(records: &Records) -> Result<BTreeMap<u16, u64>, ConvertError> {
     Ok(out)
 }
 
-/// The palette and a lookup from 317 HSL to palette index.
+/// The palette and a memoised lookup from 317 HSL to palette index.
 #[derive(Debug, Clone)]
 pub struct Palette {
+    /// The entries, sorted. At most [`PALETTE_SIZE`]; fewer when k-means
+    /// lands two centres on the same colour.
     pub rgb: Vec<[u8; 3]>,
     rgbf: Vec<[f64; 3]>,
     lookup: BTreeMap<u16, u16>,
 }
 
-/// Quantisation error over the corpus, in RGB units.
+/// How far the palette is from the colours it replaces, in RGB units.
+///
+/// This is the `palette.json` side file.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct PaletteError {
+    /// Distinct HSL colours in the corpus.
     pub colours: usize,
+    /// Faces those colours cover.
     pub faces: u64,
-    /// Mean over faces.
+    /// Mean error, weighted by face count.
     pub mean: f64,
-    /// Worst distinct colour.
+    /// Error of the worst distinct colour.
     pub max: f64,
+    /// The HSL colour with that worst error.
     pub worst_hsl: u16,
 }
 
@@ -92,6 +105,7 @@ impl Palette {
         Self::from_rgb(rgb)
     }
 
+    /// A palette with exactly these entries and an empty lookup.
     pub fn from_rgb(rgb: Vec<[u8; 3]>) -> Self {
         let rgbf = rgb.iter().map(|c| c.map(f64::from)).collect();
         Self {
@@ -111,7 +125,8 @@ impl Palette {
         i
     }
 
-    /// Nearest palette index without memoising.
+    /// The nearest palette index, without memoising (so it works through
+    /// `&self`).
     pub fn index_of(&self, hsl: u16) -> u16 {
         self.lookup
             .get(&hsl)
@@ -124,7 +139,8 @@ impl Palette {
         nearest(&self.rgbf, rgbf(rgb)) as u16
     }
 
-    /// Fill the lookup for every corpus colour, in parallel.
+    /// Fill the lookup for every corpus colour, in parallel, so later
+    /// [`index_of`](Self::index_of) calls are just a map hit.
     pub fn prime(&mut self, corpus: &BTreeMap<u16, u64>) {
         let found: Vec<(u16, u16)> = corpus
             .keys()
@@ -136,6 +152,7 @@ impl Palette {
         self.lookup.extend(found);
     }
 
+    /// Measure the quantisation error over `corpus`.
     pub fn error(&self, corpus: &BTreeMap<u16, u64>) -> PaletteError {
         let mut e = PaletteError {
             colours: corpus.len(),
@@ -163,8 +180,8 @@ impl Palette {
         e
     }
 
-    /// The `materials` pack: the palette record and the default palette
-    /// material.
+    /// The `materials` pack: the palette record and material 0, the
+    /// palette-mode material every untextured face uses.
     pub fn pack(&self, source_cache_crc: u32) -> PackWriter {
         let mut w = PackWriter::new(Kind::Materials, source_cache_crc);
         w.insert(material::PALETTE_ID, material::encode_palette(&self.rgb));
@@ -182,7 +199,8 @@ impl Palette {
         w
     }
 
-    /// A swatch image: 32 × 32 cells of `cell` pixels, RGBA.
+    /// A swatch image of the palette: 32 × 32 cells of `cell` pixels square,
+    /// as `(width, height, rgba)`. Unused cells stay transparent black.
     pub fn swatch(&self, cell: usize) -> (u32, u32, Vec<u8>) {
         let side = 32 * cell;
         let mut out = vec![0u8; side * side * 4];

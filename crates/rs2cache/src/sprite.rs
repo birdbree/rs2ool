@@ -1,15 +1,26 @@
 //! Palette sprites and fonts.
 //!
-//! A sprite entry `<name>.dat` starts with a `u16` offset into the archive's
-//! `index.dat`, followed by the pixel bytes of every sub-sprite in order. At
-//! that offset `index.dat` holds `maxWidth u16, maxHeight u16,
-//! paletteCount u8, rgb u24 × (paletteCount − 1)` (entry 0 is transparent),
-//! then per sub-sprite `{xOffset u8, yOffset u8, width u16, height u16,
-//! type u8}`; type 0 pixels are row-major, type 1 column-major.
+//! Textures, media sprites, title sprites and fonts all share this layout:
 //!
-//! The cache does not store how many sub-sprites an entry has. Each entry's
-//! records run until the next entry's block in `index.dat` (or its end), and
-//! the decoder checks that the pixel bytes are used exactly.
+//! ```text
+//! <name>.dat
+//!   offset        u16   where this entry's block starts in index.dat
+//!   pixels        u8[]  every sub-sprite's palette indices, in order
+//!
+//! index.dat, at offset
+//!   maxWidth      u16   canvas the sub-sprite offsets are relative to
+//!   maxHeight     u16
+//!   paletteCount  u8
+//!   rgb           u24 × (paletteCount − 1)   entry 0 (transparent) isn't stored
+//!   per sub-sprite, 7 bytes:
+//!     xOffset u8, yOffset u8, width u16, height u16,
+//!     type u8     0 = row-major pixels, 1 = column-major
+//! ```
+//!
+//! The cache doesn't store how many sub-sprites an entry has; the original
+//! client just knows how many it wants. So the decoder works it out: an
+//! entry's records run until the next entry's block in `index.dat` (or its
+//! end), and the pixel bytes must be used up exactly.
 
 use crate::types::sprite::{Font, Sprite, SpriteSheet};
 use thiserror::Error;
@@ -17,25 +28,45 @@ use thiserror::Error;
 use crate::archive::{Archive, Entry};
 use crate::io::{Cursor, IoError};
 
+// Bytes per sub-sprite record in index.dat.
 const RECORD: usize = 7;
 
+/// A sprite entry that wouldn't decode.
 #[derive(Debug, Error)]
 pub enum SpriteError {
+    /// The header, a record or the pixels ran out.
     #[error("truncated: {0}")]
     Truncated(#[from] IoError),
+    /// The archive has no `index.dat`. Also returned by [`decode_font`]
+    /// when the font entry itself is missing.
     #[error("archive has no index.dat")]
     NoIndex,
+    /// A sub-sprite's pixel order byte isn't 0 or 1.
     #[error("sub-sprite {sprite} has pixel type {kind}; expected 0 or 1")]
-    BadType { sprite: usize, kind: u8 },
+    BadType {
+        /// Sub-sprite number.
+        sprite: usize,
+        /// The byte found.
+        kind: u8,
+    },
+    /// Pixel bytes were left over after the last sub-sprite.
     #[error("sub-sprites use {used} pixel bytes but the entry holds {have}")]
-    PixelCount { used: usize, have: usize },
+    PixelCount {
+        /// Bytes accounted for, offset included.
+        used: usize,
+        /// The entry's size.
+        have: usize,
+    },
 }
 
+// The block header at `at`: canvas size and palette. Returns a cursor left
+// at the first sub-sprite record.
 fn header(index: &[u8], at: usize) -> Result<(Cursor<'_>, u16, u16, Vec<u32>), SpriteError> {
     let mut c = Cursor::at(index, at)?;
     let max_width = c.u16()?;
     let max_height = c.u16()?;
     let n = c.u8()?;
+    // Entry 0 is transparent and not stored; fill it in as 0.
     let mut palette = vec![0u32];
     for _ in 1..n {
         palette.push(c.u24()?);
@@ -43,6 +74,7 @@ fn header(index: &[u8], at: usize) -> Result<(Cursor<'_>, u16, u16, Vec<u32>), S
     Ok((c, max_width, max_height, palette))
 }
 
+// One sub-sprite: record from `c`, pixels from `px`. `n` is only for errors.
 fn sprite(c: &mut Cursor, px: &mut Cursor, n: usize) -> Result<Sprite, SpriteError> {
     let x_offset = c.u8()?;
     let y_offset = c.u8()?;
@@ -54,6 +86,7 @@ fn sprite(c: &mut Cursor, px: &mut Cursor, n: usize) -> Result<Sprite, SpriteErr
     let pixels = match kind {
         0 => stored.to_vec(),
         1 => {
+            // Stored column by column (`x * h + y`); transpose to row-major.
             let mut out = vec![0; w * h];
             for x in 0..w {
                 for y in 0..h {
@@ -74,8 +107,10 @@ fn sprite(c: &mut Cursor, px: &mut Cursor, n: usize) -> Result<Sprite, SpriteErr
     })
 }
 
-/// Decode an entry with exactly `count` sub-sprites.
+/// Decode an entry with exactly `count` sub-sprites, given the archive's
+/// `index.dat`. Leftover pixel bytes aren't checked.
 pub fn decode_count(data: &[u8], index: &[u8], count: usize) -> Result<SpriteSheet, SpriteError> {
+    // The first two bytes point into index.dat; the pixels follow them.
     let mut px = Cursor::new(data);
     let at = px.u16()?;
     let (mut c, max_width, max_height, palette) = header(index, at.into())?;
@@ -91,7 +126,9 @@ pub fn decode_count(data: &[u8], index: &[u8], count: usize) -> Result<SpriteShe
 }
 
 /// Decode an entry whose records end at `block_end` in `index.dat`. Records
-/// are read until the pixel bytes run out, which must happen exactly.
+/// are read while a whole one fits before `block_end` and its pixels fit in
+/// what's left; afterwards the pixel bytes must be used up exactly. So a
+/// zero-size sub-sprite at the very end of a block is never counted.
 pub fn decode_block(
     data: &[u8],
     index: &[u8],
@@ -102,6 +139,7 @@ pub fn decode_block(
     let (mut c, max_width, max_height, palette) = header(index, at.into())?;
     let mut sprites = Vec::new();
     while c.pos() + RECORD <= block_end && px.remaining() > 0 {
+        // Peek at the record's width × height without consuming it.
         let mut peek = c.clone();
         peek.skip(2)?;
         let need = usize::from(peek.u16()?) * usize::from(peek.u16()?);
@@ -124,8 +162,13 @@ pub fn decode_block(
     })
 }
 
-/// The sprite entries of an archive (every entry but `index.dat` whose
-/// header offset falls inside `index.dat`), with the end of each one's block.
+/// The sprite entries of an archive, with the end of each one's block in
+/// `index.dat`.
+///
+/// That's every entry but `index.dat` whose first `u16` leaves room for the
+/// 5-byte block header inside `index.dat`. Entries that only pass this by
+/// luck (such as a JPEG) show up here and fail later in
+/// [`decode_block`]. Returned in block order.
 pub fn sprite_entries(archive: &Archive) -> Result<Vec<(&Entry, usize)>, SpriteError> {
     let index = archive.get("index.dat").ok_or(SpriteError::NoIndex)?;
     let index_hash = crate::archive::jag_hash("index.dat");
@@ -135,11 +178,13 @@ pub fn sprite_entries(archive: &Archive) -> Result<Vec<(&Entry, usize)>, SpriteE
         .filter(|e| e.hash != index_hash)
         .filter_map(|e| {
             let at = usize::from(Cursor::new(&e.data).u16().ok()?);
+            // 5 = maxWidth + maxHeight + paletteCount.
             (at + 5 <= index.len()).then_some((at, e))
         })
         .collect();
     starts.sort_by_key(|&(at, _)| at);
     let mut out = Vec::with_capacity(starts.len());
+    // Each block runs up to the next one's start, the last to the end.
     for (i, &(_, e)) in starts.iter().enumerate() {
         let end = starts.get(i + 1).map_or(index.len(), |&(next, _)| next);
         out.push((e, end));
@@ -161,7 +206,13 @@ pub fn decode_archive(archive: &Archive) -> Result<Vec<DecodedEntry<'_>>, Sprite
 }
 
 /// Decode font `name` (for example `"p12_full"`) from the title archive:
-/// 256 glyphs, with metrics derived as the client does.
+/// 256 glyphs, with metrics derived from the pixels as the original client
+/// does.
+///
+/// Advance starts at `width + 2` with an x offset of 1. If the leftmost
+/// column is near-empty, the advance loses 1 and the offset becomes 0; if
+/// the rightmost is, the advance loses another 1. Space (32) then borrows
+/// the advance of `I` (73) for `q8_full` and of `i` (105) for the others.
 pub fn decode_font(archive: &Archive, name: &str) -> Result<Font, SpriteError> {
     let index = archive.get("index.dat").ok_or(SpriteError::NoIndex)?;
     let data = archive
@@ -172,12 +223,16 @@ pub fn decode_font(archive: &Archive, name: &str) -> Result<Font, SpriteError> {
     let mut draw_offset_x = Vec::with_capacity(256);
     for g in &glyphs.sprites {
         let (w, h) = (usize::from(g.width), usize::from(g.height));
-        // A column counts as empty when its lower 6/7 holds at most h/7 ink.
+        // Sum of palette indices down column `x`, skipping the top seventh.
+        // It counts as empty when that's at most h/7. Yes, it adds up palette
+        // values rather than counting inked pixels; the original client does
+        // too.
         let column = |x: usize| {
             (h / 7..h)
                 .map(|y| usize::from(g.pixels[x + y * w]))
                 .sum::<usize>()
         };
+        // Pen advance and x draw offset, trimmed below for empty edges.
         let mut adv = w as i32 + 2;
         let mut dx = 1;
         if w > 0 && column(0) <= h / 7 {
@@ -202,7 +257,8 @@ pub fn decode_font(archive: &Archive, name: &str) -> Result<Font, SpriteError> {
     })
 }
 
-/// Font names in the title archive.
+/// Font names in the title archive, in font-id order (also the font index
+/// in an interface text style).
 pub const FONTS: [&str; 4] = ["p11_full", "p12_full", "b12_full", "q8_full"];
 
 #[cfg(test)]

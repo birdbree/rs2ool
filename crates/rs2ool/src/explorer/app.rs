@@ -1,4 +1,7 @@
 //! The explorer's window and the startup options the command line sets.
+//!
+//! [`run`] builds the Bevy app from every module's plugin and blocks until
+//! the window closes.
 
 use std::path::PathBuf;
 
@@ -18,14 +21,21 @@ use super::{
 /// or converted) beside it, and `classic` starting in the classic renderer.
 #[derive(Resource, Debug, Default)]
 pub struct Startup {
+    /// A cache directory to open (`--cache` or `RS2_CACHE`).
     pub cache: Option<PathBuf>,
+    /// Pack files to open.
     pub packs: Vec<PathBuf>,
+    /// What to select in the cache once every startup source has opened.
+    /// Ignored without a cache.
     pub select: Option<Sel>,
+    /// Turn compare mode on with that selection.
     pub compare: bool,
+    /// Start in the classic renderer.
     pub classic: bool,
 }
 
-/// Parse a `--select` value: `type:id`, or `kit` for the player kit.
+/// Parses a `--select` value: `type:id` (e.g. `npc:1`), or `kit` for the
+/// player kit.
 pub fn parse_select(v: &str) -> Result<Sel, String> {
     if v == "kit" {
         return Ok(Sel::PlayerKit);
@@ -38,6 +48,7 @@ pub fn parse_select(v: &str) -> Result<Sel, String> {
     ))
 }
 
+/// Starts opening the startup sources, and picks the renderer.
 fn open_startup(
     st: Res<Startup>,
     mut sources: ResMut<Sources>,
@@ -65,6 +76,7 @@ fn select_startup(
     mut done: Local<bool>,
 ) {
     let expected = usize::from(st.cache.is_some()) + st.packs.len();
+    // Wait until every startup source has either opened or failed.
     if *done || sources.pending() > 0 || sources.list.len() + sources.errors.len() < expected {
         return;
     }

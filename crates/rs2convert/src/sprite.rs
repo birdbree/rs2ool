@@ -12,9 +12,12 @@ use rs2cache::{Records, archive};
 
 use crate::ConvertError;
 
+/// Base of the font glyph record ids: `GLYPH_BASE | font << 8 | glyph`.
 pub const GLYPH_BASE: u32 = 0x0100_0000;
+/// Base of the font metrics record ids: `METRICS_BASE | font`.
 pub const METRICS_BASE: u32 = 0x0200_0000;
 
+/// One record per sub-sprite of `sheet`, all tagged with `name_hash`.
 fn records_of(sheet: &SpriteSheet, name_hash: u32) -> Vec<SpriteRecord> {
     sheet
         .sprites
@@ -34,6 +37,10 @@ fn records_of(sheet: &SpriteSheet, name_hash: u32) -> Vec<SpriteRecord> {
 
 /// Convert every sprite of the given archives (media and/or title) and,
 /// when the title archive is included, every font.
+///
+/// Sprite records carry the jag hash of their archive entry name; glyphs
+/// carry the hash of `<font name>.dat`. Fails if a font's metric tables
+/// aren't the expected length.
 pub fn pack(
     records: &Records,
     archives: &[u8],

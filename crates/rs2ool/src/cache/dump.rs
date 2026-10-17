@@ -1,4 +1,26 @@
-//! `cachedump dump` and `decode`.
+//! `rs2ool cache dump` and `rs2ool cache decode`: records out to files.
+//!
+//! Where things land, under the output directory:
+//!
+//! ```text
+//! idx<N>/<id>.bin              --index, inflated (stored with --raw)
+//! archive<N>/<entry name>      --archive, one file per entry
+//! archive<N>/<N>.jag           --archive --raw, the whole archive file
+//! <type>/<id>.json             decoded records
+//! sprite/<id>-<archive>-<entry>-<i>.png
+//! texture/<id>.png, font/<name>.png + .metrics.json, midi/<id>.mid
+//! map/<rx>_<ry>.json           decoded region
+//! map/<rx>_<ry>.{m,l}.bin      region tile and location files
+//! interface/tree.json          the interface roots with children nested
+//! <type>.jsonl                 --jsonl, one line per record
+//! versionlist.json             --archive versionlist --decode
+//! <any of the above>.meta.json sidecars, with --meta or --meta-only
+//! manifest.json
+//! ```
+//!
+//! Records are written in parallel. A record that fails goes in the
+//! manifest's failures and the run keeps going; an absent id is only
+//! counted.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +39,8 @@ use crate::cache::select::usage;
 use crate::cache::xref::Xref;
 use crate::cache::{DumpArgs, Outcome, groups};
 
+/// What every writer needs, bundled so it can be shared across rayon
+/// workers.
 struct Ctx<'a> {
     records: &'a Records<'a>,
     out: &'a Output,
@@ -25,6 +49,7 @@ struct Ctx<'a> {
     quiet: bool,
 }
 
+/// A progress bar on stderr for `n` items, or a hidden one when quiet.
 fn progress(n: usize, what: &str, quiet: bool) -> ProgressBar {
     if quiet {
         return ProgressBar::hidden();
@@ -38,6 +63,13 @@ fn progress(n: usize, what: &str, quiet: bool) -> ProgressBar {
     bar
 }
 
+/// Runs a dump and writes `manifest.json`.
+///
+/// Fails with a [`UsageError`](crate::cache::select::UsageError) for a
+/// selection that makes no sense (see the checks below and in
+/// [`IdArgs::resolve`](crate::cache::IdArgs::resolve)) and with a plain
+/// error when the output directory or manifest can't be written. Records
+/// that fail individually only turn the result into [`Outcome::Partial`].
 pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
     let mode = if args.out.meta_only {
         MetaMode::Only
@@ -69,6 +101,8 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
         ));
     }
     if let Some(index) = s.index {
+        // Every slot of the index, empty or not; empty ones come out as
+        // absent.
         let available: Vec<u32> = records
             .cache()
             .entries(index)
@@ -107,6 +141,7 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
         dump_types(&ctx, t, &ids);
     } else if s.region.is_some() || s.all_regions {
         let ids: Vec<u32> = match s.region {
+            // Map ids pack the region as `rx << 8 | ry`.
             Some((x, y)) => vec![u32::from(x) << 8 | u32::from(y)],
             None => records.ids(RecordType::Map)?,
         };
@@ -117,6 +152,7 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
         }
     } else if let Some(g) = &s.group {
         let deps = groups::resolve(records, g)?;
+        // Batch by type so each type gets one progress bar and one .jsonl.
         let mut by_type: BTreeMap<RecordType, Vec<u32>> = BTreeMap::new();
         for (t, id) in deps {
             by_type.entry(t).or_default().push(id);
@@ -136,7 +172,8 @@ pub fn run(records: &Records, args: &DumpArgs) -> anyhow::Result<Outcome> {
     })
 }
 
-/// Path stem (no extension) for a record's outputs.
+/// Path stem (no extension) for a record's outputs, relative to the
+/// output directory.
 fn stem(records: &Records, t: RecordType, id: u32) -> anyhow::Result<String> {
     Ok(match t {
         RecordType::Map => format!("map/{}_{}", id >> 8, id & 0xff),
@@ -154,9 +191,12 @@ fn stem(records: &Records, t: RecordType, id: u32) -> anyhow::Result<String> {
     })
 }
 
-/// Decode and write records of one type, in parallel.
+/// Decodes and writes records of one type, in parallel. Failures go in
+/// the manifest rather than back to the caller.
 fn dump_types(ctx: &Ctx, t: RecordType, ids: &[u32]) {
     let bar = progress(ids.len(), t.name(), ctx.quiet);
+    // With --jsonl each worker hands back its record's line; otherwise
+    // everything is `None` and the files are already written.
     let lines: Vec<Option<(u32, String)>> = ids
         .par_iter()
         .map(|&id| {
@@ -178,6 +218,7 @@ fn dump_types(ctx: &Ctx, t: RecordType, ids: &[u32]) {
         .collect();
     bar.finish_and_clear();
     if ctx.jsonl && ctx.out.meta != MetaMode::Only {
+        // `par_iter().collect()` keeps id order, so the file is stable.
         let mut text = String::new();
         for (_, line) in lines.into_iter().flatten() {
             text.push_str(&line);
@@ -199,6 +240,8 @@ fn dump_types(ctx: &Ctx, t: RecordType, ids: &[u32]) {
     }
 }
 
+/// Adds `--xref` reverse references to a sidecar: a model's textures, and
+/// a texture's models. Leaves it alone without `--xref`.
 fn enrich(ctx: &Ctx, t: RecordType, id: u32, meta: &mut Meta) {
     let Some(x) = ctx.xref else { return };
     match &mut meta.summary {
@@ -231,6 +274,7 @@ fn dump_one(ctx: &Ctx, t: RecordType, id: u32) -> anyhow::Result<Option<String>>
     }
     match &record {
         Record::Texture(s) => {
+            // Textures are stored trimmed; write them on their full canvas.
             let full = s.untrimmed(0).context("texture has no sprite")?;
             let sheet = rs2cache::types::sprite::SpriteSheet {
                 sprites: vec![full],
@@ -280,14 +324,17 @@ fn dump_one(ctx: &Ctx, t: RecordType, id: u32) -> anyhow::Result<Option<String>>
     Ok(None)
 }
 
-/// Lay a font's 256 glyphs out 16 × 16, each at its draw offsets.
+/// Lays a font's 256 glyphs out 16 × 16, each at its draw offsets.
+/// Returns `(width, height, rgba)`.
 fn glyph_sheet(f: &Font) -> (u32, u32, Vec<u8>) {
     let g = &f.glyphs.sprites;
+    // Cell width: the widest glyph plus a 2-pixel gap.
     let cw = g
         .iter()
         .map(|s| usize::from(s.width) + 2)
         .max()
         .unwrap_or(1);
+    // Cell height: the tallest glyph including its y offset.
     let ch = g
         .iter()
         .map(|s| usize::from(s.height) + usize::from(s.y_offset))
@@ -299,6 +346,8 @@ fn glyph_sheet(f: &Font) -> (u32, u32, Vec<u8>) {
         let Some(rgba) = f.glyphs.rgba(i) else {
             continue;
         };
+        // Top-left of glyph `i` in the sheet: its cell, nudged by the
+        // glyph's own offsets (a negative x offset is clamped to 0).
         let (ox, oy) = (
             (i % 16) * cw + f.draw_offset_x[i].max(0) as usize,
             (i / 16) * ch + usize::from(s.y_offset),
@@ -307,6 +356,7 @@ fn glyph_sheet(f: &Font) -> (u32, u32, Vec<u8>) {
             for x in 0..usize::from(s.width) {
                 let src = (y * usize::from(s.width) + x) * 4;
                 let dst = ((oy + y) * w + ox + x) * 4;
+                // An x offset can push a pixel past the sheet; drop it.
                 if dst + 4 <= out.len() {
                     out[dst..dst + 4].copy_from_slice(&rgba[src..src + 4]);
                 }
@@ -325,6 +375,8 @@ fn write_interface_tree(ctx: &Ctx, ids: &[u32]) -> anyhow::Result<()> {
             all.insert(i.id, i);
         }
     }
+    // One component as JSON, with a layer's children nested inside it,
+    // each carrying its x/y within the parent.
     fn node(
         all: &BTreeMap<u16, rs2cache::types::interface::Interface>,
         id: u16,
@@ -371,10 +423,15 @@ fn write_interface_tree(ctx: &Ctx, ids: &[u32]) -> anyhow::Result<()> {
     ctx.out.json("interface/tree.json", &roots, &prov)
 }
 
+/// Writes index files as `idx<N>/<id>.bin`, inflated unless `raw`.
+///
+/// For indices 1–3 the sidecar is the decoded record's (model, anim,
+/// midi); otherwise it's the plain file metadata.
 fn dump_index(ctx: &Ctx, index: u8, ids: &[u32], raw: bool) {
     let cache = ctx.records.cache();
     let bar = progress(ids.len(), &format!("idx{index}"), ctx.quiet);
     ids.par_iter().for_each(|&id| {
+        // A closure so `?` works and every error lands in one place below.
         let r = (|| -> anyhow::Result<()> {
             let fm = index_file(cache, index, id)?;
             let prov = Provenance {
@@ -408,6 +465,7 @@ fn dump_index(ctx: &Ctx, index: u8, ids: &[u32], raw: bool) {
         })();
         bar.inc(1);
         if let Err(e) = r {
+            // An empty slot can surface as either error type.
             let absent = e.downcast_ref::<rs2cache::Error>().is_some_and(is_absent)
                 || e.downcast_ref::<rs2cache::CacheError>()
                     .is_some_and(|c| matches!(c, rs2cache::CacheError::Absent { .. }));
@@ -421,6 +479,9 @@ fn dump_index(ctx: &Ctx, index: u8, ids: &[u32], raw: bool) {
     bar.finish_and_clear();
 }
 
+/// Writes each region's tile (`.m.bin`) and location (`.l.bin`) files from
+/// index 4, inflated unless `raw`. These go one region at a time, without
+/// a progress bar, and a missing region is a failure, not an absence.
 fn dump_region_files(ctx: &Ctx, ids: &[u32], raw: bool) {
     let cache = ctx.records.cache();
     for &id in ids {
@@ -477,6 +538,12 @@ fn archive_types(n: u8) -> &'static [RecordType] {
     }
 }
 
+/// Dumps one archive of index 0.
+///
+/// With `raw`, the whole stored archive file. With `decode`, the record
+/// types it holds (see [`archive_types`]), or `versionlist.json` for the
+/// versionlist. Otherwise every entry, or just `entry`, as a file named
+/// after it.
 fn dump_archive(
     ctx: &Ctx,
     n: u8,
@@ -522,6 +589,7 @@ fn dump_archive(
         for &t in types {
             let mut ids = ctx.records.ids(t)?;
             if t == RecordType::Sprite {
+                // Sprite ids span the title and media archives; keep this one's.
                 ids.retain(|&id| ctx.records.sprite_source(id).is_ok_and(|(a, _)| a == n));
             }
             dump_types(ctx, t, &ids);
@@ -529,6 +597,7 @@ fn dump_archive(
         return Ok(());
     }
     let a = ctx.records.archive(n)?;
+    // `--entry` is matched by name hash, so `#hash` works for unnamed ones.
     let wanted = entry.map(EntryName::parse);
     let mut found = false;
     for e in &a.entries {

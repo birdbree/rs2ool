@@ -1,5 +1,9 @@
 //! Whole-creature conversion: model, rig, clips and validation, shared by
-//! `rs2conv` and the explorer so both produce byte-identical packs.
+//! `rs2ool pack` and the explorer so both produce byte-identical packs.
+//!
+//! [`convert`] does one [`Creature`]; [`player_kit`] assembles the
+//! identity-kit parts and the default body. Record ids for everything that
+//! doesn't come straight from a cache id are in [`ids`].
 
 use std::collections::BTreeMap;
 
@@ -29,7 +33,8 @@ pub mod ids {
     pub const PLAYER_MODEL: u32 = 0x3000_0000;
     /// The player rig's id; NPC rigs use the NPC id.
     pub const PLAYER_RIG: u32 = 0xFFFF;
-    /// Clip id for sequence `s` on rig `r`.
+    /// Clip id for sequence `seq` on rig `rig`: the rig in the high 16 bits,
+    /// the sequence in the low 16.
     pub fn clip(rig: u32, seq: u32) -> u32 {
         rig << 16 | seq
     }
@@ -37,39 +42,57 @@ pub mod ids {
 
 /// A converted creature.
 pub struct CreatureOutput {
+    /// The creature it came from.
     pub creature: Creature,
+    /// The merged model with scale baked in, as a pack model.
     pub model: PackModel,
+    /// The rig as inferred, with names, label sets and cache-space pivots.
     pub inferred: InferredRig,
+    /// The rig record, after an encode and decode round trip.
     pub rig: Rig,
+    /// `(clip id, clip, report)` per sequence, clips round-tripped like the
+    /// rig. Empty without animations.
     pub clips: Vec<(u32, Clip, ClipReport)>,
 }
 
 /// What `validation.json` holds for a creature.
 #[derive(Debug, Serialize)]
 pub struct ValidationFile<'a> {
+    /// The creature's name.
     pub creature: &'a str,
+    /// Every bone, root first.
     pub bones: Vec<BoneSummary<'a>>,
+    /// Largest clip `max`, 0 with no clips.
     pub max: f64,
+    /// Whether any clip is flagged.
     pub flagged: bool,
+    /// Each clip's report.
     pub clips: Vec<&'a ClipReport>,
 }
 
+/// One bone in `validation.json`.
 #[derive(Debug, Serialize)]
 pub struct BoneSummary<'a> {
+    /// The bone's name.
     pub name: &'a str,
+    /// Parent bone index, `None` for the root.
     pub parent: Option<usize>,
+    /// The bone's label set, sorted.
     pub labels: Vec<u8>,
 }
 
 impl CreatureOutput {
+    /// The worst vertex error over every clip (0 with no clips).
     pub fn max_error(&self) -> f64 {
         self.clips.iter().map(|c| c.2.max).fold(0.0, f64::max)
     }
 
+    /// Whether any clip went over the validation threshold.
     pub fn flagged(&self) -> bool {
         self.clips.iter().any(|c| c.2.flagged)
     }
 
+    /// The contents of this creature's `validation.json`.
     pub fn validation(&self) -> ValidationFile<'_> {
         ValidationFile {
             creature: &self.creature.name,
@@ -89,7 +112,8 @@ impl CreatureOutput {
         }
     }
 
-    /// Add this creature's records to the three writers.
+    /// Add this creature's records to the three writers: the model as
+    /// `model_id`, the rig as `rig_id`, and each clip under its own id.
     pub fn write(
         &self,
         model_id: u32,
@@ -107,8 +131,11 @@ impl CreatureOutput {
     }
 }
 
-/// Convert an assembled creature. Clips are validated from their encoded
-/// records, so the report reflects exactly what the client will read.
+/// Convert an assembled creature: model, rig and, with `with_anims`, a
+/// validated clip per sequence.
+///
+/// The rig and clips are encoded and decoded before validation, so the
+/// report describes exactly what ends up in the pack.
 pub fn convert(
     creature: Creature,
     palette: &Palette,
@@ -137,7 +164,7 @@ pub fn convert(
     })
 }
 
-/// Empty writers for a creature run.
+/// Empty `(models, rigs, anims)` writers for a creature run.
 pub fn writers(source_cache_crc: u32) -> (PackWriter, PackWriter, PackWriter) {
     (
         PackWriter::new(Kind::Models, source_cache_crc),
@@ -155,21 +182,28 @@ pub const PLAYER_SEQUENCES: [u16; 7] = [808, 823, 819, 820, 821, 822, 824];
 /// under `kit_parts`.
 #[derive(Debug, Clone, Serialize)]
 pub struct KitPart {
+    /// The identity-kit id.
     pub idk: u32,
+    /// Body slot, 0–6 (the cache's body part modulo 7).
     pub slot: u8,
+    /// 0 for the male set, 1 for the female set (body part / 7).
     pub body_type: u8,
+    /// Always 0 for now.
     pub hide_mask: u16,
+    /// Whether the definition marks the part as selectable.
     pub selectable: bool,
 }
 
-/// The identity-kit parts, each as a merged model record, plus the default
-/// male body (the first selectable part of each slot 0–6) assembled as a
-/// creature with the player stance sequences.
+/// The identity-kit parts, each as a merged model, plus the default male
+/// body (the first selectable part of each slot 0–6) assembled as a
+/// creature with the player stance sequences. Parts with no body part are
+/// skipped.
 pub fn player_kit(
     records: &Records,
     index: &FrameIndex,
 ) -> Result<(Vec<(KitPart, rs2cache::types::model::Model)>, Creature), ConvertError> {
     let mut parts = Vec::new();
+    // Default body: first selectable part per male slot (body part 0–6).
     let mut default: BTreeMap<u8, rs2cache::types::model::Model> = BTreeMap::new();
     for id in records.ids(RecordType::Idk)? {
         let Record::Idk(d) = records.decode(RecordType::Idk, id)? else {

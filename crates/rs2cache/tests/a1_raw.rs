@@ -1,4 +1,4 @@
-//! Phase A1 check: every file in every index reads without error.
+//! Every file in every index reads without a sector error.
 
 mod common;
 

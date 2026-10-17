@@ -1,5 +1,9 @@
 //! The two codecs a 317 cache uses: gzip for index 1–4 files and headerless
 //! bzip2 inside jag archives.
+//!
+//! Index 1–4 files are gzip when they start with `1f 8b`, and stored as is
+//! otherwise. Jag archives drop the `BZh1` stream header, so
+//! [`bunzip`] puts it back before decoding.
 
 use std::io::Read;
 
@@ -9,13 +13,17 @@ use thiserror::Error;
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// Jag archives strip the 4-byte bzip2 stream header (`BZh` plus the block
-/// size digit); the client always compresses with 100 kB blocks.
+/// size digit). The original client always compresses with 100 kB blocks,
+/// so the digit is always 1.
 const BZIP2_HEADER: &[u8; 4] = b"BZh1";
 
+/// A stream that wouldn't decompress.
 #[derive(Debug, Error)]
 pub enum CompressError {
+    /// The gzip stream is corrupt or truncated.
     #[error("gzip stream is corrupt: {0}")]
     Gzip(std::io::Error),
+    /// The bzip2 stream is corrupt or truncated.
     #[error("bzip2 stream is corrupt: {0}")]
     Bzip2(std::io::Error),
 }
@@ -23,11 +31,15 @@ pub enum CompressError {
 /// Which codec a stored file used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
+    /// Stored as is.
     None,
+    /// Gzip (index 1–4 files).
     Gzip,
+    /// Headerless bzip2 (jag archives).
     Bzip2,
 }
 
+/// Whether `data` starts with the gzip magic `1f 8b`.
 pub fn is_gzip(data: &[u8]) -> bool {
     data.starts_with(&GZIP_MAGIC)
 }
@@ -37,6 +49,7 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, CompressError> {
     if !is_gzip(data) {
         return Ok(data.to_vec());
     }
+    // A rough guess at the inflated size, to save a few reallocations.
     let mut out = Vec::with_capacity(data.len() * 4);
     GzDecoder::new(data)
         .read_to_end(&mut out)

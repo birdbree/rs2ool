@@ -1,11 +1,23 @@
 //! Jag archives: the files of index 0.
 //!
-//! Header `{uncompressed u24, compressed u24}`. When the two differ, the rest
-//! of the file is one headerless bzip2 stream holding the entry table and
-//! data, and entries are stored plain inside it. Otherwise the entry table is
-//! plain and every entry is bzip2'd on its own. The table is `count u16` then
-//! per entry `{nameHash i32, uncompressed u24, compressed u24}`; entry data
-//! follows the table in order, each taking its compressed size.
+//! ```text
+//! uncompressed   u24
+//! compressed     u24
+//! body           the rest of the file
+//!
+//! body (after bunzip if the archive is packed as a whole)
+//!   count        u16
+//!   per entry:
+//!     nameHash       i32   see jag_hash
+//!     uncompressed   u24
+//!     compressed     u24
+//!   entry data, in table order, each taking its compressed size
+//! ```
+//!
+//! When the two header sizes differ, the body is one headerless bzip2 stream
+//! and the entries inside it are stored plain. When they match, the body is
+//! plain and every entry is bzip2'd on its own. Entries are found by the
+//! hash of their name; the names themselves aren't stored.
 
 use std::fmt;
 
@@ -14,14 +26,21 @@ use thiserror::Error;
 use crate::compress::{self, CompressError};
 use crate::io::{Cursor, IoError};
 
-/// Archive numbers in index 0.
+/// Title archive: title-screen images and the four fonts.
 pub const TITLE: u8 = 1;
+/// Config archive: `loc.dat`, `npc.dat`, `seq.dat` and the rest.
 pub const CONFIG: u8 = 2;
+/// Interface archive: the single `data` entry.
 pub const INTERFACE: u8 = 3;
+/// Media archive: game-screen sprites.
 pub const MEDIA: u8 = 4;
+/// Versionlist archive: per-file versions, CRCs and `map_index`.
 pub const VERSIONLIST: u8 = 5;
+/// Textures archive: `0.dat` to `49.dat` plus `index.dat`.
 pub const TEXTURES: u8 = 6;
+/// Word-filter archive.
 pub const WORDENC: u8 = 7;
+/// Sound effects archive.
 pub const SOUNDS: u8 = 8;
 
 /// `(number, name)` for every archive in index 0. Archive 0 is unused.
@@ -47,6 +66,7 @@ pub fn archive_by_name(name: &str) -> Option<u8> {
         .map(|&(a, _)| a)
 }
 
+/// The name of archive number `archive` (`2` gives `"config"`).
 pub fn archive_name(archive: u8) -> Option<&'static str> {
     ARCHIVES
         .iter()
@@ -108,8 +128,9 @@ const TEXTURE_NAMES: [&str; 51] = [
     "index.dat",
 ];
 
-/// Entry names the 317 client looks up, per archive. Entries whose hash is
-/// not in this table are still readable by hash.
+/// Entry names the original client looks up, per archive, plus a few found
+/// elsewhere. Entries whose hash isn't in this table can still be read by
+/// hash.
 pub fn known_names(archive: u8) -> &'static [&'static str] {
     match archive {
         TITLE => &[
@@ -137,7 +158,7 @@ pub fn known_names(archive: u8) -> &'static [&'static str] {
             "spotanim.dat",
             "varp.dat",
             "varbit.dat",
-            // Present in the archive but not read by the 317 client.
+            // Present in the archive but never read by the original client.
             "idk.idx",
             "flo.idx",
             "seq.idx",
@@ -255,7 +276,8 @@ pub fn known_names(archive: u8) -> &'static [&'static str] {
     }
 }
 
-/// The jag name hash: uppercase, then `h = h * 61 + (c - 32)` wrapping.
+/// The jag name hash: uppercase, then `h = h * 61 + (c - 32)` with wrapping
+/// 32-bit arithmetic.
 pub fn jag_hash(name: &str) -> i32 {
     name.bytes().fold(0i32, |h, c| {
         h.wrapping_mul(61)
@@ -267,11 +289,14 @@ pub fn jag_hash(name: &str) -> i32 {
 /// How an archive entry is addressed: by name (hashed) or by raw hash.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EntryName {
+    /// A name such as `"loc.dat"`; looked up by its [`jag_hash`].
     Named(String),
+    /// A raw name hash, for entries whose name isn't known.
     Hash(i32),
 }
 
 impl EntryName {
+    /// The name hash this refers to.
     pub fn hash(&self) -> i32 {
         match self {
             Self::Named(n) => jag_hash(n),
@@ -298,18 +323,31 @@ impl fmt::Display for EntryName {
     }
 }
 
+/// An archive that wouldn't decode.
 #[derive(Debug, Error)]
 pub enum ArchiveError {
+    /// The header, table or an entry's data ran out.
     #[error("truncated archive: {0}")]
     Truncated(#[from] IoError),
+    /// A bzip2 stream was corrupt.
     #[error(transparent)]
     Compress(#[from] CompressError),
+    /// The whole-archive stream inflated to the wrong size.
     #[error("whole-archive bzip2 inflated to {got} bytes, header says {expected}")]
-    WholeSize { expected: usize, got: usize },
+    WholeSize {
+        /// Size from the archive header.
+        expected: usize,
+        /// Size actually produced.
+        got: usize,
+    },
+    /// An entry came out a different size from what the table says.
     #[error("entry {hash}: inflated to {got} bytes, table says {expected}")]
     EntrySize {
+        /// The entry's name hash.
         hash: i32,
+        /// Uncompressed size from the table.
         expected: usize,
+        /// Size actually produced.
         got: usize,
     },
 }
@@ -317,17 +355,22 @@ pub enum ArchiveError {
 /// One decoded entry.
 #[derive(Debug, Clone)]
 pub struct Entry {
+    /// The entry's name hash, as stored.
     pub hash: i32,
     /// The name, when its hash is in [`known_names`].
     pub name: Option<&'static str>,
+    /// Uncompressed size from the table.
     pub uncompressed_size: u32,
+    /// Stored size from the table.
     pub compressed_size: u32,
     /// Whether this entry was bzip2'd on its own.
     pub compressed: bool,
+    /// The unpacked bytes.
     pub data: Vec<u8>,
 }
 
 impl Entry {
+    /// The entry's name if known, otherwise its hash.
     pub fn entry_name(&self) -> EntryName {
         match self.name {
             Some(n) => EntryName::Named(n.to_owned()),
@@ -336,10 +379,12 @@ impl Entry {
     }
 }
 
+/// A decoded jag archive: every entry, unpacked.
 #[derive(Debug, Clone)]
 pub struct Archive {
     /// Whether the archive was bzip2'd as a whole.
     pub whole_compressed: bool,
+    /// Entries in table order.
     pub entries: Vec<Entry>,
 }
 
@@ -348,9 +393,11 @@ impl Archive {
     /// `None` to leave every entry unnamed.
     pub fn decode(data: &[u8], archive: Option<u8>) -> Result<Self, ArchiveError> {
         let mut c = Cursor::new(data);
+        // Header sizes: equal means "body stored plain".
         let uncompressed = c.u24()? as usize;
         let compressed = c.u24()? as usize;
         let whole_compressed = uncompressed != compressed;
+        // Declared out here so `body` can borrow it.
         let inflated;
         let body: &[u8] = if whole_compressed {
             inflated = compress::bunzip(&data[c.pos()..])?;
@@ -370,13 +417,16 @@ impl Archive {
         let count = c.u16()?;
         let mut table = Vec::with_capacity(count.into());
         for _ in 0..count {
+            // (name hash, uncompressed size, stored size)
             table.push((c.i32()?, c.u24()?, c.u24()?));
         }
         let mut entries = Vec::with_capacity(table.len());
+        // Entry data starts right after the table and runs in table order.
         for (hash, usize_, csize) in table {
             let stored = c.bytes(csize as usize)?;
             let data = if whole_compressed {
-                // Stored plain; the client copies the uncompressed size.
+                // Stored plain; like the original client, take the
+                // uncompressed size from the front of the stored bytes.
                 Cursor::new(stored).bytes(usize_ as usize)?.to_vec()
             } else {
                 compress::bunzip(stored)?
@@ -403,6 +453,7 @@ impl Archive {
         })
     }
 
+    /// The entry a name or hash refers to.
     pub fn entry(&self, name: &EntryName) -> Option<&Entry> {
         let hash = name.hash();
         self.entries.iter().find(|e| e.hash == hash)
@@ -465,7 +516,7 @@ mod tests {
 
     #[test]
     fn hash_matches_known_constants() {
-        // Computed independently from the client's formula.
+        // Computed independently from the original client's formula.
         assert_eq!(jag_hash("loc.dat"), 682_978_269);
         assert_eq!(jag_hash("obj.idx"), -1_667_598_946);
         assert_eq!(jag_hash("loc.dat"), jag_hash("LOC.DAT"));

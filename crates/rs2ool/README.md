@@ -1,6 +1,6 @@
 # rs2ool
 
-Reads a RuneScape 2 revision-317 cache, converts it into the low-poly client's content packs, and browses both. It only reads the cache and writes to the output directory you give it.
+Reads an RS2 revision-317 cache, converts its records into content packs, and browses both. It only reads the cache and writes to the output directory you give it. No cache is included in the repository; point it at your own copy.
 
 - `rs2ool cache …` lists, extracts, decodes and verifies the cache.
 - `rs2ool pack …` converts records into packs, and inspects and builds packs.
