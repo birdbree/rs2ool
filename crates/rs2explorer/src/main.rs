@@ -10,7 +10,7 @@ use bevy_egui::EguiPlugin;
 
 use rs2explorer::selection::{Sel, Selected};
 use rs2explorer::sources::{Kind, Sources};
-use rs2explorer::{classic, jobs, selection, sources, tree, ui, viewport3d};
+use rs2explorer::{classic, jobs, map_view, selection, sources, tree, ui, viewport3d};
 use rs2intermediate::record::RecordType;
 
 /// `rs2explorer [cache-dir] [--select type:id] [--classic]`: open a cache at startup
@@ -94,6 +94,7 @@ fn main() {
             tree::plugin,
             viewport3d::plugin,
             classic::plugin,
+            map_view::plugin,
             jobs::plugin,
         ))
         .insert_resource(parse_args())

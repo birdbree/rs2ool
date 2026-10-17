@@ -93,18 +93,39 @@ fn definitions_draw_their_models() {
         return;
     };
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, sources::plugin, selection::plugin, tree::plugin));
-    app.world_mut().resource_mut::<Sources>().open_path(Kind::Cache, dir);
+    app.add_plugins((
+        MinimalPlugins,
+        sources::plugin,
+        selection::plugin,
+        tree::plugin,
+    ));
+    app.world_mut()
+        .resource_mut::<Sources>()
+        .open_path(Kind::Cache, dir);
     pump(&mut app, |w| !w.resource::<Sources>().list.is_empty());
-    for (t, id, min_faces) in [(RecordType::Npc, 1, 400), (RecordType::Loc, 1276, 50), (RecordType::Obj, 1038, 10)] {
-        *app.world_mut().resource_mut::<Selected>() = Selected { source: Some(0), sel: Some(Sel::Record(t, id)) };
+    for (t, id, min_faces) in [
+        (RecordType::Npc, 1, 400),
+        (RecordType::Loc, 1276, 50),
+        (RecordType::Obj, 1038, 10),
+    ] {
+        *app.world_mut().resource_mut::<Selected>() = Selected {
+            source: Some(0),
+            sel: Some(Sel::Record(t, id)),
+        };
         pump(&mut app, |w| {
             let l = w.resource::<Loaded>();
-            l.for_sel.as_ref().is_some_and(|(_, s)| *s == Sel::Record(t, id)) && !l.is_loading()
+            l.for_sel
+                .as_ref()
+                .is_some_and(|(_, s)| *s == Sel::Record(t, id))
+                && !l.is_loading()
         });
         let loaded = app.world().resource::<Loaded>();
-        let Some(data) = &loaded.data else { panic!("{t} {id}: {:?}", loaded.error) };
-        let rs2explorer::selection::LoadedData::Record { preview, .. } = &**data else { panic!() };
+        let Some(data) = &loaded.data else {
+            panic!("{t} {id}: {:?}", loaded.error)
+        };
+        let rs2explorer::selection::LoadedData::Record { preview, .. } = &**data else {
+            panic!()
+        };
         let faces = preview.as_ref().map_or(0, |m| m.faces.len());
         assert!(faces >= min_faces, "{t} {id} draws {faces} faces");
     }

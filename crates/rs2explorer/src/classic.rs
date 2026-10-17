@@ -154,7 +154,9 @@ fn draw(
     orbit: Query<&OrbitCamera>,
     window: Single<&Window, With<PrimaryWindow>>,
 ) -> Result {
-    if *mode != RenderMode::Classic {
+    // Without a single model to draw (a map region, say), leave the
+    // viewport to the Bevy renderer.
+    if *mode != RenderMode::Classic || view.model.is_none() {
         return Ok(());
     }
     let ctx = contexts.ctx_mut()?.clone();

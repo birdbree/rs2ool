@@ -171,7 +171,9 @@ fn start(selected: Res<Selected>, sources: Res<Sources>, mut loaded: ResMut<Load
 }
 
 fn poll(mut loaded: ResMut<Loaded>) {
-    let Some((_, task)) = &mut loaded.pending else {
+    // Poll without marking `Loaded` changed: systems that react to a new
+    // selection must only see a change when the result lands.
+    let Some((_, task)) = &mut loaded.bypass_change_detection().pending else {
         return;
     };
     let Some(result) = block_on(poll_once(task)) else {

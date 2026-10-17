@@ -76,3 +76,27 @@ pub fn model_for(records: &Records, record: &Record) -> Result<Option<Model>, Co
         _ => Ok(None),
     }
 }
+
+/// The model a location definition draws for placement type `kind`, as the
+/// client picks it: the typed model for that type, or (for definitions with
+/// untyped models) the merged models when the type is 10 or 11.
+pub fn location_model(
+    records: &Records,
+    def: &rs2intermediate::config::LocDef,
+    kind: u8,
+) -> Result<Option<Model>, ConvertError> {
+    let untyped = def.models.iter().all(|m| m.kind.is_none());
+    // Type 11 is a rotated type 10 in the client.
+    let want = if kind == 11 { 10 } else { kind };
+    if untyped && want != 10 {
+        return Ok(None);
+    }
+    let models = crate::object::models_of(records, def)?;
+    Ok(models
+        .into_iter()
+        .find(|(k, _)| *k == want)
+        .map(|(_, mut m)| {
+            recolour(&mut m, &def.recolours);
+            m
+        }))
+}

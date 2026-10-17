@@ -265,6 +265,7 @@ struct UiState<'w> {
     overlays: ResMut<'w, Overlays>,
     classic: ResMut<'w, ClassicView>,
     nav: ResMut<'w, Nav>,
+    world: ResMut<'w, crate::map_view::WorldMap>,
 }
 
 fn layout(
@@ -298,6 +299,8 @@ fn layout(
                         ui.radio_value(&mut *st.lighting, LightingMode::Real, "Engine lighting");
                         ui.checkbox(&mut st.overlays.labels, "Colour by vertex label");
                     });
+                    ui.separator();
+                    ui.checkbox(&mut st.world.open, "World map");
                     ui.add_enabled_ui(*st.render_mode == RenderMode::Classic, |ui| {
                         ui.label("Classic pixel size");
                         ui.add(egui::Slider::new(&mut st.classic.scale, 1..=4).suffix("×"));
