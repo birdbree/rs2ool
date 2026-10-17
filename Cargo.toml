@@ -12,6 +12,7 @@ publish = false
 rs2cache = { path = "crates/rs2cache" }
 rs2intermediate = { path = "crates/rs2intermediate" }
 bzip2 = "0.5"
+crc32fast = "1"
 flate2 = "1"
 memmap2 = "0.9"
 proptest = "1"

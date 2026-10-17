@@ -258,3 +258,42 @@ pub struct FloDef {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_opcodes: Vec<u8>,
 }
+
+/// `varp.dat`: a player variable. Only op 5 has a known meaning; the other
+/// opcodes are kept under their numbers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VarpDef {
+    pub id: u32,
+    /// Op 5: selects client-side behaviour driven by this variable.
+    pub client_code: Option<u16>,
+    pub op1: Option<u8>,
+    pub op2: Option<u8>,
+    /// Op 3: the client lists this varp in a separate table.
+    pub op3: bool,
+    pub op4: bool,
+    pub op6: bool,
+    pub op7: Option<i32>,
+    /// Ops 8 and 11 (and any varbit with op 2) set the same client flag.
+    pub flagged: bool,
+    pub op10: Option<String>,
+    pub op12: Option<i32>,
+    pub op13: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_opcodes: Vec<u8>,
+}
+
+/// `varbit.dat`: a bit range of a varp.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VarbitDef {
+    pub id: u32,
+    pub varp: u16,
+    pub lsb: u8,
+    pub msb: u8,
+    /// Op 2: marks the varp as flagged.
+    pub flags_varp: bool,
+    pub op3: Option<i32>,
+    pub op4: Option<i32>,
+    pub op10: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_opcodes: Vec<u8>,
+}

@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 rs2intermediate.workspace = true
 bzip2.workspace = true
+crc32fast.workspace = true
 flate2.workspace = true
 memmap2.workspace = true
 thiserror.workspace = true

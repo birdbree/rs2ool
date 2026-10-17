@@ -7,3 +7,4 @@ pub mod interface;
 pub mod map;
 pub mod model;
 pub mod sprite;
+pub mod versionlist;

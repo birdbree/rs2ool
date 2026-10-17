@@ -413,6 +413,7 @@ name = "rs2cache"
 version = "0.1.0"
 dependencies = [
  "bzip2",
+ "crc32fast",
  "flate2",
  "insta",
  "memmap2",

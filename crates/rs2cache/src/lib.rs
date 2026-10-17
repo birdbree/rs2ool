@@ -12,6 +12,7 @@ pub mod io;
 pub mod map;
 pub mod model;
 pub mod sprite;
+pub mod versionlist;
 
 pub use archive::{Archive, ArchiveError, EntryName};
 pub use cache::{Cache, CacheError, IndexEntry, SectorFault, SectorVisit};
@@ -76,6 +77,20 @@ impl Cache {
         }
         anim::FrameIndex::build(packs.iter().map(|(id, d)| (*id, d.as_slice())))
             .map_err(|(id, source)| Error::Anim { id, source })
+    }
+
+    /// The versionlist tables (versions, CRCs, model/anim/midi indices).
+    pub fn versionlist(&self) -> Result<rs2intermediate::versionlist::VersionList, Error> {
+        let v = self.archive(archive::VERSIONLIST)?;
+        versionlist::decode(&v).map_err(|e| Error::Archive {
+            archive: archive::VERSIONLIST,
+            source: ArchiveError::Truncated(e),
+        })
+    }
+
+    /// Read and inflate MIDI file `id` from index 3. MIDI is not decoded.
+    pub fn midi(&self, id: u32) -> Result<Vec<u8>, Error> {
+        self.read(3, id)
     }
 
     /// The versionlist's `map_index`.

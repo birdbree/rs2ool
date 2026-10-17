@@ -17,6 +17,8 @@ pub mod npc;
 pub mod obj;
 pub mod seq;
 pub mod spotanim;
+pub mod varbit;
+pub mod varp;
 
 use rs2intermediate::config::{Morph, Recolour};
 use thiserror::Error;
