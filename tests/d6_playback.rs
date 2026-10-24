@@ -155,10 +155,12 @@ fn npc_plays_its_inferred_sequences() {
     };
     assert!(!inferred.is_empty(), "npc {npc} gets inferred sequences");
     assert!(inferred.len() <= rs2ool::explorer::renderable::INFERRED_LIMIT);
-    assert!(
-        inferred.windows(2).all(|w| w[0].score >= w[1].score),
-        "best first"
-    );
+    if !inferred[0].shared() {
+        assert!(
+            inferred.windows(2).all(|w| w[0].score >= w[1].score),
+            "best first"
+        );
+    }
     let seqs = sequences(&r);
     // Named first, inferred after, in rank order.
     let named = seqs.len() - inferred.len();
@@ -174,4 +176,34 @@ fn npc_plays_its_inferred_sequences() {
         assert!(c.role.is_some(), "seq {} has a role", c.seq);
     }
     assert!(rs2ool::explorer::playback::inferred(&r, seqs[0]).is_none());
+}
+
+/// A humanoid on the shared pool gets deaths and actions picked by role
+/// from the whole pool, deaths first.
+#[test]
+fn humanoids_get_inferred_sequences_picked_by_role() {
+    use rs2convert::infer::Role;
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let (_, r) = load(&cache, &Sel::Record(RecordType::Npc, 1)).unwrap();
+    let Some(Renderable::Creature { inferred, .. }) = &r else {
+        panic!("npc 1 plays")
+    };
+    assert!(
+        inferred.iter().all(|c| c.shared()),
+        "npc 1 is on the shared pool"
+    );
+    let roles: Vec<Role> = inferred.iter().map(|c| c.role.unwrap()).collect();
+    assert!(roles.contains(&Role::Death) && roles.contains(&Role::Action));
+    assert!(
+        roles
+            .iter()
+            .all(|r| matches!(r, Role::Death | Role::Action))
+    );
+    // Deaths come first.
+    let first_action = roles.iter().position(|&r| r == Role::Action).unwrap();
+    assert!(roles[first_action..].iter().all(|&r| r == Role::Action));
 }

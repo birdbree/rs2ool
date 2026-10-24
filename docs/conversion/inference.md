@@ -72,7 +72,18 @@ The first frame is the reference, not the rest pose, because some models are ani
 
 There's no ground truth in the cache for attacks or deaths, so the rules are checked against what is named. Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles) and other 9. Their walk sequences come out action 201 times, idle 19, other 24 and death once. 149 of the 250 creatures have a death among their top 16 candidates. `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
 
-Roles are worked out only for the candidates loaded, so in the shared humanoid pool they label 16 sequences ranked by id distance. They aren't used yet to pick which of the pool's sequences to offer.
+### Picking from a shared pool
+
+In the shared humanoid pool, id distance means almost nothing, so ranking by score would offer close to arbitrary sequences. Instead, for an NPC whose candidates come from a shared pool, the whole pool (about 1200 sequences) is posed on that NPC's own model and given roles. `pick_by_role` then takes the clearest of each useful role:
+
+- **deaths**, most collapsed first (largest `drop`);
+- **actions**, those that fit in 60 cycles (1.2 s, `SHORT_ACTION`) first, since attacks are brief, then the most motion first within each group.
+
+Idle and other sequences are left out, as the NPC's own stand and walk sequences cover those. The explorer offers 8 of each. Its own score doesn't apply to these picks, so the picker doesn't show one.
+
+Classifying the pool takes about 0.1 s per NPC in a release build, so it's done per NPC rather than cached. On four humanoids with different label layouts, the pool came out as roughly 670–770 actions, 60–64 deaths, 190–310 idles and 150–180 others, with 3 sequences that wouldn't pose. About half the actions fit in 1.2 s.
+
+How well the short-first rule finds attacks rather than other brief gestures can't be measured from the cache, which names no attacks; it's a reasonable rule, not a checked one.
 
 ### What the measurement shows
 

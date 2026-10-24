@@ -71,6 +71,8 @@ pub struct Candidate {
     pub pool: usize,
     /// What it looks like it does, once worked out with [`with_roles`].
     pub role: Option<Role>,
+    /// The motion the role was worked out from.
+    pub motion: Option<Motion>,
 }
 
 /// What a sequence looks like it does to a model, from its motion alone.
@@ -114,6 +116,9 @@ pub struct Motion {
     pub returns: f64,
     /// The largest mean vertex distance from the first frame.
     pub peak: f64,
+    /// How long one run of the sequence lasts, in client cycles (20 ms):
+    /// each frame's sequence delay, or the frame's own when that's 0.
+    pub duration: u32,
 }
 
 /// Peak motion below which a sequence counts as idle.
@@ -154,7 +159,17 @@ impl Motion {
             total / a.len().max(1) as f64
         };
         let (end_top, end_bottom) = span(last);
+        let seq = &c.sequences[s];
+        let duration = (0..n)
+            .map(|i| match seq.def.frames[i].delay {
+                0 => c
+                    .frame(seq, i)
+                    .map_or(1, |(_, f)| u32::from(f.delay.max(1))),
+                d => u32::from(d),
+            })
+            .sum();
         Some(Self {
+            duration,
             end_height: f64::from(end_bottom - end_top) / height,
             drop: f64::from(end_top - top) / height,
             returns: mean_distance(last, first) / height,
@@ -183,14 +198,52 @@ impl Motion {
 /// Fills in each candidate's role by posing creature `c` through it.
 /// Candidates whose sequence `c` doesn't have, or won't pose, keep `None`.
 pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
+    let at: BTreeMap<u32, usize> = c
+        .sequences
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.def.id, i))
+        .collect();
     for cand in candidates {
-        cand.role = c
-            .sequences
-            .iter()
-            .position(|s| s.def.id == cand.seq)
-            .and_then(|s| Motion::measure(c, s))
-            .map(|m| m.role());
+        cand.motion = at.get(&cand.seq).and_then(|&s| Motion::measure(c, s));
+        cand.role = cand.motion.map(|m| m.role());
     }
+}
+
+/// Actions at most this long (cycles, 1.2 s) come first when picking by
+/// role: attacks are brief.
+pub const SHORT_ACTION: u32 = 60;
+
+/// From candidates with roles (see [`with_roles`]), the clearest
+/// `per_role` deaths (most collapsed first) and then `per_role` actions:
+/// short ones first (see [`SHORT_ACTION`]), most motion first within
+/// each. For a shared pool, where id distance means little, this picks
+/// better than the scores do. Idle and other sequences are left out: the
+/// model's own stand and walk sequences cover those.
+pub fn pick_by_role(candidates: &[Candidate], per_role: usize) -> Vec<Candidate> {
+    let of = |role: Role| -> Vec<(Candidate, Motion)> {
+        candidates
+            .iter()
+            .filter(|c| c.role == Some(role))
+            .filter_map(|c| Some((*c, c.motion?)))
+            .collect()
+    };
+    let mut deaths = of(Role::Death);
+    deaths.sort_by(|(a, ma), (b, mb)| mb.drop.total_cmp(&ma.drop).then(a.seq.cmp(&b.seq)));
+    let mut actions = of(Role::Action);
+    actions.sort_by(|(a, ma), (b, mb)| {
+        let short = |m: &Motion| m.duration <= SHORT_ACTION;
+        short(mb)
+            .cmp(&short(ma))
+            .then(mb.peak.total_cmp(&ma.peak))
+            .then(a.seq.cmp(&b.seq))
+    });
+    deaths
+        .into_iter()
+        .take(per_role)
+        .chain(actions.into_iter().take(per_role))
+        .map(|(c, _)| c)
+        .collect()
 }
 
 impl Candidate {
@@ -313,6 +366,7 @@ impl SequenceIndex {
                     distance,
                     pool,
                     role: None,
+                    motion: None,
                 })
             })
             .collect();
@@ -403,6 +457,7 @@ mod tests {
             drop,
             returns,
             peak,
+            duration: 20,
         };
         assert_eq!(m(0.5, 0.56, 0.3, 0.42).role(), Role::Death);
         assert_eq!(m(1.0, 0.0, 0.01, 0.02).role(), Role::Idle);
@@ -410,6 +465,42 @@ mod tests {
         assert_eq!(m(0.97, 0.03, 0.3, 0.3).role(), Role::Other);
         // Crouching low but not collapsed isn't death.
         assert_eq!(m(0.8, 0.2, 0.05, 0.2).role(), Role::Action);
+    }
+
+    #[test]
+    fn picking_by_role_takes_the_clearest_of_each() {
+        let cand = |seq, drop, peak, role| Candidate {
+            seq,
+            score: 0.0,
+            coverage: 1.0,
+            distance: 0,
+            pool: 1000,
+            role: Some(role),
+            motion: Some(Motion {
+                end_height: 0.5,
+                drop,
+                returns: 0.0,
+                peak,
+                duration: 20,
+            }),
+        };
+        let all = [
+            cand(1, 0.4, 0.3, Role::Death),
+            cand(2, 0.6, 0.3, Role::Death),
+            cand(3, 0.5, 0.3, Role::Death),
+            cand(4, 0.0, 0.1, Role::Action),
+            cand(5, 0.0, 0.5, Role::Action),
+            cand(6, 0.0, 0.01, Role::Idle),
+            cand(7, 0.0, 0.4, Role::Other),
+        ];
+        let picked: Vec<u32> = pick_by_role(&all, 2).iter().map(|c| c.seq).collect();
+        assert_eq!(picked, [2, 3, 5, 4]);
+        // A long action gives way to short ones, however big it is.
+        let mut all = all.to_vec();
+        all[4].motion.as_mut().unwrap().duration = 200;
+        all.push(cand(8, 0.0, 0.2, Role::Action));
+        let picked: Vec<u32> = pick_by_role(&all, 2).iter().map(|c| c.seq).collect();
+        assert_eq!(picked, [2, 3, 8, 4]);
     }
 
     #[test]
