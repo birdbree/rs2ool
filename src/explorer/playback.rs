@@ -416,11 +416,26 @@ fn seq_label(r: &Renderable, seq: u32) -> String {
     };
     let role = c.role.map_or("", |r| r.name());
     if c.shared() {
-        // Picked by role, not by score: the score means nothing here.
+        // Ordered by role, not by score: the score means nothing here.
         format!("seq {seq} · inferred {role}, shared pool")
     } else {
         format!("seq {seq} · inferred {role} {:.2}", c.score)
     }
+}
+
+/// The inferred sequences among `seqs`, as indices into it, grouped by
+/// role in the order the creature lists them (deaths, actions, idles,
+/// others).
+fn role_groups(r: &Renderable, seqs: &[u32]) -> Vec<(Option<Role>, Vec<usize>)> {
+    let mut out: Vec<(Option<Role>, Vec<usize>)> = Vec::new();
+    for (i, &s) in seqs.iter().enumerate() {
+        let Some(c) = inferred(r, s) else { continue };
+        match out.last_mut() {
+            Some((role, members)) if *role == c.role => members.push(i),
+            _ => out.push((c.role, vec![i])),
+        }
+    }
+    out
 }
 
 /// An inferred sequence's evidence, for its tooltip.
@@ -433,7 +448,7 @@ fn evidence(c: &Candidate) -> String {
     );
     if c.shared() {
         s.push_str(
-            " That's a shared pool, where id distance means little, so it was picked from the whole pool by its role: the most collapsed deaths, then short actions with the most motion.",
+            " That's a shared pool, where id distance means little, so the whole pool is listed by role instead: deaths most collapsed first, actions short ones first and then the most motion.",
         );
     }
     if let Some(r) = c.role {
@@ -449,7 +464,15 @@ fn evidence(c: &Candidate) -> String {
 
 /// The playback bar: sequence, play/pause, loop and a frame scrubber.
 /// Draws nothing unless the main selection can play something.
-pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderable>) {
+///
+/// `right` is compare mode's right-hand renderable, when compare mode is
+/// on: if it can't play the chosen sequence, the bar says so.
+pub fn playback_ui(
+    ui: &mut egui::Ui,
+    pb: &mut Playback,
+    main: Option<&Renderable>,
+    right: Option<&Renderable>,
+) {
     let Some(r) = main.filter(|_| !pb.seqs.is_empty()) else {
         return;
     };
@@ -457,12 +480,37 @@ pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderabl
         let mut chosen = pb.current;
         egui::ComboBox::from_id_salt("sequence")
             .selected_text(pb.seq().map_or(String::new(), |s| seq_label(r, s)))
+            .height(420.0)
             .show_ui(ui, |ui| {
+                // Named sequences first, then the inferred ones in a group
+                // per role, as listed.
+                let groups = role_groups(r, &pb.seqs);
                 for (i, &s) in pb.seqs.iter().enumerate() {
-                    let item = ui.selectable_value(&mut chosen, i, seq_label(r, s));
-                    if let Some(c) = inferred(r, s) {
-                        item.on_hover_text(evidence(c));
+                    if inferred(r, s).is_none() {
+                        ui.selectable_value(&mut chosen, i, format!("seq {s}"));
                     }
+                }
+                for (role, members) in groups {
+                    let name = role.map_or("unclassified", Role::name);
+                    // Deaths and actions open; idle and other sequences
+                    // are what the named ones already cover.
+                    let open = matches!(role, Some(Role::Death | Role::Action));
+                    egui::CollapsingHeader::new(format!("inferred {name} ({})", members.len()))
+                        .id_salt(("sequence group", name))
+                        .default_open(open)
+                        .show(ui, |ui| {
+                            for i in members {
+                                let s = pb.seqs[i];
+                                let Some(c) = inferred(r, s) else { continue };
+                                let text = if c.shared() {
+                                    format!("seq {s}")
+                                } else {
+                                    format!("seq {s} · {:.2}", c.score)
+                                };
+                                ui.selectable_value(&mut chosen, i, text)
+                                    .on_hover_text(evidence(c));
+                            }
+                        });
                 }
             });
         if chosen != pb.current {
@@ -496,6 +544,18 @@ pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderabl
             pb.clock.position_ms(),
             pb.clock.duration_ms()
         ));
+        // The other side animates but doesn't have this sequence: say so,
+        // rather than leave it standing still for no visible reason.
+        if let (Some(rt), Some(seq)) = (right, pb.seq()) {
+            let theirs = sequences(rt);
+            if !theirs.is_empty() && !theirs.contains(&seq) {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!("the right-hand model has no clip for seq {seq}"),
+                )
+                .on_hover_text("Convert the NPC again to include its inferred sequences.");
+            }
+        }
     });
 }
 

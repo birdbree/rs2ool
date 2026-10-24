@@ -138,11 +138,11 @@ When the selection can animate, the bottom panel shows a playback bar: a sequenc
 
 What plays:
 
-- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then up to 16 inferred sequences, best first;
+- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then its inferred sequences, grouped by role;
 - the player kit, with the player stance sequences;
 - a converted creature: a models-pack record whose rig is in the rigs pack beside it (`<dir>/rigs/`), with its clips from `<dir>/anims/`.
 
-The NPC definition only names its stand and walk sequences, so the explorer adds the likeliest others from [sequence inference](../conversion/inference.md). The picker shows them as "seq N · inferred death 0.62": the role it looks like (idle, action, death or other) and the score. Hovering one shows its evidence: same skeleton, how much of the model it moves, how far its id is from a named sequence, and what its motion suggests. A humanoid's candidates come from the shared humanoid pool, where ranking by id means little, so the explorer classifies the whole pool on that NPC's model and offers its 8 clearest deaths and 8 shortest, most energetic actions instead, marked "shared pool" in the picker. The sequence index behind it is built the first time an NPC is selected, which takes a moment, and then kept for the session.
+The NPC definition only names its stand and walk sequences, so the explorer adds the likeliest others from [sequence inference](../conversion/inference.md). The picker lists them after the named ones in a group per role (deaths, actions, idles, others), each with a count; deaths and actions start open. Within a group each shows its score, and the chosen one reads "seq N · inferred death 0.62". Hovering one shows its evidence: same skeleton, how much of the model it moves, how far its id is from a named sequence, and what its motion suggests. A humanoid's candidates are the whole shared humanoid pool, about 1200 sequences, classified on that NPC's model. Ranking by id means little there, so they're ordered by role instead (most collapsed deaths first, short energetic actions first) and marked "shared pool", without a score. In compare mode, if the right-hand model has no clip for the chosen sequence, the playback bar says so; converting the NPC again includes every inferred sequence. The sequence index behind it is built the first time an NPC is selected, which takes a moment, and then kept for the session.
 
 Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/animation.md#sequence-timing): the sequence's delay, else the frame's own, else 1. A converted creature's frame lengths come from its clip's frame start times. At the end the loop offset decides where playback restarts; with **Loop** off it stops on the last frame, and **Play** starts again from the beginning.
 
@@ -187,12 +187,12 @@ It draws cache models, assembled definitions, NPCs (relit at every animation fra
 | Export TYPE ID (decoded) | `rs2ool cache dump --type TYPE --id ID --meta` |
 | Export TYPE ID (file bytes) | `rs2ool cache dump --index N --id ID --meta`, for `model`, `anim` and `midi` |
 | Dump every TYPE | `rs2ool cache dump --type TYPE --all --meta` |
-| Convert … | the `rs2ool pack` command for the selection: a model, an NPC or the player kit (with animations), an object, the textures, the sprites, the floors |
+| Convert … | the `rs2ool pack` command for the selection: a model, an NPC (with animations and its inferred sequences, `--with-anims --infer`) or the player kit (with animations), an object, the textures, the sprites, the floors |
 | Convert every model / object | `rs2ool pack models --all`, `rs2ool pack objects --all` |
 | Convert materials (palette) | `rs2ool pack materials` |
 | Bake a loose directory… | `rs2ool pack build`, into the output folder |
 
-Every action except baking needs the current selection to be in a cache source, and the export, dump and per-type convert actions need a cache record selected (the player kit counts for its own conversion). Jobs show in the bottom panel with a progress bar, then their result; a flagged clip is noted there. Each finished job offers **Open as source** for the packs or dump directory it wrote.
+Every action except baking needs the current selection to be in a cache source, and the export, dump and per-type convert actions need a cache record selected (the player kit counts for its own conversion). Jobs show in the bottom panel with a progress bar, then their result; a flagged clip is noted there. Each finished job offers a button for each pack or dump directory it wrote, saying what it opens (**Open models pack**, **Open dump folder**). For a creature the models pack comes first, and it's the only one you need: it finds its rigs and anims beside it.
 
 ## Command-line startup
 

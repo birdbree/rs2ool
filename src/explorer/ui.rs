@@ -522,7 +522,12 @@ fn layout(
                     apply_state(&mut st.compare_loaded, i);
                 }
             }
-            playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref());
+            let right = st
+                .compare_loaded
+                .renderable
+                .as_deref()
+                .filter(|_| st.compare.enabled);
+            playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref(), right);
             for job in st.jobs.list.iter().rev().take(4) {
                 ui.horizontal(|ui| {
                     ui.label(&job.name);
@@ -534,7 +539,7 @@ fn layout(
                             ui.label(&done.message);
                             for (kind, path) in &done.opens {
                                 if ui
-                                    .small_button("Open as source")
+                                    .small_button(crate::explorer::jobs::open_label(*kind, path))
                                     .on_hover_text(path.display().to_string())
                                     .clicked()
                                 {

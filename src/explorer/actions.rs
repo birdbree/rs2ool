@@ -58,7 +58,8 @@ impl Settings {
 /// A conversion, as an `rs2ool pack` subcommand.
 ///
 /// The explorer always converts with animations and without parent
-/// overrides or extra sequences.
+/// overrides. An NPC is converted with its inferred sequences, the ones
+/// its playback bar offers, so they play on both sides of compare mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConvertTarget {
     /// `materials`: the palette and default material.
@@ -67,7 +68,7 @@ pub enum ConvertTarget {
     Textures,
     /// One model, or every model.
     Models(Option<u32>),
-    /// `npc --id N --with-anims`.
+    /// `npc --id N --with-anims --infer`.
     Npc(u32),
     /// `player-kit --with-anims`.
     PlayerKit,
@@ -145,7 +146,10 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
         ConvertTarget::Materials => run::materials(records, crc),
         ConvertTarget::Textures => run::textures(records, crc),
         ConvertTarget::Models(id) => run::models(records, crc, *id),
-        ConvertTarget::Npc(id) => run::npc(records, crc, *id, true, &[], None),
+        ConvertTarget::Npc(id) => {
+            let extra = rs2convert::infer::npc_extras(records, *id)?;
+            run::npc(records, crc, *id, true, &extra, None)
+        }
         ConvertTarget::PlayerKit => run::player_kit(records, crc, true, None),
         ConvertTarget::Sprites => {
             run::sprite_archives(None).and_then(|a| run::sprites(records, crc, &a))
@@ -162,12 +166,13 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
     if outcome.flagged() {
         message.push_str(" (some clips exceed the validation threshold)");
     }
+    // The models pack first: for a creature it's the one to open, since it
+    // finds its rigs and anims beside it.
+    let mut opens: Vec<_> = written.into_iter().map(|(k, _, p)| (k, p)).collect();
+    opens.sort_by_key(|(k, _)| *k != contentpack::Kind::Models);
     Ok(Done {
         message,
-        opens: written
-            .into_iter()
-            .map(|(_, _, p)| (Kind::Pack, p))
-            .collect(),
+        opens: opens.into_iter().map(|(_, p)| (Kind::Pack, p)).collect(),
     })
 }
 

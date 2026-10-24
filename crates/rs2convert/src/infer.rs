@@ -210,40 +210,112 @@ pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
     }
 }
 
-/// Actions at most this long (cycles, 1.2 s) come first when picking by
-/// role: attacks are brief.
+/// NPC `id`'s inferred sequences, given `named`, its creature with only
+/// the sequences it names. Returns the creature with every candidate
+/// added after the named ones, and the candidates with their roles, in
+/// the order [`sort_by_role`] gives (the creature's sequences follow the
+/// same order). With nothing to infer, or if the candidates won't load,
+/// it's `named` and no candidates.
+///
+/// There's no cap: a creature has a few dozen candidates at most, and a
+/// humanoid on the shared pool about 1200, which pose in about 0.1 s and
+/// convert in a few seconds in a release build.
+pub fn npc_candidates(
+    seqs: &SequenceIndex,
+    records: &Records,
+    frames: &FrameIndex,
+    id: u32,
+    named: Creature,
+) -> (Creature, Vec<Candidate>) {
+    let names: Vec<u32> = named.sequences.iter().map(|s| s.def.id).collect();
+    let labels: BTreeSet<u8> = named
+        .model
+        .vertex_labels
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    let mut best = seqs.candidates(&names, &labels);
+    let extra: Vec<u16> = best
+        .iter()
+        .filter_map(|c| u16::try_from(c.seq).ok())
+        .collect();
+    if extra.is_empty() {
+        return (named, Vec::new());
+    }
+    let Ok(mut c) = crate::creature::npc(records, frames, id, &extra) else {
+        return (named, Vec::new());
+    };
+    with_roles(&c, &mut best);
+    // A candidate that didn't load or won't pose on this model can't
+    // play, so it's left out.
+    best.retain(|b| b.role.is_some());
+    sort_by_role(&mut best);
+    let keep: BTreeSet<u32> = names
+        .iter()
+        .chain(best.iter().map(|b| &b.seq))
+        .copied()
+        .collect();
+    c.sequences.retain(|s| keep.contains(&s.def.id));
+    // The creature's sequences in the same order: named first, then the
+    // candidates as sorted.
+    let rank: BTreeMap<u32, usize> = best
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.seq, i + 1))
+        .collect();
+    c.sequences
+        .sort_by_key(|s| rank.get(&s.def.id).copied().unwrap_or(0));
+    (c, best)
+}
+
+/// The ids of NPC `id`'s inferred sequences (see [`npc_candidates`]), to
+/// convert alongside the ones it names. Builds a [`SequenceIndex`] each
+/// call, which decodes every frame pack, so a caller converting many NPCs
+/// should build one and use [`npc_candidates`].
+pub fn npc_extras(records: &Records, id: u32) -> Result<Vec<u16>, ConvertError> {
+    let frames = records.cache().frame_index()?;
+    let seqs = SequenceIndex::build(records.cache(), records, &frames)?;
+    let named = crate::creature::npc(records, &frames, id, &[])?;
+    let (_, picked) = npc_candidates(&seqs, records, &frames, id, named);
+    Ok(picked
+        .iter()
+        .filter_map(|c| u16::try_from(c.seq).ok())
+        .collect())
+}
+
+/// Actions at most this long (cycles, 1.2 s) come first in their group
+/// on a shared pool: attacks are brief.
 pub const SHORT_ACTION: u32 = 60;
 
-/// From candidates with roles (see [`with_roles`]), the clearest
-/// `per_role` deaths (most collapsed first) and then `per_role` actions:
-/// short ones first (see [`SHORT_ACTION`]), most motion first within
-/// each. For a shared pool, where id distance means little, this picks
-/// better than the scores do. Idle and other sequences are left out: the
-/// model's own stand and walk sequences cover those.
-pub fn pick_by_role(candidates: &[Candidate], per_role: usize) -> Vec<Candidate> {
-    let of = |role: Role| -> Vec<(Candidate, Motion)> {
-        candidates
-            .iter()
-            .filter(|c| c.role == Some(role))
-            .filter_map(|c| Some((*c, c.motion?)))
-            .collect()
+/// Orders candidates with roles (see [`with_roles`]) into groups by role:
+/// deaths, actions, idles, others, then any without a role.
+///
+/// Within a group, candidates on their own family keep score order, where
+/// the score works. On a shared pool, where it doesn't, deaths go most
+/// collapsed first, actions short ones first (see [`SHORT_ACTION`]) and
+/// then the most motion first, and the rest by score.
+pub fn sort_by_role(candidates: &mut [Candidate]) {
+    let group = |c: &Candidate| match c.role {
+        Some(Role::Death) => 0,
+        Some(Role::Action) => 1,
+        Some(Role::Idle) => 2,
+        Some(Role::Other) => 3,
+        None => 4,
     };
-    let mut deaths = of(Role::Death);
-    deaths.sort_by(|(a, ma), (b, mb)| mb.drop.total_cmp(&ma.drop).then(a.seq.cmp(&b.seq)));
-    let mut actions = of(Role::Action);
-    actions.sort_by(|(a, ma), (b, mb)| {
-        let short = |m: &Motion| m.duration <= SHORT_ACTION;
-        short(mb)
-            .cmp(&short(ma))
-            .then(mb.peak.total_cmp(&ma.peak))
-            .then(a.seq.cmp(&b.seq))
+    candidates.sort_by(|a, b| {
+        let within = match (a.shared(), a.role, a.motion, b.motion) {
+            (true, Some(Role::Death), Some(ma), Some(mb)) => mb.drop.total_cmp(&ma.drop),
+            (true, Some(Role::Action), Some(ma), Some(mb)) => {
+                let short = |m: &Motion| m.duration <= SHORT_ACTION;
+                short(&mb)
+                    .cmp(&short(&ma))
+                    .then(mb.peak.total_cmp(&ma.peak))
+            }
+            _ => b.score.total_cmp(&a.score),
+        };
+        group(a).cmp(&group(b)).then(within).then(a.seq.cmp(&b.seq))
     });
-    deaths
-        .into_iter()
-        .take(per_role)
-        .chain(actions.into_iter().take(per_role))
-        .map(|(c, _)| c)
-        .collect()
 }
 
 impl Candidate {
@@ -468,39 +540,45 @@ mod tests {
     }
 
     #[test]
-    fn picking_by_role_takes_the_clearest_of_each() {
-        let cand = |seq, drop, peak, role| Candidate {
+    fn sorting_by_role_groups_and_orders() {
+        let cand = |seq, score, drop, peak, duration, role, pool| Candidate {
             seq,
-            score: 0.0,
+            score,
             coverage: 1.0,
             distance: 0,
-            pool: 1000,
+            pool,
             role: Some(role),
             motion: Some(Motion {
                 end_height: 0.5,
                 drop,
                 returns: 0.0,
                 peak,
-                duration: 20,
+                duration,
             }),
         };
-        let all = [
-            cand(1, 0.4, 0.3, Role::Death),
-            cand(2, 0.6, 0.3, Role::Death),
-            cand(3, 0.5, 0.3, Role::Death),
-            cand(4, 0.0, 0.1, Role::Action),
-            cand(5, 0.0, 0.5, Role::Action),
-            cand(6, 0.0, 0.01, Role::Idle),
-            cand(7, 0.0, 0.4, Role::Other),
+        let shared =
+            |seq, drop, peak, duration, role| cand(seq, 0.0, drop, peak, duration, role, 1000);
+        let mut all = vec![
+            shared(6, 0.0, 0.01, 20, Role::Idle),
+            shared(1, 0.4, 0.3, 20, Role::Death),
+            shared(4, 0.0, 0.1, 20, Role::Action),
+            shared(5, 0.0, 0.5, 200, Role::Action),
+            shared(7, 0.0, 0.4, 20, Role::Other),
+            shared(2, 0.6, 0.3, 20, Role::Death),
+            shared(8, 0.0, 0.2, 20, Role::Action),
         ];
-        let picked: Vec<u32> = pick_by_role(&all, 2).iter().map(|c| c.seq).collect();
-        assert_eq!(picked, [2, 3, 5, 4]);
-        // A long action gives way to short ones, however big it is.
-        let mut all = all.to_vec();
-        all[4].motion.as_mut().unwrap().duration = 200;
-        all.push(cand(8, 0.0, 0.2, Role::Action));
-        let picked: Vec<u32> = pick_by_role(&all, 2).iter().map(|c| c.seq).collect();
-        assert_eq!(picked, [2, 3, 8, 4]);
+        sort_by_role(&mut all);
+        let order: Vec<u32> = all.iter().map(|c| c.seq).collect();
+        // Deaths most collapsed first; short actions before the long one,
+        // most motion first; then idle, then other.
+        assert_eq!(order, [2, 1, 8, 4, 5, 6, 7]);
+        // On its own family, score order holds within a group.
+        let mut own = vec![
+            cand(1, 0.2, 0.6, 0.3, 20, Role::Death, 10),
+            cand(2, 0.9, 0.4, 0.3, 20, Role::Death, 10),
+        ];
+        sort_by_role(&mut own);
+        assert_eq!(own[0].seq, 2);
     }
 
     #[test]

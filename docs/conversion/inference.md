@@ -70,20 +70,22 @@ The first frame is the reference, not the rest pose, because some models are ani
 | action | `returns ≤ 0.15`: an attack, a block or a gait, which motion alone can't tell apart |
 | other | anything else, such as a sequence that ends somewhere new |
 
-There's no ground truth in the cache for attacks or deaths, so the rules are checked against what is named. Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles) and other 9. Their walk sequences come out action 201 times, idle 19, other 24 and death once. 149 of the 250 creatures have a death among their top 16 candidates. `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
+There's no ground truth in the cache for attacks or deaths, so the rules are checked against what is named. Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles) and other 9. Their walk sequences come out action 201 times, idle 19, other 24 and death once. 149 of the 250 creatures have a death among their candidates. `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
 
-### Picking from a shared pool
+### Every candidate, grouped by role
 
-In the shared humanoid pool, id distance means almost nothing, so ranking by score would offer close to arbitrary sequences. Instead, for an NPC whose candidates come from a shared pool, the whole pool (about 1200 sequences) is posed on that NPC's own model and given roles. `pick_by_role` then takes the clearest of each useful role:
+There's no cap on the candidates. `npc_candidates` loads every one onto the NPC's model, gives each a role, leaves out any that won't pose, and `sort_by_role` groups them: deaths, then actions, then idles, then others.
 
-- **deaths**, most collapsed first (largest `drop`);
-- **actions**, those that fit in 60 cycles (1.2 s, `SHORT_ACTION`) first, since attacks are brief, then the most motion first within each group.
+- **Creatures** keep score order within each group; they have a few dozen candidates at most.
+- **Humanoids** get the whole shared pool, about 1200 sequences. Id distance means almost nothing there, so within a group deaths go most collapsed first (largest `drop`), and actions go those that fit in 60 cycles first (1.2 s, `SHORT_ACTION`, since attacks are brief), then the most motion first. The rest keep score order.
 
-Idle and other sequences are left out, as the NPC's own stand and walk sequences cover those. The explorer offers 8 of each. Its own score doesn't apply to these picks, so the picker doesn't show one.
+Classifying the pool takes about 0.1 s per NPC in a release build, so it's done per NPC rather than cached. On four humanoids with different label layouts, the pool came out as roughly 670–770 actions, 60–64 deaths, 190–310 idles and 150–180 others, with 3 sequences that wouldn't pose. About half the actions fit in 1.2 s. Converting a humanoid with every candidate takes about 4 s in a release build and writes about 1.1 MB of packs.
 
-Classifying the pool takes about 0.1 s per NPC in a release build, so it's done per NPC rather than cached. On four humanoids with different label layouts, the pool came out as roughly 670–770 actions, 60–64 deaths, 190–310 idles and 150–180 others, with 3 sequences that wouldn't pose. About half the actions fit in 1.2 s.
+How well the short-first rule puts attacks ahead of other brief gestures can't be measured from the cache, which names no attacks; it's a reasonable rule, not a checked one. Telling deaths apart from jumps, falls and kneels is [#70](https://github.com/birdbree/rs2ool/issues/70).
 
-How well the short-first rule finds attacks rather than other brief gestures can't be measured from the cache, which names no attacks; it's a reasonable rule, not a checked one.
+### Converting them
+
+`npc_extras(records, id)` returns the ids of an NPC's candidates, to convert alongside its named sequences. `rs2ool pack npc --infer` and the explorer's Convert action both use it, so they write identical packs, and every sequence the explorer's picker offers has a clip in the converted creature. Some candidates, especially from the shared pool, weren't made for the model and re-skin poorly; their clips exceed the [validation](validation.md) threshold, and the command exits with status 3.
 
 ### What the measurement shows
 

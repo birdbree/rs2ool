@@ -61,6 +61,7 @@ rs2ool pack npc --id 1 --with-anims --seq 100,101 --override parents.json -o pac
 | `--id N` | the NPC (required) |
 | `--with-anims` | also convert the NPC's sequences into clips and validate each one |
 | `--seq A,B,…` | extra sequence ids to convert (comma-separated, or repeat the flag), since an NPC definition only names its stand and walk sequences |
+| `--infer` | also convert the NPC's inferred sequences, every one the explorer offers (see [Inference](../conversion/inference.md)); some may exceed the validation threshold |
 | `--override FILE` | a parent table that replaces rig inference's parent choice |
 
 The merged model goes in as model record `0x10000000 | N`, the rig as rig `N`, and each clip as anim `N << 16 | seq` (see [Record ids](../pack/record-ids.md)).

@@ -33,8 +33,28 @@ pub struct Done {
     /// One line or a few, shown under the job.
     pub message: String,
     /// What the job wrote, each with the source kind to open it as; each
-    /// gets an "Open as source" button.
+    /// gets a button saying what it opens (see [`open_label`]).
     pub opens: Vec<(crate::explorer::sources::Kind, std::path::PathBuf)>,
+}
+
+/// The button text for opening `path` as `kind`: "Open models pack" for a
+/// pack (named by the kind directory it was written into), "Open dump
+/// folder" or "Open cache".
+pub fn open_label(kind: crate::explorer::sources::Kind, path: &std::path::Path) -> String {
+    use crate::explorer::sources::Kind;
+    match kind {
+        Kind::Pack => match path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .filter(|n| contentpack::Kind::ALL.iter().any(|k| k.name() == *n))
+        {
+            Some(kind) => format!("Open {kind} pack"),
+            None => "Open pack".to_owned(),
+        },
+        Kind::DumpDir => "Open dump folder".to_owned(),
+        Kind::Cache => "Open cache".to_owned(),
+    }
 }
 
 impl From<String> for Done {
@@ -124,4 +144,23 @@ fn poll(mut jobs: ResMut<Jobs>) {
 /// Adds [`Jobs`] and the system that polls it.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Jobs>().add_systems(Update, poll);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_buttons_say_what_they_open() {
+        use crate::explorer::sources::Kind;
+        use std::path::Path;
+        let label = |k, p: &str| open_label(k, Path::new(p));
+        assert_eq!(
+            label(Kind::Pack, "out/models/ab12.pack"),
+            "Open models pack"
+        );
+        assert_eq!(label(Kind::Pack, "out/anims/ab12.pack"), "Open anims pack");
+        assert_eq!(label(Kind::Pack, "elsewhere/x.pack"), "Open pack");
+        assert_eq!(label(Kind::DumpDir, "out"), "Open dump folder");
+    }
 }

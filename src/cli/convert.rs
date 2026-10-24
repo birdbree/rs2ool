@@ -116,15 +116,26 @@ impl<'c> Ctx<'c> {
 
     /// `pack npc`: one NPC, plus clips for its sequences and the `extra`
     /// ones with `--with-anims`.
-    pub fn npc(&self, id: u32, anims: &AnimArgs, extra: &[u16], dir: &Path) -> anyhow::Result<()> {
+    pub fn npc(
+        &self,
+        id: u32,
+        anims: &AnimArgs,
+        extra: &[u16],
+        infer: bool,
+        dir: &Path,
+    ) -> anyhow::Result<()> {
         let o = overrides(anims)?;
+        let mut extra = extra.to_vec();
+        if infer {
+            extra.extend(rs2convert::infer::npc_extras(&self.records, id)?);
+        }
         finish(
             run::npc(
                 &self.records,
                 self.crc,
                 id,
                 anims.with_anims,
-                extra,
+                &extra,
                 o.as_ref(),
             )
             .map_err(Into::into),
