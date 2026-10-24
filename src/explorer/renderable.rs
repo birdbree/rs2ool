@@ -75,7 +75,7 @@ pub enum Renderable {
         /// Rest pose, scaled.
         model: Model,
         /// The inferred sequences among `creature`'s, best first, with
-        /// their evidence (see [`rs2convert::infer`]).
+        /// their evidence and role (see [`rs2convert::infer`]).
         inferred: Vec<Candidate>,
     },
     /// A converted creature: its model, rig and clips (by clip id).
@@ -172,6 +172,7 @@ fn with_inferred(
     match creature::npc(records, index, id, &extra) {
         Ok(c) => {
             best.retain(|b| c.sequences.iter().any(|s| s.def.id == b.seq));
+            rs2convert::infer::with_roles(&c, &mut best);
             (c, best)
         }
         Err(_) => (named, Vec::new()),

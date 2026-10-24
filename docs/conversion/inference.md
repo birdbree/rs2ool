@@ -4,7 +4,7 @@
 
 The cache links surprisingly little together. This page covers what it states outright, and how the tools can infer the rest from structure: which sequences animate which NPCs and locations, and which equipment slot an item goes in. Read it to know which links you can rely on and which are educated guesses.
 
-**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Roles from motion are still to come ([#59](https://github.com/birdbree/rs2ool/issues/59)), and equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
+**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Each candidate's role (idle, action, death) is worked out from its motion. Equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
 
 ## What the cache states
 
@@ -30,7 +30,7 @@ So for an NPC, the sequences in its stand sequence's family are the candidates f
 1. **Family.** Keep the sequences in the stand sequence's family. This never loses a real match: an NPC's walk sequence is in its stand sequence's family for every NPC that has both.
 2. **Coverage of the model.** Keep sequences that move at least half of the NPC's model labels. This trims candidates without losing walk sequences. The opposite test (most of the labels a sequence moves must be on the model) doesn't work: a shared base lists labels for every model that uses it, so even an NPC's own stand sequence fails it.
 3. **Id distance.** Rank what's left by how far its id is from the stand sequence's. Sequences made for one creature tend to sit at neighbouring ids.
-4. **Role from motion.** A death sequence doesn't loop and ends collapsed towards the ground. An attack is short, swings one limb out and comes back to its first pose. A block is a small recoil. This labels candidates rather than ranking them.
+4. **Role from motion.** A death ends collapsed towards the ground; an attack or a block moves and comes back to its first pose; an idle barely moves. This labels candidates rather than ranking them (see [Roles](#roles) below).
 5. **Tie-breakers.** Shared frame packs, hand-item overrides (a player or humanoid weapon animation) and the precedence fields.
 
 Posing the model through each candidate and scoring how badly it tears is possible with the [reference deformation](../client/animation.md), but the measurements below suggest it adds little.
@@ -49,6 +49,30 @@ Posing the model through each candidate and scoring how badly it tears is possib
 | `pool` | how many sequences share the named sequences' family group; over 300 (`SHARED_POOL`) the candidate is from a shared pool, where the ranking means little |
 
 On the test cache, anchored on each NPC's stand sequence alone, its walk sequence ranks first for 214 of 802 creatures, in the top 5 for 687 (86%) and in the top 20 for 793. In the shared humanoid pool it's in the top 5 for only 73 of 1216, as expected. `crates/rs2convert/tests/infer_sequences.rs` checks this, requiring a top-5 rate of at least 70% for creatures.
+
+### Roles
+
+`Motion::measure` poses the NPC's model through every frame of a sequence with the reference deformation and measures, as shares of the model's height in the first frame:
+
+| Measure | Meaning |
+| --- | --- |
+| `end_height` | the last frame's height |
+| `drop` | how far the model's top has dropped from the first frame to the last |
+| `returns` | the mean distance each vertex ends from where it started |
+| `peak` | the largest mean distance of the vertices from the first frame, over all frames |
+
+The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks, in this order:
+
+| Role | Rule |
+| --- | --- |
+| death | `drop ≥ 0.3` and `end_height ≤ 0.75` |
+| idle | `peak < 0.06` |
+| action | `returns ≤ 0.15`: an attack, a block or a gait, which motion alone can't tell apart |
+| other | anything else, such as a sequence that ends somewhere new |
+
+There's no ground truth in the cache for attacks or deaths, so the rules are checked against what is named. Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles) and other 9. Their walk sequences come out action 201 times, idle 19, other 24 and death once. 149 of the 250 creatures have a death among their top 16 candidates. `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
+
+Roles are worked out only for the candidates loaded, so in the shared humanoid pool they label 16 sequences ranked by id distance. They aren't used yet to pick which of the pool's sequences to offer.
 
 ### What the measurement shows
 

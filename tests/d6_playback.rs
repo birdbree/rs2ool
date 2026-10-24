@@ -171,6 +171,7 @@ fn npc_plays_its_inferred_sequences() {
         let (delays, _) = timing(&r, c.seq).unwrap();
         assert!(!delays.is_empty());
         assert!(matches!(posed(&r, c.seq, 0), Some(Posed::Cache(_))));
+        assert!(c.role.is_some(), "seq {} has a role", c.seq);
     }
     assert!(rs2ool::explorer::playback::inferred(&r, seqs[0]).is_none());
 }
