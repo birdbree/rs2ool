@@ -11,8 +11,9 @@
 //! `<out>/<other kind>/*.pack`. This module also maps cache ids to pack ids
 //! and back, for compare mode.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use contentpack::records::anim::Clip;
 use contentpack::records::material::{PALETTE_ID, decode_palette};
@@ -23,10 +24,13 @@ use contentpack::records::sprite::SpriteRecord;
 use contentpack::records::strings::decode as decode_strings;
 use contentpack::records::texture::{ATLAS_BASE, Atlas};
 use contentpack::{Kind, PackReader};
+use rs2cache::Records;
+use rs2cache::anim::FrameIndex;
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::types::sprite::{Font, SpriteSheet};
 use rs2convert::creature::{self, Creature};
+use rs2convert::infer::{Candidate, SequenceIndex};
 use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
 
@@ -65,10 +69,14 @@ pub enum Renderable {
     /// A cache NPC with its sequences, for playback; `model` is its rest
     /// pose with the scale applied.
     Creature {
-        /// The NPC's model, rig source and resolved sequences.
+        /// The NPC's model, rig source and resolved sequences: the ones
+        /// it names, then the inferred ones.
         creature: Arc<Creature>,
         /// Rest pose, scaled.
         model: Model,
+        /// The inferred sequences among `creature`'s, best first, with
+        /// their evidence (see [`rs2convert::infer`]).
+        inferred: Vec<Candidate>,
     },
     /// A converted creature: its model, rig and clips (by clip id).
     PackCreature {
@@ -108,6 +116,68 @@ impl Renderable {
     }
 }
 
+/// How many inferred sequences an NPC gets in the explorer.
+pub const INFERRED_LIMIT: usize = 16;
+
+/// Each open cache's sequence index, built on first use: it decodes every
+/// frame pack, so it's worth keeping.
+fn sequence_index(
+    path: &Path,
+    records: &Records,
+    index: &FrameIndex,
+) -> Option<Arc<SequenceIndex>> {
+    static INDEXES: OnceLock<Mutex<BTreeMap<PathBuf, Arc<SequenceIndex>>>> = OnceLock::new();
+    let mut map = INDEXES.get_or_init(Default::default).lock().ok()?;
+    if let Some(i) = map.get(path) {
+        return Some(i.clone());
+    }
+    let i = Arc::new(SequenceIndex::build(records.cache(), records, index).ok()?);
+    map.insert(path.to_path_buf(), i.clone());
+    Some(i)
+}
+
+/// NPC `id`'s creature with its best inferred sequences added after the
+/// named ones, and those candidates. Falls back to `named` (the creature
+/// with only its named sequences) when there are none or they won't load.
+fn with_inferred(
+    source: &Source,
+    records: &Records,
+    index: &FrameIndex,
+    id: u32,
+    named: Creature,
+) -> (Creature, Vec<Candidate>) {
+    let Source::Cache { path, .. } = source else {
+        return (named, Vec::new());
+    };
+    let Some(seqs) = sequence_index(path, records, index) else {
+        return (named, Vec::new());
+    };
+    let names: Vec<u32> = named.sequences.iter().map(|s| s.def.id).collect();
+    let labels: BTreeSet<u8> = named
+        .model
+        .vertex_labels
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    let mut best = seqs.candidates(&names, &labels);
+    best.truncate(INFERRED_LIMIT);
+    if best.is_empty() {
+        return (named, Vec::new());
+    }
+    let extra: Vec<u16> = best
+        .iter()
+        .filter_map(|c| u16::try_from(c.seq).ok())
+        .collect();
+    match creature::npc(records, index, id, &extra) {
+        Ok(c) => {
+            best.retain(|b| c.sequences.iter().any(|s| s.def.id == b.seq));
+            (c, best)
+        }
+        Err(_) => (named, Vec::new()),
+    }
+}
+
 /// The renderable a selection resolves to, if it has one.
 ///
 /// `record` is the cache record already decoded for the inspector, so it
@@ -142,17 +212,17 @@ pub fn load_renderable(
                 // An NPC whose sequences resolve plays them; otherwise it
                 // shows its preview like any definition.
                 Record::Npc(d) => {
-                    if let Some(c) = records
-                        .cache()
-                        .frame_index()
-                        .ok()
-                        .and_then(|index| creature::npc(records, &index, d.id, &[]).ok())
-                        .filter(|c| !c.sequences.is_empty())
+                    if let Some(index) = records.cache().frame_index().ok()
+                        && let Some(c) = creature::npc(records, &index, d.id, &[])
+                            .ok()
+                            .filter(|c| !c.sequences.is_empty())
                     {
+                        let (c, inferred) = with_inferred(source, records, &index, d.id, c);
                         let model = c.rest_model();
                         return Ok(Some(Renderable::Creature {
                             creature: Arc::new(c),
                             model,
+                            inferred,
                         }));
                     }
                 }

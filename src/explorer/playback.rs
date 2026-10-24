@@ -14,6 +14,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use contentpack::records::anim::NO_LOOP;
+use rs2convert::infer::Candidate;
 
 use crate::explorer::classic::ClassicView;
 use crate::explorer::renderable::Renderable;
@@ -399,6 +400,38 @@ pub fn apply_state<S>(l: &mut Loaded<S>, i: usize) {
     }
 }
 
+/// Sequence `seq`'s inference, if a cache creature plays it as an inferred
+/// sequence rather than one its definition names.
+pub fn inferred(r: &Renderable, seq: u32) -> Option<&Candidate> {
+    match r {
+        Renderable::Creature { inferred, .. } => inferred.iter().find(|c| c.seq == seq),
+        _ => None,
+    }
+}
+
+/// The picker's name for a sequence: inferred ones show their score.
+fn seq_label(r: &Renderable, seq: u32) -> String {
+    match inferred(r, seq) {
+        Some(c) if c.shared() => format!("seq {seq} · inferred {:.2}, shared pool", c.score),
+        Some(c) => format!("seq {seq} · inferred {:.2}", c.score),
+        None => format!("seq {seq}"),
+    }
+}
+
+/// An inferred sequence's evidence, for its tooltip.
+fn evidence(c: &Candidate) -> String {
+    let mut s = format!(
+        "Inferred, not named by the NPC: same skeleton as its named sequences, moves {:.0}% of its model's labels, {} ids from the nearest named sequence. {} sequences share that skeleton.",
+        c.coverage * 100.0,
+        c.distance,
+        c.pool
+    );
+    if c.shared() {
+        s.push_str(" It's a shared pool, so the ranking means little.");
+    }
+    s
+}
+
 /// The playback bar: sequence, play/pause, loop and a frame scrubber.
 /// Draws nothing unless the main selection can play something.
 pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderable>) {
@@ -408,10 +441,13 @@ pub fn playback_ui(ui: &mut egui::Ui, pb: &mut Playback, main: Option<&Renderabl
     ui.horizontal_wrapped(|ui| {
         let mut chosen = pb.current;
         egui::ComboBox::from_id_salt("sequence")
-            .selected_text(pb.seq().map_or(String::new(), |s| format!("seq {s}")))
+            .selected_text(pb.seq().map_or(String::new(), |s| seq_label(r, s)))
             .show_ui(ui, |ui| {
-                for (i, s) in pb.seqs.iter().enumerate() {
-                    ui.selectable_value(&mut chosen, i, format!("seq {s}"));
+                for (i, &s) in pb.seqs.iter().enumerate() {
+                    let item = ui.selectable_value(&mut chosen, i, seq_label(r, s));
+                    if let Some(c) = inferred(r, s) {
+                        item.on_hover_text(evidence(c));
+                    }
                 }
             });
         if chosen != pb.current {

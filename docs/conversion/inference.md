@@ -4,7 +4,7 @@
 
 The cache links surprisingly little together. This page covers what it states outright, and how the tools can infer the rest from structure: which sequences animate which NPCs and locations, and which equipment slot an item goes in. Read it to know which links you can rely on and which are educated guesses.
 
-**Status:** the sequence evidence has been measured (below), but no inference ships yet. Sequence inference is [#59](https://github.com/birdbree/rs2ool/issues/59) and slot inference is [#60](https://github.com/birdbree/rs2ool/issues/60). Anything inferred will be shown as a ranked candidate with its score and evidence, never as a cache fact.
+**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Roles from motion are still to come ([#59](https://github.com/birdbree/rs2ool/issues/59)), and equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
 
 ## What the cache states
 
@@ -35,6 +35,21 @@ So for an NPC, the sequences in its stand sequence's family are the candidates f
 
 Posing the model through each candidate and scoring how badly it tears is possible with the [reference deformation](../client/animation.md), but the measurements below suggest it adds little.
 
+### How it's implemented
+
+`SequenceIndex::build` decodes every frame pack and sequence once and records, for each sequence, its families and the labels its frames move. A label counts as moved when a translate, rotate or scale slot on it does something: a non-zero offset or angle, or a scale other than 128. Families whose bases are a prefix of one another count as compatible.
+
+`SequenceIndex::candidates(named, labels)` takes the sequences a model is known to play and its vertex labels. It returns the other sequences in a compatible family that move at least half of those labels (`MIN_COVERAGE`), best first, each with its evidence:
+
+| Field | Meaning |
+| --- | --- |
+| `score` | `coverage × 8 / (8 + distance)`, 0–1: only comparable within one model's list |
+| `coverage` | the share of the model's labels the sequence moves |
+| `distance` | how far its id is from the nearest named sequence |
+| `pool` | how many sequences share the named sequences' family group; over 300 (`SHARED_POOL`) the candidate is from a shared pool, where the ranking means little |
+
+On the test cache, anchored on each NPC's stand sequence alone, its walk sequence ranks first for 214 of 802 creatures, in the top 5 for 687 (86%) and in the top 20 for 793. In the shared humanoid pool it's in the top 5 for only 73 of 1216, as expected. `crates/rs2convert/tests/infer_sequences.rs` checks this, requiring a top-5 rate of at least 70% for creatures.
+
 ### What the measurement shows
 
 From `tests/infer_frame_bases.rs` on the test cache:
@@ -56,7 +71,7 @@ So the problem splits in two:
 - **Creatures.** Family, coverage and id distance give a short, well-ordered list for about half of all NPCs. The many tiny families are partly the same skeleton with fewer slots (the prefix bases), and treating a base as compatible with its extensions would merge them.
 - **Humanoids.** Every humanoid fits every humanoid sequence, so structure can't say which attack a given humanoid uses; in the original game that depends on its weapon, which the cache doesn't record. The honest output is the shared humanoid pool, filtered by role and hand-item overrides.
 
-Locations work the same way: their named animation fixes a family, and other candidates come from frame-base compatibility with their model's labels.
+Locations work the same way: their named animation fixes a family, and other candidates come from frame-base compatibility with their model's labels. The explorer doesn't offer location candidates yet.
 
 ## Equipment slots
 
