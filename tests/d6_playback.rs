@@ -154,11 +154,12 @@ fn npc_plays_its_inferred_sequences() {
         panic!("npc {npc} plays")
     };
     assert!(!inferred.is_empty(), "npc {npc} gets inferred sequences");
-    assert!(inferred.len() <= rs2ool::explorer::renderable::INFERRED_LIMIT);
     if !inferred[0].shared() {
         assert!(
-            inferred.windows(2).all(|w| w[0].score >= w[1].score),
-            "best first"
+            inferred
+                .windows(2)
+                .all(|w| w[0].role != w[1].role || w[0].score >= w[1].score),
+            "best first within each role"
         );
     }
     let seqs = sequences(&r);
@@ -178,10 +179,10 @@ fn npc_plays_its_inferred_sequences() {
     assert!(rs2ool::explorer::playback::inferred(&r, seqs[0]).is_none());
 }
 
-/// A humanoid on the shared pool gets deaths and actions picked by role
-/// from the whole pool, deaths first.
+/// A humanoid on the shared pool gets the whole pool, grouped by role:
+/// deaths, then actions, then idles, then others.
 #[test]
-fn humanoids_get_inferred_sequences_picked_by_role() {
+fn humanoids_get_the_whole_pool_grouped_by_role() {
     use rs2convert::infer::Role;
     let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
         eprintln!("skipping: RS2_CACHE is not set");
@@ -189,21 +190,30 @@ fn humanoids_get_inferred_sequences_picked_by_role() {
     };
     let cache = open_cache(&dir).unwrap();
     let (_, r) = load(&cache, &Sel::Record(RecordType::Npc, 1)).unwrap();
-    let Some(Renderable::Creature { inferred, .. }) = &r else {
+    let Some(r) = r else { panic!("npc 1 plays") };
+    let Renderable::Creature { inferred, .. } = &r else {
         panic!("npc 1 plays")
     };
     assert!(
         inferred.iter().all(|c| c.shared()),
         "npc 1 is on the shared pool"
     );
-    let roles: Vec<Role> = inferred.iter().map(|c| c.role.unwrap()).collect();
-    assert!(roles.contains(&Role::Death) && roles.contains(&Role::Action));
+    assert!(inferred.len() > 1000, "the whole pool: {}", inferred.len());
+    let group = |r: Option<Role>| match r {
+        Some(Role::Death) => 0,
+        Some(Role::Action) => 1,
+        Some(Role::Idle) => 2,
+        Some(Role::Other) => 3,
+        None => 4,
+    };
     assert!(
-        roles
-            .iter()
-            .all(|r| matches!(r, Role::Death | Role::Action))
+        inferred
+            .windows(2)
+            .all(|w| group(w[0].role) <= group(w[1].role))
     );
-    // Deaths come first.
-    let first_action = roles.iter().position(|&r| r == Role::Action).unwrap();
-    assert!(roles[first_action..].iter().all(|&r| r == Role::Action));
+    assert_eq!(inferred[0].role, Some(Role::Death));
+    // The picker lists them in the same order.
+    let seqs = sequences(&r);
+    let named = seqs.len() - inferred.len();
+    assert!(seqs[named..].iter().zip(inferred).all(|(s, c)| *s == c.seq));
 }

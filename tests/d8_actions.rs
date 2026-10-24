@@ -1,5 +1,6 @@
 //! Converting an NPC from the GUI's action yields packs byte-identical to
-//! `rs2ool pack npc --id <id> --with-anims`, and exporting a record writes
+//! `rs2ool pack npc --id <id> --with-anims --infer`, with a clip for every
+//! sequence the explorer offers for the NPC, and exporting a record writes
 //! the same files as `rs2ool cache dump`.
 
 #![cfg(feature = "explorer")]
@@ -10,7 +11,9 @@ use std::process::Command;
 
 use rs2cache::types::record::RecordType;
 use rs2ool::explorer::actions::{ConvertTarget, convert, decoded, dump};
-use rs2ool::explorer::sources::{Kind, Source, open_cache};
+use rs2ool::explorer::playback::sequences;
+use rs2ool::explorer::selection::{Sel, load};
+use rs2ool::explorer::sources::{Kind, Source, open_cache, open_pack};
 
 mod common;
 
@@ -51,6 +54,20 @@ fn cli(args: &[&str]) {
     assert!(status.success(), "rs2ool {args:?}");
 }
 
+/// Run a conversion that may exit 3: every pack written, but some clip
+/// over the validation threshold. Inferred sequences picked from a shared
+/// pool weren't made for this model, so some re-skin poorly.
+fn convert_cli(args: &[&str]) {
+    let status = Command::new(env!("CARGO_BIN_EXE_rs2ool"))
+        .args(args)
+        .status()
+        .unwrap();
+    assert!(
+        matches!(status.code(), Some(0 | 3)),
+        "rs2ool {args:?}: {status}"
+    );
+}
+
 #[test]
 fn gui_actions_match_the_clis() {
     let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
@@ -68,7 +85,7 @@ fn gui_actions_match_the_clis() {
     // Convert the NPC.
     let (gui, cli_out) = (tmp("convert-gui"), tmp("convert-cli"));
     let done = convert(records, &ConvertTarget::Npc(npc), &gui).unwrap();
-    cli(&[
+    convert_cli(&[
         "--cache",
         d,
         "pack",
@@ -76,6 +93,7 @@ fn gui_actions_match_the_clis() {
         "--id",
         &id,
         "--with-anims",
+        "--infer",
         "-o",
         cli_out.to_str().unwrap(),
     ]);
@@ -103,6 +121,33 @@ fn gui_actions_match_the_clis() {
             .all(|(k, p)| *k == Kind::Pack && p.exists()),
         "each pack is offered as a source"
     );
+    // The models pack is offered first, and every button says what it opens.
+    let labels: Vec<String> = done
+        .opens
+        .iter()
+        .map(|(k, p)| rs2ool::explorer::jobs::open_label(*k, p))
+        .collect();
+    assert_eq!(labels[0], "Open models pack");
+    assert!(labels.contains(&"Open anims pack".to_owned()));
+
+    // Every sequence the explorer offers for the NPC, named or inferred,
+    // has a clip in the converted packs.
+    let (_, cache_side) = load(&cache, &Sel::Record(RecordType::Npc, npc)).unwrap();
+    let models = done.opens[0].1.clone();
+    let pack = open_pack(&models).unwrap();
+    let (_, converted) = load(
+        &pack,
+        &Sel::PackRecord(rs2convert::pipeline::ids::CREATURE_MODEL | npc),
+    )
+    .unwrap();
+    let (offered, clipped) = (
+        sequences(&cache_side.unwrap()),
+        sequences(&converted.unwrap()),
+    );
+    assert!(offered.len() > 2, "npc {npc} offers inferred sequences");
+    for s in &offered {
+        assert!(clipped.contains(s), "seq {s} has a clip");
+    }
 
     // Export a record.
     let (gui, cli_out) = (tmp("dump-gui"), tmp("dump-cli"));

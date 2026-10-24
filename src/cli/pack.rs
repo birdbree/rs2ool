@@ -36,6 +36,10 @@ pub enum Cmd {
         /// Extra sequence ids (317 npc.dat names no combat animations).
         #[arg(long, value_delimiter = ',')]
         seq: Vec<u16>,
+        /// Also convert the NPC's inferred sequences: the ones the explorer
+        /// offers (see docs/conversion/inference.md).
+        #[arg(long)]
+        infer: bool,
         #[command(flatten)]
         out: Out,
     },
@@ -171,8 +175,9 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                     id,
                     anims,
                     seq,
+                    infer,
                     out,
-                } => ctx.and_then(|c| c.npc(id, &anims, &seq, &out.dir)),
+                } => ctx.and_then(|c| c.npc(id, &anims, &seq, infer, &out.dir)),
                 Cmd::Sprites {
                     archive,
                     // Every sprite is already the default without --archive.

@@ -175,14 +175,14 @@ fn roles_match_the_named_sequences() {
     );
 }
 
-/// Humanoid NPCs share one big pool, so their candidates are picked by
-/// role from the whole pool, classified on the NPC's own model. Reports
-/// the pool's roles and how long classifying it takes, and checks the
-/// deaths picked really end collapsed.
+/// Humanoid NPCs share one big pool, so the whole pool is classified on
+/// the NPC's own model and grouped by role. Reports the pool's roles and
+/// how long classifying it takes, and checks the groups: deaths really end
+/// collapsed and actions really come back.
 #[test]
-fn humanoid_candidates_are_picked_by_role() {
+fn humanoid_candidates_are_grouped_by_role() {
     use rs2convert::creature;
-    use rs2convert::infer::{Role, pick_by_role, with_roles};
+    use rs2convert::infer::{Role, sort_by_role, with_roles};
     let Some(cache) = common::cache() else { return };
     let records = Records::new(&cache);
     let frames = cache.frame_index().unwrap();
@@ -243,29 +243,30 @@ fn humanoid_candidates_are_picked_by_role() {
             short(100),
             actions.len()
         );
-        let picked = pick_by_role(&cands, 8);
+        sort_by_role(&mut cands);
         eprintln!(
-            "npc {id}: {} pool candidates classified in {took:.2?}: {roles:?}; picked {} deaths, {} actions",
-            cands.len(),
-            picked
-                .iter()
-                .filter(|c| c.role == Some(Role::Death))
-                .count(),
-            picked
-                .iter()
-                .filter(|c| c.role == Some(Role::Action))
-                .count(),
+            "npc {id}: {} pool candidates classified in {took:.2?}: {roles:?}",
+            cands.len()
         );
         assert!(
-            picked.iter().any(|c| c.role == Some(Role::Death)),
+            cands.iter().any(|c| c.role == Some(Role::Death)),
             "npc {id} has a death to offer"
         );
-        for p in &picked {
-            let m = p.motion.unwrap();
-            match p.role {
+        // Grouped: deaths, then actions, then idles, then others.
+        let group = |c: &rs2convert::infer::Candidate| match c.role {
+            Some(Role::Death) => 0,
+            Some(Role::Action) => 1,
+            Some(Role::Idle) => 2,
+            Some(Role::Other) => 3,
+            None => 4,
+        };
+        assert!(cands.windows(2).all(|w| group(&w[0]) <= group(&w[1])));
+        for c in &cands {
+            let Some(m) = c.motion else { continue };
+            match c.role {
                 Some(Role::Death) => assert!(m.drop >= 0.3 && m.end_height <= 0.75),
                 Some(Role::Action) => assert!(m.returns <= 0.15),
-                r => panic!("picked a {r:?}"),
+                _ => {}
             }
         }
     }

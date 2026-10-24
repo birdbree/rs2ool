@@ -11,7 +11,7 @@
 //! `<out>/<other kind>/*.pack`. This module also maps cache ids to pack ids
 //! and back, for compare mode.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -116,9 +116,6 @@ impl Renderable {
     }
 }
 
-/// How many inferred sequences an NPC gets in the explorer.
-pub const INFERRED_LIMIT: usize = 16;
-
 /// Each open cache's sequence index, built on first use: it decodes every
 /// frame pack, so it's worth keeping.
 fn sequence_index(
@@ -136,9 +133,9 @@ fn sequence_index(
     Some(i)
 }
 
-/// NPC `id`'s creature with its best inferred sequences added after the
-/// named ones, and those candidates: the best by score, or for an NPC on
-/// a shared pool, the clearest deaths and actions in the whole pool. Falls back to `named` (the creature
+/// NPC `id`'s creature with every inferred sequence added after the named
+/// ones, grouped by role, and those candidates (see
+/// [`rs2convert::infer::npc_candidates`]). Falls back to `named` (the creature
 /// with only its named sequences) when there are none or they won't load.
 fn with_inferred(
     source: &Source,
@@ -153,48 +150,7 @@ fn with_inferred(
     let Some(seqs) = sequence_index(path, records, index) else {
         return (named, Vec::new());
     };
-    let names: Vec<u32> = named.sequences.iter().map(|s| s.def.id).collect();
-    let labels: BTreeSet<u8> = named
-        .model
-        .vertex_labels
-        .iter()
-        .flatten()
-        .copied()
-        .collect();
-    let mut best = seqs.candidates(&names, &labels);
-    if best.first().is_some_and(Candidate::shared) {
-        // A shared pool: id distance says little, so classify the whole
-        // pool on this model and pick by role instead. It's fast (about
-        // 0.1 s for 1200 sequences in a release build).
-        let all: Vec<u16> = best
-            .iter()
-            .filter_map(|c| u16::try_from(c.seq).ok())
-            .collect();
-        let Ok(pool) = creature::npc(records, index, id, &all) else {
-            return (named, Vec::new());
-        };
-        rs2convert::infer::with_roles(&pool, &mut best);
-        best = rs2convert::infer::pick_by_role(&best, INFERRED_LIMIT / 2);
-    } else {
-        best.truncate(INFERRED_LIMIT);
-    }
-    if best.is_empty() {
-        return (named, Vec::new());
-    }
-    let extra: Vec<u16> = best
-        .iter()
-        .filter_map(|c| u16::try_from(c.seq).ok())
-        .collect();
-    match creature::npc(records, index, id, &extra) {
-        Ok(c) => {
-            best.retain(|b| c.sequences.iter().any(|s| s.def.id == b.seq));
-            if best.iter().any(|b| b.role.is_none()) {
-                rs2convert::infer::with_roles(&c, &mut best);
-            }
-            (c, best)
-        }
-        Err(_) => (named, Vec::new()),
-    }
+    rs2convert::infer::npc_candidates(&seqs, records, index, id, named)
 }
 
 /// The renderable a selection resolves to, if it has one.
