@@ -529,14 +529,16 @@ fn layout(
                 .filter(|_| st.compare.enabled);
             playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref(), right);
             for job in st.jobs.list.iter().rev().take(4) {
-                ui.horizontal(|ui| {
-                    ui.label(&job.name);
+                // Wrapped, so a long message or a row of buttons flows onto
+                // the next line instead of running off the panel.
+                ui.horizontal_wrapped(|ui| {
+                    ui.add(egui::Label::new(&job.name).wrap());
                     match &job.done {
                         None => {
                             ui.add(egui::ProgressBar::new(job.fraction()).desired_width(200.0));
                         }
                         Some(Ok(done)) => {
-                            ui.label(&done.message);
+                            ui.add(egui::Label::new(&done.message).wrap());
                             for (kind, path) in &done.opens {
                                 if ui
                                     .small_button(crate::explorer::jobs::open_label(*kind, path))
@@ -548,7 +550,12 @@ fn layout(
                             }
                         }
                         Some(Err(e)) => {
-                            ui.colored_label(egui::Color32::LIGHT_RED, e);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(e).color(egui::Color32::LIGHT_RED),
+                                )
+                                .wrap(),
+                            );
                         }
                     }
                 });
