@@ -174,7 +174,7 @@ The camera starts above the middle of the region and is bounded to it: the targe
 
 **View › Renderer** switches between **Modern** and **Classic**. The classic renderer is the [`rs2classic`](../crates/rs2classic.md) reimplementation of the original client's software model renderer, drawing into a pixel buffer that's scaled up with nearest filtering. **View › Classic pixel size** sets how many screen pixels each classic pixel covers, from 1× to 4× (2× to start). The modern renderer's field of view follows the classic projection, so switching keeps the same framing.
 
-It draws cache models, assembled definitions, NPCs (relit at every animation frame), dumped models and map regions (terrain planes first, then objects from far to near, honouring the plane checkboxes). Textures come from the first open cache. Pack models have no classic form, and compare mode always uses the modern renderer, so switch back to Modern for those. See [Rasteriser](../client/rasteriser.md).
+It draws cache models, assembled definitions, NPCs (relit at every animation frame), dumped models and map regions (plane by plane, tile by tile from the far side in, each tile's ground before its objects, as the original client draws a scene; see [Terrain](../client/terrain.md#drawing); honouring the plane checkboxes). Textures come from the first open cache. Pack models have no classic form, and compare mode always uses the modern renderer, so switch back to Modern for those. See [Rasteriser](../client/rasteriser.md).
 
 ## The Actions menu
 

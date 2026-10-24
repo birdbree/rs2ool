@@ -8,6 +8,7 @@
 //! framing. A frame is only redrawn when something it depends on changes
 //! (see [`FrameKey`]).
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::ecs::system::SystemParam;
@@ -15,6 +16,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use rs2cache::types::map::REGION_SIZE;
 use rs2cache::types::record::{Record, RecordType};
 use rs2classic::{Framebuffer, LitModel, Textures, light};
 
@@ -222,8 +224,84 @@ pub fn classic_fov(height: u32, scale: u32) -> f32 {
     2.0 * (half / FOCAL).atan()
 }
 
-/// Draws a region scene: terrain planes, then objects far to near, skipping
-/// planes that are switched off.
+/// One step of drawing a region scene, from [`draw_order`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Draw {
+    /// One tile's ground on a plane: an index into
+    /// [`Ground::tile_faces`](rs2classic::terrain::Ground::tile_faces).
+    Ground {
+        /// The plane.
+        plane: u8,
+        /// The tile, `x * 64 + y`.
+        tile: usize,
+    },
+    /// A placed object: an index into [`ClassicScene::objects`].
+    Object(usize),
+}
+
+/// The order the original client draws a scene in: plane by plane, lowest
+/// first; within a plane, tile by tile from the far edges in towards the
+/// camera's tile; within a tile, its ground and then the objects standing
+/// there, far to near.
+///
+/// Tiles are visited furthest first along x from the camera's tile, then
+/// along y, west before east and south before north. An object bigger than
+/// a tile is drawn at the tile of its footprint nearest the camera, once
+/// all the ground under it is down. Planes switched off are left out.
+pub fn draw_order(scene: &ClassicScene, planes: [bool; 4], view: &rs2classic::View) -> Vec<Draw> {
+    let n = REGION_SIZE as i32;
+    let camera = |c: i32| (c.div_euclid(128)).clamp(0, n - 1);
+    let (cx, cy) = (camera(view.eye[0]), camera(view.eye[2]));
+    let mut tiles: Vec<(i32, i32)> = (0..n).flat_map(|x| (0..n).map(move |y| (x, y))).collect();
+    tiles.sort_by_key(|&(x, y)| {
+        (
+            std::cmp::Reverse((x - cx).abs()),
+            std::cmp::Reverse((y - cy).abs()),
+            x > cx,
+            y > cy,
+        )
+    });
+    // Each object's tile: the one of its footprint nearest the camera.
+    let mut at: BTreeMap<(u8, i32, i32), Vec<(i32, usize)>> = BTreeMap::new();
+    for (i, o) in scene.objects.iter().enumerate() {
+        let near = |lo: u8, len: u8, c: i32| {
+            c.clamp(i32::from(lo), i32::from(lo) + i32::from(len.max(1)) - 1)
+        };
+        let tile = (near(o.tile.0, o.size.0, cx), near(o.tile.1, o.size.1, cy));
+        // Depth: the first vertex's camera-space z.
+        let depth = o.vertices.first().map_or(0, |v| view.to_camera(*v)[2]);
+        at.entry((o.plane, tile.0, tile.1))
+            .or_default()
+            .push((depth, i));
+    }
+    for list in at.values_mut() {
+        list.sort_by_key(|&(d, i)| (std::cmp::Reverse(d), i));
+    }
+    let mut out = Vec::new();
+    for plane in 0..4u8 {
+        if !planes[usize::from(plane)] {
+            continue;
+        }
+        let ground = scene
+            .terrain
+            .iter()
+            .find(|(p, _)| *p == plane)
+            .map(|(_, g)| g);
+        for &(x, y) in &tiles {
+            let tile = (x * n + y) as usize;
+            if ground.is_some_and(|g| !g.tile_faces[tile].is_empty()) {
+                out.push(Draw::Ground { plane, tile });
+            }
+            if let Some(list) = at.get(&(plane, x, y)) {
+                out.extend(list.iter().map(|&(_, i)| Draw::Object(i)));
+            }
+        }
+    }
+    out
+}
+
+/// Draws a region scene in [`draw_order`], skipping planes that are
+/// switched off.
 pub fn render_scene(
     fb: &mut Framebuffer,
     scene: &ClassicScene,
@@ -231,24 +309,41 @@ pub fn render_scene(
     view: &rs2classic::View,
     textures: &Textures,
 ) {
-    for (plane, lit, verts) in &scene.terrain {
-        if planes[usize::from(*plane)] {
-            rs2classic::render_in_view(fb, lit, verts, view, textures);
-        }
-    }
-    // Painter's algorithm: each object's depth is its first vertex's
-    // camera-space z. Ties keep scene order.
-    let mut order: Vec<(i32, usize)> = scene
-        .objects
+    // Each plane's ground is projected once, then drawn tile by tile.
+    let projected: Vec<_> = scene
+        .terrain
         .iter()
-        .enumerate()
-        .filter(|(_, (plane, _, _))| planes[usize::from(*plane)])
-        .map(|(i, (_, _, v))| (v.first().map_or(0, |p| view.to_camera(*p)[2]), i))
+        .map(|(p, g)| {
+            (
+                *p,
+                rs2classic::render::project_in_view(fb, &g.vertices, view),
+            )
+        })
         .collect();
-    order.sort_by_key(|&(d, i)| (std::cmp::Reverse(d), i));
-    for (_, i) in order {
-        let (_, lit, verts) = &scene.objects[i];
-        rs2classic::render_in_view(fb, lit, verts, view, textures);
+    for d in draw_order(scene, planes, view) {
+        match d {
+            Draw::Ground { plane, tile } => {
+                let Some(((_, g), (_, p))) = scene
+                    .terrain
+                    .iter()
+                    .zip(&projected)
+                    .find(|((q, _), _)| *q == plane)
+                else {
+                    continue;
+                };
+                rs2classic::render::draw_in_order(
+                    fb,
+                    &g.model,
+                    p,
+                    g.tile_faces[tile].clone(),
+                    textures,
+                );
+            }
+            Draw::Object(i) => {
+                let o = &scene.objects[i];
+                rs2classic::render_in_view(fb, &o.model, &o.vertices, view, textures);
+            }
+        }
     }
 }
 
@@ -376,6 +471,91 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scene with ground everywhere on plane 0 and on a patch of plane 2
+    /// (a roof over tiles 4–6), objects on plane 0 under the roof and
+    /// elsewhere, and a 3 × 3 object.
+    fn scene() -> ClassicScene {
+        use crate::explorer::map_view::SceneObject;
+        use rs2cache::types::map::Plane;
+        use rs2classic::terrain::{FloorColour, Tiles, ground};
+        let n = REGION_SIZE * REGION_SIZE;
+        let mut p = Plane {
+            heights: vec![0; n],
+            height_derived: vec![false; n],
+            overlays: vec![0; n],
+            shapes: vec![0; n],
+            rotations: vec![0; n],
+            flags: vec![0; n],
+            underlays: vec![1; n],
+        };
+        let floors = [FloorColour::from_rgb(0x40a040)];
+        let low = ground(&Tiles::region(&p), &floors, None).unwrap();
+        p.underlays = vec![0; n];
+        for x in 4..7 {
+            for y in 4..7 {
+                p.underlays[x * REGION_SIZE + y] = 1;
+            }
+        }
+        p.heights = vec![-480; n];
+        let roof = ground(&Tiles::region(&p), &floors, None).unwrap();
+        let object = |tile: (u8, u8), size| SceneObject {
+            plane: 0,
+            tile,
+            size,
+            model: Arc::new(LitModel::flat_rgb(Vec::new(), Vec::new())),
+            vertices: vec![[i32::from(tile.0) * 128, 0, i32::from(tile.1) * 128]],
+        };
+        ClassicScene {
+            terrain: vec![(0, low), (2, roof)],
+            objects: vec![
+                object((5, 5), (1, 1)),
+                object((40, 40), (1, 1)),
+                object((20, 20), (3, 3)),
+            ],
+            centre: [0; 3],
+        }
+    }
+
+    #[test]
+    fn roofs_draw_after_everything_beneath_them() {
+        let s = scene();
+        // The camera over tile (30, 30).
+        let view = rs2classic::View {
+            eye: [30 * 128, -2000, 30 * 128],
+            yaw: 0,
+            pitch: 256,
+        };
+        let order = draw_order(&s, [true; 4], &view);
+        let pos = |d: Draw| order.iter().position(|&x| x == d).unwrap();
+        let ground = |plane, x: usize, y: usize| Draw::Ground {
+            plane,
+            tile: x * REGION_SIZE + y,
+        };
+        // Every roof tile comes after every plane-0 object.
+        let last_object = (0..3).map(|i| pos(Draw::Object(i))).max().unwrap();
+        for x in 4..7 {
+            for y in 4..7 {
+                assert!(pos(ground(2, x, y)) > last_object);
+            }
+        }
+        // A tile's ground goes down before what stands on it.
+        assert!(pos(ground(0, 5, 5)) < pos(Draw::Object(0)));
+        assert!(pos(ground(0, 40, 40)) < pos(Draw::Object(1)));
+        // A big object waits for all the ground under it.
+        for x in 20..23 {
+            for y in 20..23 {
+                assert!(pos(ground(0, x, y)) < pos(Draw::Object(2)), "tile {x}, {y}");
+            }
+        }
+        // Far tiles first: the corner tile (0, 0) is drawn before the
+        // camera's own tile.
+        assert!(pos(ground(0, 0, 0)) < pos(ground(0, 30, 30)));
+        // Plane 2 switched off: no roof.
+        let order = draw_order(&s, [true, true, false, true], &view);
+        assert!(!order.contains(&ground(2, 5, 5)));
+        assert_eq!(order.len(), 64 * 64 + 3);
+    }
 
     #[test]
     fn classic_fov_matches_the_projection() {

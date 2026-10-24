@@ -461,6 +461,11 @@ pub struct Ground {
     /// The light at each of the region's grid points, from
     /// [`light_grid`].
     pub light: Vec<i32>,
+    /// Each tile's faces, indexed `x * 64 + y`: a range into the model's
+    /// faces, empty for a tile with none. A tile's faces are listed in the
+    /// order the original client draws them (see
+    /// [`draw_in_order`](crate::render::draw_in_order)).
+    pub tile_faces: Vec<std::ops::Range<usize>>,
 }
 
 /// Marks a corner that isn't drawn (no underlay, or a hidden overlay).
@@ -636,6 +641,9 @@ struct Builder {
     base: Vec<u16>,
     texture_triple: Vec<usize>,
     textured_faces: Vec<[u16; 3]>,
+    /// The tile the next faces belong to, and each face's tile.
+    tile: usize,
+    face_tiles: Vec<usize>,
 }
 
 impl Builder {
@@ -654,6 +662,7 @@ impl Builder {
 
     fn push(&mut self, v: [u16; 3], kind: u8, c: [i32; 3], base: u16, pmn: Option<[u16; 3]>) {
         self.faces.push(v);
+        self.face_tiles.push(self.tile);
         self.kinds.push(kind);
         self.colours.push(c);
         self.base.push(base);
@@ -678,6 +687,7 @@ pub fn ground(tiles: &Tiles, floors: &[FloorColour], shadows: Option<&[u8]>) -> 
     for x in 0..REGION_SIZE {
         for y in 0..REGION_SIZE {
             let i = x * REGION_SIZE + y;
+            b.tile = i;
             let t = tiles.index(x, y);
             let over = floor_of(floors, tiles.overlays[t]);
             if under[i].is_none() && over.is_none() {
@@ -772,6 +782,15 @@ pub fn ground(tiles: &Tiles, floors: &[FloorColour], shadows: Option<&[u8]>) -> 
         return None;
     }
     let n = b.faces.len();
+    // Tiles are built in order, so each one's faces are contiguous.
+    let mut tile_faces = vec![0..0; REGION_SIZE * REGION_SIZE];
+    for (f, &t) in b.face_tiles.iter().enumerate() {
+        let r = &mut tile_faces[t];
+        if r.start == r.end {
+            *r = f..f;
+        }
+        r.end = f + 1;
+    }
     Some(Ground {
         model: LitModel {
             faces: b.faces,
@@ -785,6 +804,7 @@ pub fn ground(tiles: &Tiles, floors: &[FloorColour], shadows: Option<&[u8]>) -> 
         },
         vertices: b.vertices,
         light,
+        tile_faces,
     })
 }
 
@@ -1114,6 +1134,34 @@ mod tests {
         let unlit = light_grid(&w, None);
         assert_eq!(lit[64 * GRID + 10], unlit[64 * GRID + 10] - 25 - 6);
         assert_eq!(lit[64 * GRID + 20], unlit[64 * GRID + 20]);
+    }
+
+    #[test]
+    fn each_tile_lists_its_own_faces() {
+        let (west, _) = pair();
+        let mut p = west;
+        p.overlays[3 * 64 + 4] = 2;
+        p.shapes[3 * 64 + 4] = 9;
+        let g = ground(&Tiles::region(&p), &floors(), None).unwrap();
+        // Every face belongs to exactly one tile, in tile order.
+        let mut next = 0;
+        for r in &g.tile_faces {
+            if !r.is_empty() {
+                assert_eq!(r.start, next);
+                next = r.end;
+            }
+        }
+        assert_eq!(next, g.model.faces.len());
+        // A whole tile has two faces; the shaped one has six.
+        assert_eq!(g.tile_faces[0].len(), 2);
+        assert_eq!(g.tile_faces[3 * 64 + 4].len(), 6);
+        // And they sit on that tile.
+        for f in g.tile_faces[3 * 64 + 4].clone() {
+            for v in g.model.faces[f] {
+                let [x, _, z] = g.vertices[usize::from(v)];
+                assert!((384..=512).contains(&x) && (512..=640).contains(&z));
+            }
+        }
     }
 
     #[test]

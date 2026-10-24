@@ -200,7 +200,9 @@ Every shape covers the whole tile, and every triangle is wound the same way as t
 
 ## Drawing
 
-The original client draws ground as part of its scene, which has no fog and draws far to near, lowest plane first; within a tile, the ground goes down before walls, decorations and objects. A tile is dropped whole if any of its points is nearer the camera than 50 units, and a triangle is drawn only if it faces the camera. Tiles more than 25 tiles from the camera aren't drawn.
+The original client draws ground as part of its scene, which has no fog and no depth buffer. It draws plane by plane, lowest first, so everything on a plane is drawn before anything on the plane above: a roof is always drawn after the rooms beneath it. Within a plane it works tile by tile from the edges of the view in towards the camera's tile: the tiles furthest from the camera along x first, then along y. Within a tile, the ground goes down first, its triangles in the order listed under [Tile shapes](#tile-shapes) with no depth sorting, then the walls, decorations and objects standing there. An object bigger than a tile waits until the ground under all of it is down. A tile is dropped whole if any of its points is nearer the camera than 50 units, and a triangle is drawn only if it faces the camera. Tiles more than 25 tiles from the camera aren't drawn.
+
+The explorer's classic view draws a region in that order: plane by plane, tile by tile, each tile's ground and then its objects far to near, with a multi-tile object drawn at the tile of its footprint nearest the camera. It doesn't do the 25-tile cut-off, and the modern view uses a depth buffer instead.
 
 In its low-detail mode the original client also skips upper-plane tiles away from the player's plane, and draws textured ground untextured, in a fixed average colour per texture shaded by the same light. The tools always draw full detail.
 
