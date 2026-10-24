@@ -14,7 +14,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use contentpack::records::anim::NO_LOOP;
-use rs2convert::infer::Candidate;
+use rs2convert::infer::{Candidate, Role};
 
 use crate::explorer::classic::ClassicView;
 use crate::explorer::renderable::Renderable;
@@ -411,11 +411,12 @@ pub fn inferred(r: &Renderable, seq: u32) -> Option<&Candidate> {
 
 /// The picker's name for a sequence: inferred ones show their score.
 fn seq_label(r: &Renderable, seq: u32) -> String {
-    match inferred(r, seq) {
-        Some(c) if c.shared() => format!("seq {seq} · inferred {:.2}, shared pool", c.score),
-        Some(c) => format!("seq {seq} · inferred {:.2}", c.score),
-        None => format!("seq {seq}"),
-    }
+    let Some(c) = inferred(r, seq) else {
+        return format!("seq {seq}");
+    };
+    let role = c.role.map_or(String::new(), |r| format!("{} ", r.name()));
+    let pool = if c.shared() { ", shared pool" } else { "" };
+    format!("seq {seq} · inferred {role}{:.2}{pool}", c.score)
 }
 
 /// An inferred sequence's evidence, for its tooltip.
@@ -428,6 +429,14 @@ fn evidence(c: &Candidate) -> String {
     );
     if c.shared() {
         s.push_str(" It's a shared pool, so the ranking means little.");
+    }
+    if let Some(r) = c.role {
+        s.push_str(match r {
+            Role::Idle => " It barely moves the model: idle.",
+            Role::Action => " It moves the model and returns to its first pose: an action, such as an attack or a block.",
+            Role::Death => " It ends with the model collapsed: probably a death.",
+            Role::Other => " It moves the model and ends somewhere else.",
+        });
     }
     s
 }

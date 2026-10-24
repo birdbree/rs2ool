@@ -15,7 +15,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`creature`](../../crates/rs2convert/src/creature.rs) | Assembles an NPC or a kit part the way the original client does: models merged, recoloured, with its sequences and frame packs. |
 | [`rig`](../../crates/rs2convert/src/rig.rs) | Rig inference from frame-base label sets. |
 | [`clip`](../../crates/rs2convert/src/clip.rs) | Converts each frame of a sequence into pose keys per bone. |
-| [`infer`](../../crates/rs2convert/src/infer.rs) | Links the cache doesn't store: candidate sequences for a model from frame-base families, label coverage and id distance. See [inference](../conversion/inference.md). |
+| [`infer`](../../crates/rs2convert/src/infer.rs) | Links the cache doesn't store: candidate sequences for a model from frame-base families, label coverage and id distance, and each one's role (idle, action, death) from its motion. See [inference](../conversion/inference.md). |
 | [`validate`](../../crates/rs2convert/src/validate.rs) | Re-skins the creature's rest mesh with the encoded rig and clip records and compares it with the reference deformation. |
 | [`deform`](../../crates/rs2convert/src/deform.rs) | The original client's frame application in integer arithmetic: the reference deformation. |
 | [`space`](../../crates/rs2convert/src/space.rs) | Cache space to pack space. |

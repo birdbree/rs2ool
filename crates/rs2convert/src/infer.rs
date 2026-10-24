@@ -1,5 +1,6 @@
 //! Links the cache doesn't store, inferred from structure: which sequences
-//! could animate an NPC beyond the ones its definition names.
+//! could animate an NPC beyond the ones its definition names, and what
+//! each one looks like it does.
 //!
 //! A sequence can only animate a model whose vertex labels fit the frame
 //! base of its frames. Frame packs with identical frame bases form a
@@ -7,7 +8,9 @@
 //! fewer slots) is treated as compatible with it. An NPC's candidates are
 //! the sequences compatible with the ones it names, that move at least
 //! half of its model's labels, ranked by how close their ids are to the
-//! named ones. Everything here is a guess with its evidence attached;
+//! named ones. A candidate's role (idle, action, death) comes from posing
+//! the NPC's model through it. Everything here is a guess with its
+//! evidence attached;
 //! `docs/conversion/inference.md` has the measurements behind it.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,6 +21,7 @@ use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
 
 use crate::ConvertError;
+use crate::creature::Creature;
 
 /// The share of a model's labels a candidate must move.
 pub const MIN_COVERAGE: f32 = 0.5;
@@ -65,6 +69,128 @@ pub struct Candidate {
     pub distance: u32,
     /// How many sequences share the named sequences' family group.
     pub pool: usize,
+    /// What it looks like it does, once worked out with [`with_roles`].
+    pub role: Option<Role>,
+}
+
+/// What a sequence looks like it does to a model, from its motion alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// Barely moves: standing about.
+    Idle,
+    /// Moves and comes back to where it started: an attack, a block or a
+    /// gait.
+    Action,
+    /// Ends collapsed: between its first frame and its last, the model's
+    /// top drops by at least 30% of its height and it ends at most 75% as
+    /// tall.
+    Death,
+    /// None of those.
+    Other,
+}
+
+impl Role {
+    /// The role's name, lowercase.
+    pub fn name(self) -> &'static str {
+        match self {
+            Role::Idle => "idle",
+            Role::Action => "action",
+            Role::Death => "death",
+            Role::Other => "other",
+        }
+    }
+}
+
+/// How a sequence moves a model, each distance as a share of the model's
+/// height in the sequence's first frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    /// The last frame's height.
+    pub end_height: f64,
+    /// How far the top has dropped between the first frame and the last
+    /// (negative: risen).
+    pub drop: f64,
+    /// Mean vertex distance between the last frame and the first.
+    pub returns: f64,
+    /// The largest mean vertex distance from the first frame.
+    pub peak: f64,
+}
+
+/// Peak motion below which a sequence counts as idle.
+const IDLE_PEAK: f64 = 0.06;
+/// How far from the first frame an action may end.
+const ACTION_RETURN: f64 = 0.15;
+
+impl Motion {
+    /// Measures sequence `s` of creature `c` (an index into its
+    /// sequences), posed with the reference deformation. `None` when a
+    /// frame won't pose or the model is empty or flat.
+    pub fn measure(c: &Creature, s: usize) -> Option<Self> {
+        let n = c.sequences.get(s)?.def.frames.len();
+        let frames: Vec<Vec<[i32; 3]>> = (0..n).map(|i| c.posed(s, i)).collect::<Option<_>>()?;
+        let (first, last) = (frames.first()?, frames.last()?);
+        // y is down: the top is the smallest y.
+        let span = |v: &[[i32; 3]]| {
+            v.iter().fold((i32::MAX, i32::MIN), |(lo, hi), p| {
+                (lo.min(p[1]), hi.max(p[1]))
+            })
+        };
+        // Measured against the first frame, not the rest pose: some models
+        // are animated in a pose quite unlike their rest pose.
+        let (top, bottom) = span(first);
+        let height = f64::from(bottom.saturating_sub(top));
+        if first.is_empty() || height <= 0.0 {
+            return None;
+        }
+        let mean_distance = |a: &[[i32; 3]], b: &[[i32; 3]]| {
+            let total: f64 = a
+                .iter()
+                .zip(b)
+                .map(|(p, q)| {
+                    let d = [0, 1, 2].map(|k| f64::from(p[k] - q[k]));
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                })
+                .sum();
+            total / a.len().max(1) as f64
+        };
+        let (end_top, end_bottom) = span(last);
+        Some(Self {
+            end_height: f64::from(end_bottom - end_top) / height,
+            drop: f64::from(end_top - top) / height,
+            returns: mean_distance(last, first) / height,
+            peak: frames
+                .iter()
+                .map(|f| mean_distance(f, first))
+                .fold(0.0, f64::max)
+                / height,
+        })
+    }
+
+    /// The role this motion suggests.
+    pub fn role(&self) -> Role {
+        if self.drop >= 0.3 && self.end_height <= 0.75 {
+            Role::Death
+        } else if self.peak < IDLE_PEAK {
+            Role::Idle
+        } else if self.returns <= ACTION_RETURN {
+            Role::Action
+        } else {
+            Role::Other
+        }
+    }
+}
+
+/// Fills in each candidate's role by posing creature `c` through it.
+/// Candidates whose sequence `c` doesn't have, or won't pose, keep `None`.
+pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
+    for cand in candidates {
+        cand.role = c
+            .sequences
+            .iter()
+            .position(|s| s.def.id == cand.seq)
+            .and_then(|s| Motion::measure(c, s))
+            .map(|m| m.role());
+    }
 }
 
 impl Candidate {
@@ -186,6 +312,7 @@ impl SequenceIndex {
                     coverage,
                     distance,
                     pool,
+                    role: None,
                 })
             })
             .collect();
@@ -267,6 +394,22 @@ mod tests {
         assert!(c[0].score > c[1].score && c[1].score > c[2].score);
         assert_eq!(c[0].pool, 5);
         assert!(!c[0].shared());
+    }
+
+    #[test]
+    fn roles_from_motion() {
+        let m = |end_height, drop, returns, peak| Motion {
+            end_height,
+            drop,
+            returns,
+            peak,
+        };
+        assert_eq!(m(0.5, 0.56, 0.3, 0.42).role(), Role::Death);
+        assert_eq!(m(1.0, 0.0, 0.01, 0.02).role(), Role::Idle);
+        assert_eq!(m(1.0, 0.0, 0.05, 0.15).role(), Role::Action);
+        assert_eq!(m(0.97, 0.03, 0.3, 0.3).role(), Role::Other);
+        // Crouching low but not collapsed isn't death.
+        assert_eq!(m(0.8, 0.2, 0.05, 0.2).role(), Role::Action);
     }
 
     #[test]
