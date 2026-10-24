@@ -23,7 +23,7 @@ Implemented in [`rs2convert::creature`](../../crates/rs2convert/src/creature.rs)
 `creature::npc` builds NPC `id` from its `npc.dat` entry:
 
 1. Decode each model the definition lists, merge them and recolour.
-2. Collect the sequences: stand, walk, walk back, walk left and walk right, whichever are present, followed by any extra ids passed with `--seq`. `npc.dat` names no other animations, so extras have to be given by hand. Repeated ids are dropped, and the first one is kept.
+2. Collect the sequences: stand, walk, walk back, walk left and walk right, whichever are present, followed by any extra ids passed with `--seq`. `npc.dat` names no other animations, so extras have to be given by hand ([Inference](inference.md) covers finding candidates). Repeated ids are dropped, and the first one is kept.
 3. Take the scale as `[scale_xz, scale_y, scale_xz]`, where 128 is 1.
 4. Use the definition's name, or `npc <id>` when it has none.
 
@@ -74,4 +74,5 @@ The rigs and clips come from `pipeline::convert`, which converts the rest model,
 - [Assembly](../client/assembly.md): how the original client merges, recolours and scales.
 - [NPC](../records/npc.md) and [Identity kit](../records/idk.md): the source definitions.
 - [Rig inference](rig-inference.md): bones from the creature's frames.
+- [Inference](inference.md): candidate sequences for an NPC beyond the ones it names.
 - [Models](../pack/models.md), [Rigs](../pack/rigs.md) and [Record ids](../pack/record-ids.md): record layouts and id namespaces.

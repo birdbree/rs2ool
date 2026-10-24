@@ -91,3 +91,4 @@ How the original client steps through frames, loops and interleaves is on [anima
 - [Config archives](../cache/config.md): sequential types and unknown opcodes.
 - [Clips](../conversion/clips.md): how a sequence becomes a clip.
 - [Spot animations](spotanim.md): definitions that refer to a sequence.
+- [Inference](../conversion/inference.md): working out which NPCs a sequence is for, which the cache doesn't say.

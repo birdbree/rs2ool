@@ -89,4 +89,5 @@ The explorer plays an npc's sequences when they resolve, and otherwise shows the
 - [Model assembly](../client/assembly.md): welding, recolours, scale after animation.
 - [Creature conversion](../conversion/creatures.md): from the assembled creature to model, rig and clips.
 - [Seq](seq.md): the sequence definitions the anim fields point to.
+- [Inference](../conversion/inference.md): finding the sequences an NPC plays beyond the ones it names.
 - [Pack commands](../tools/pack-commands.md): `rs2ool pack npc` and its flags.

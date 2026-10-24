@@ -46,6 +46,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Frame base.** The list of *transform slots* a pack's frames use: each slot has a kind (origin, translate, rotate, scale, alpha) and the labels it moves.
 
+**Frame-base family.** Frame packs with identical frame bases, and the sequences that use them: one skeleton's worth of animations. See [Inference](conversion/inference.md).
+
 **Frame.** One pose: for some slots, the x/y/z values to apply. Frame ids are global 16-bit numbers.
 
 **Sequence.** A seq.dat definition: an ordered list of frame ids with delays, plus loop and priority rules. See [Sequences](records/seq.md).

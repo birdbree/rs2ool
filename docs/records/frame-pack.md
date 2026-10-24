@@ -113,3 +113,4 @@ The versionlist's `anim_index` is **not** this map. It's one `u16` per global fr
 - [Models](model.md): the vertex and face labels the base refers to.
 - [Versionlist](../cache/versionlist.md): `anim_index` and the per-file tables.
 - [Rig inference](../conversion/rig-inference.md) and [clips](../conversion/clips.md): how frames become rigs and clips.
+- [Inference](../conversion/inference.md): frame-base families, and how they narrow which sequences fit a model.

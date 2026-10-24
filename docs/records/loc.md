@@ -131,3 +131,4 @@ Morph children are decoded and their models converted along with the requested i
 - [Object conversion](../conversion/objects.md): states, transitions, collision and kits in detail.
 - [Map](map.md): where placement types and rotations come from.
 - [Seq](seq.md): the sequences `animation` refers to.
+- [Inference](../conversion/inference.md): other sequences a location's model could play.
