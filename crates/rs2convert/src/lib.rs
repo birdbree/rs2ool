@@ -23,6 +23,8 @@
 //! - [`clip`]: sequences to per-bone pose keys.
 //! - [`validate`]: re-skinning the stored rig and clip, and measuring the
 //!   error against [`deform`].
+//! - [`infer`]: links the cache doesn't store, such as which sequences
+//!   could animate an NPC, inferred from frame-base families.
 //! - [`texture`]: the texture atlas and texture materials.
 //! - [`sprite`]: media and title sprites, and fonts.
 //! - [`floor`]: floor materials and their names.
@@ -56,6 +58,7 @@ pub mod clip;
 pub mod creature;
 pub mod deform;
 pub mod floor;
+pub mod infer;
 pub mod model;
 pub mod object;
 pub mod palette;

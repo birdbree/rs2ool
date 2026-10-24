@@ -138,9 +138,11 @@ When the selection can animate, the bottom panel shows a playback bar: a sequenc
 
 What plays:
 
-- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards;
+- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then up to 16 inferred sequences, best first;
 - the player kit, with the player stance sequences;
 - a converted creature: a models-pack record whose rig is in the rigs pack beside it (`<dir>/rigs/`), with its clips from `<dir>/anims/`.
+
+The NPC definition only names its stand and walk sequences, so the explorer adds the likeliest others from [sequence inference](../conversion/inference.md). The picker shows them as "seq N · inferred 0.62", with the score; hovering one shows its evidence (same skeleton, how much of the model it moves, how far its id is from a named sequence). A candidate from the shared humanoid pool says so, since the ranking means little there. The sequence index behind it is built the first time an NPC is selected, which takes a moment, and then kept for the session.
 
 Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/animation.md#sequence-timing): the sequence's delay, else the frame's own, else 1. A converted creature's frame lengths come from its clip's frame start times. At the end the loop offset decides where playback restarts; with **Loop** off it stops on the last frame, and **Play** starts again from the beginning.
 

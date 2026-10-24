@@ -122,6 +122,7 @@ impl KitBase {
         Ok(Renderable::Creature {
             creature: Arc::new(c),
             model,
+            inferred: Vec::new(),
         })
     }
 }

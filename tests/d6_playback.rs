@@ -134,3 +134,43 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
     }
     assert!(moved, "the skeleton moves over the walk");
 }
+
+/// An NPC loads with inferred sequences after the ones it names, each
+/// with its evidence, and they play like the named ones.
+#[test]
+fn npc_plays_its_inferred_sequences() {
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    let npc = common::walking_npc(records);
+    let (_, r) = load(&cache, &Sel::Record(RecordType::Npc, npc)).unwrap();
+    let r = r.unwrap();
+    let Renderable::Creature { inferred, .. } = &r else {
+        panic!("npc {npc} plays")
+    };
+    assert!(!inferred.is_empty(), "npc {npc} gets inferred sequences");
+    assert!(inferred.len() <= rs2ool::explorer::renderable::INFERRED_LIMIT);
+    assert!(
+        inferred.windows(2).all(|w| w[0].score >= w[1].score),
+        "best first"
+    );
+    let seqs = sequences(&r);
+    // Named first, inferred after, in rank order.
+    let named = seqs.len() - inferred.len();
+    assert_eq!(
+        seqs[named..],
+        inferred.iter().map(|c| c.seq).collect::<Vec<_>>()[..]
+    );
+    for c in inferred {
+        assert!(rs2ool::explorer::playback::inferred(&r, c.seq).is_some());
+        let (delays, _) = timing(&r, c.seq).unwrap();
+        assert!(!delays.is_empty());
+        assert!(matches!(posed(&r, c.seq, 0), Some(Posed::Cache(_))));
+    }
+    assert!(rs2ool::explorer::playback::inferred(&r, seqs[0]).is_none());
+}
