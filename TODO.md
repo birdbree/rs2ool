@@ -49,6 +49,9 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#40](https://github.com/birdbree/rs2ool/issues/40) Female default body and real hide masks for the player kit
 - [ ] [#41](https://github.com/birdbree/rs2ool/issues/41) Compare two caches
 - [ ] [#55](https://github.com/birdbree/rs2ool/issues/55) Fly the camera across the whole map
+- [ ] [#59](https://github.com/birdbree/rs2ool/issues/59) Infer which sequences belong to which NPCs and objects
+- [ ] [#60](https://github.com/birdbree/rs2ool/issues/60) Infer an item's equipment slot from its wear models
+- [x] [#61](https://github.com/birdbree/rs2ool/issues/61) Spike: how far do frame bases alone narrow an NPC's sequences?
 
 ## Housekeeping
 
