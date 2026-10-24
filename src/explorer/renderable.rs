@@ -137,7 +137,8 @@ fn sequence_index(
 }
 
 /// NPC `id`'s creature with its best inferred sequences added after the
-/// named ones, and those candidates. Falls back to `named` (the creature
+/// named ones, and those candidates: the best by score, or for an NPC on
+/// a shared pool, the clearest deaths and actions in the whole pool. Falls back to `named` (the creature
 /// with only its named sequences) when there are none or they won't load.
 fn with_inferred(
     source: &Source,
@@ -161,7 +162,22 @@ fn with_inferred(
         .copied()
         .collect();
     let mut best = seqs.candidates(&names, &labels);
-    best.truncate(INFERRED_LIMIT);
+    if best.first().is_some_and(Candidate::shared) {
+        // A shared pool: id distance says little, so classify the whole
+        // pool on this model and pick by role instead. It's fast (about
+        // 0.1 s for 1200 sequences in a release build).
+        let all: Vec<u16> = best
+            .iter()
+            .filter_map(|c| u16::try_from(c.seq).ok())
+            .collect();
+        let Ok(pool) = creature::npc(records, index, id, &all) else {
+            return (named, Vec::new());
+        };
+        rs2convert::infer::with_roles(&pool, &mut best);
+        best = rs2convert::infer::pick_by_role(&best, INFERRED_LIMIT / 2);
+    } else {
+        best.truncate(INFERRED_LIMIT);
+    }
     if best.is_empty() {
         return (named, Vec::new());
     }
@@ -172,7 +188,9 @@ fn with_inferred(
     match creature::npc(records, index, id, &extra) {
         Ok(c) => {
             best.retain(|b| c.sequences.iter().any(|s| s.def.id == b.seq));
-            rs2convert::infer::with_roles(&c, &mut best);
+            if best.iter().any(|b| b.role.is_none()) {
+                rs2convert::infer::with_roles(&c, &mut best);
+            }
             (c, best)
         }
         Err(_) => (named, Vec::new()),

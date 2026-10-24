@@ -414,9 +414,13 @@ fn seq_label(r: &Renderable, seq: u32) -> String {
     let Some(c) = inferred(r, seq) else {
         return format!("seq {seq}");
     };
-    let role = c.role.map_or(String::new(), |r| format!("{} ", r.name()));
-    let pool = if c.shared() { ", shared pool" } else { "" };
-    format!("seq {seq} · inferred {role}{:.2}{pool}", c.score)
+    let role = c.role.map_or("", |r| r.name());
+    if c.shared() {
+        // Picked by role, not by score: the score means nothing here.
+        format!("seq {seq} · inferred {role}, shared pool")
+    } else {
+        format!("seq {seq} · inferred {role} {:.2}", c.score)
+    }
 }
 
 /// An inferred sequence's evidence, for its tooltip.
@@ -428,7 +432,9 @@ fn evidence(c: &Candidate) -> String {
         c.pool
     );
     if c.shared() {
-        s.push_str(" It's a shared pool, so the ranking means little.");
+        s.push_str(
+            " That's a shared pool, where id distance means little, so it was picked from the whole pool by its role: the most collapsed deaths, then short actions with the most motion.",
+        );
     }
     if let Some(r) = c.role {
         s.push_str(match r {

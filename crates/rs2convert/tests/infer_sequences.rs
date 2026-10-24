@@ -174,3 +174,100 @@ fn roles_match_the_named_sequences() {
         "half the creatures have a death candidate: {with_death} of {creatures}"
     );
 }
+
+/// Humanoid NPCs share one big pool, so their candidates are picked by
+/// role from the whole pool, classified on the NPC's own model. Reports
+/// the pool's roles and how long classifying it takes, and checks the
+/// deaths picked really end collapsed.
+#[test]
+fn humanoid_candidates_are_picked_by_role() {
+    use rs2convert::creature;
+    use rs2convert::infer::{Role, pick_by_role, with_roles};
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let frames = cache.frame_index().unwrap();
+    let index = SequenceIndex::build(&cache, &records, &frames).unwrap();
+    let real = |a: Option<u16>| a.filter(|&a| a != u16::MAX);
+    // A few humanoids with different label layouts.
+    let mut layouts = BTreeSet::new();
+    let mut tried = 0;
+    for id in records.ids(RecordType::Npc).unwrap() {
+        if tried == 4 {
+            break;
+        }
+        let Ok(Record::Npc(n)) = records.decode(RecordType::Npc, id) else {
+            continue;
+        };
+        let Some(stand) = real(n.stand_anim) else {
+            continue;
+        };
+        let Ok(named) = creature::npc(&records, &frames, id, &[]) else {
+            continue;
+        };
+        let labels: BTreeSet<u8> = named
+            .model
+            .vertex_labels
+            .iter()
+            .flatten()
+            .copied()
+            .collect();
+        let mut cands = index.candidates(&[u32::from(stand)], &labels);
+        if cands.first().is_none_or(|c| !c.shared()) || !layouts.insert(labels) {
+            continue;
+        }
+        tried += 1;
+        let start = std::time::Instant::now();
+        let extra: Vec<u16> = cands
+            .iter()
+            .filter_map(|c| u16::try_from(c.seq).ok())
+            .collect();
+        let c = creature::npc(&records, &frames, id, &extra).unwrap();
+        with_roles(&c, &mut cands);
+        let took = start.elapsed();
+        let mut roles = BTreeMap::<&str, usize>::new();
+        for cand in &cands {
+            *roles
+                .entry(cand.role.map_or("none", Role::name))
+                .or_default() += 1;
+        }
+        let actions: Vec<u32> = cands
+            .iter()
+            .filter(|c| c.role == Some(Role::Action))
+            .filter_map(|c| c.motion.map(|m| m.duration))
+            .collect();
+        let short = |cap: u32| actions.iter().filter(|&&d| d <= cap).count();
+        eprintln!(
+            "  actions by duration: ≤ 40 cycles {}, ≤ 60 {}, ≤ 100 {}, all {}",
+            short(40),
+            short(60),
+            short(100),
+            actions.len()
+        );
+        let picked = pick_by_role(&cands, 8);
+        eprintln!(
+            "npc {id}: {} pool candidates classified in {took:.2?}: {roles:?}; picked {} deaths, {} actions",
+            cands.len(),
+            picked
+                .iter()
+                .filter(|c| c.role == Some(Role::Death))
+                .count(),
+            picked
+                .iter()
+                .filter(|c| c.role == Some(Role::Action))
+                .count(),
+        );
+        assert!(
+            picked.iter().any(|c| c.role == Some(Role::Death)),
+            "npc {id} has a death to offer"
+        );
+        for p in &picked {
+            let m = p.motion.unwrap();
+            match p.role {
+                Some(Role::Death) => assert!(m.drop >= 0.3 && m.end_height <= 0.75),
+                Some(Role::Action) => assert!(m.returns <= 0.15),
+                r => panic!("picked a {r:?}"),
+            }
+        }
+    }
+    assert_eq!(tried, 4, "four humanoid layouts to try");
+}
