@@ -1,6 +1,7 @@
 //! Map regions: each plane's ground as the original client draws it
 //! (built by `rs2classic::terrain`, shadows and all), and locations placed
-//! as their models. A viewer only; neighbouring regions aren't stitched.
+//! as their models. A viewer only. One region is shown at a time, but its
+//! ground is built stitched to its neighbours so the edges meet theirs.
 //!
 //! The first half is plain data and geometry (testable without Bevy). The second
 //! builds a region off the UI thread, spawns it, keeps the camera inside
@@ -16,7 +17,7 @@ use contentpack::palette::{DEFAULT_BRIGHTNESS, split};
 use rs2cache::types::config::{FloDef, LocDef};
 use rs2cache::types::map::{Location, REGION_SIZE, Region};
 use rs2cache::types::sprite::SpriteSheet;
-use rs2classic::terrain::{FloorColour, Ground, Shadows, horizontal_radius};
+use rs2classic::terrain::{FloorColour, Ground, Shadows, Tiles, horizontal_radius};
 
 /// World units per tile.
 pub const TILE: f32 = 128.0;
@@ -95,43 +96,169 @@ impl Floors {
     }
 }
 
-/// The shadow every placed location casts on the ground, in file order,
-/// from the locations whose definition casts one. Scenery's shadow grows
-/// with its model's horizontal radius.
-pub fn shadows(
+/// The regions around one, as a 3 × 3 block: `[i][j]` is the region
+/// `i − 1` east and `j − 1` north, `None` where there's none (and in the
+/// centre, which is the region itself).
+pub type Around = [[Option<Region>; 3]; 3];
+
+/// Decodes the eight regions around `region`. One that isn't in the cache
+/// or won't decode is left out.
+pub fn neighbours(records: &Records, region: &Region) -> Around {
+    let mut around: Around = Default::default();
+    for (i, row) in around.iter_mut().enumerate() {
+        for (j, slot) in row.iter_mut().enumerate() {
+            let (Some(x), Some(y)) = (
+                region.x.checked_add_signed(i as i8 - 1),
+                region.y.checked_add_signed(j as i8 - 1),
+            ) else {
+                continue;
+            };
+            if (i, j) == (1, 1) {
+                continue;
+            }
+            if let Ok(Record::Map(r)) =
+                records.decode(RecordType::Map, u32::from(x) << 8 | u32::from(y))
+            {
+                *slot = Some(r);
+            }
+        }
+    }
+    around
+}
+
+/// How far into a neighbour a location can stand and still shade the
+/// region's ground: its footprint, plus the one point the light reads
+/// past each grid point.
+const SHADOW_REACH: usize = 16;
+
+/// Every location in the block that can shade the region's ground, with
+/// its tile in block coordinates (the region's own tiles are 64–127):
+/// regions in order of id, each in file order, so neighbouring regions
+/// see the same walls win on their shared edge.
+fn block_locations<'a>(
+    region: &'a Region,
+    around: &'a Around,
+) -> impl Iterator<Item = ((usize, usize), &'a Location)> {
+    let near = |v: usize| (REGION_SIZE - SHADOW_REACH..2 * REGION_SIZE + SHADOW_REACH).contains(&v);
+    (0..3).flat_map(move |i| {
+        (0..3).flat_map(move |j| {
+            let r = if (i, j) == (1, 1) {
+                Some(region)
+            } else {
+                around[i][j].as_ref()
+            };
+            r.into_iter().flat_map(move |r| {
+                r.locations.iter().filter_map(move |l| {
+                    let at = (
+                        i * REGION_SIZE + usize::from(l.x),
+                        j * REGION_SIZE + usize::from(l.y),
+                    );
+                    (near(at.0) && near(at.1)).then_some((at, l))
+                })
+            })
+        })
+    })
+}
+
+/// What a location type needs to cast its shadow: its footprint and, for
+/// scenery, its model's horizontal radius.
+#[derive(Debug, Clone, Copy)]
+pub struct Caster {
+    /// The definition's footprint, before turning.
+    pub size: (u8, u8),
+    /// The model's horizontal radius (0 for walls).
+    pub radius: i32,
+}
+
+/// The locations in the block that cast a shadow on the region, by
+/// `(id, type)`. The region's own are looked up in `defs` and `models`;
+/// neighbours' are decoded here.
+pub fn casters(
+    records: &Records,
     region: &Region,
+    around: &Around,
     defs: &BTreeMap<u16, LocDef>,
     models: &BTreeMap<(u16, u8), Model>,
-) -> Shadows {
-    let mut s = Shadows::default();
-    for l in &region.locations {
-        let Some(d) = defs.get(&l.id).filter(|d| d.casts_shadow) else {
+) -> BTreeMap<(u16, u8), Caster> {
+    let mut more: BTreeMap<u16, Option<LocDef>> = BTreeMap::new();
+    let mut out = BTreeMap::new();
+    for (_, l) in block_locations(region, around) {
+        let key = (l.id, l.kind);
+        if out.contains_key(&key) {
+            continue;
+        }
+        let def = defs.get(&l.id).or_else(|| {
+            more.entry(l.id)
+                .or_insert_with(|| match records.decode(RecordType::Loc, l.id.into()) {
+                    Ok(Record::Loc(d)) => Some(d),
+                    _ => None,
+                })
+                .as_ref()
+        });
+        let Some(d) = def.filter(|d| d.casts_shadow) else {
             continue;
         };
-        let radius = models
-            .get(&(l.id, l.kind))
-            .map_or(0, |m| horizontal_radius(&m.vertices));
-        s.add(
-            l.plane,
-            (l.x, l.y),
-            l.kind,
-            l.rotation,
-            (d.size_x, d.size_y),
-            radius,
+        // Only scenery's shadow depends on its model.
+        let radius = if matches!(l.kind, 10 | 11) {
+            match models.get(&key) {
+                Some(m) => horizontal_radius(&m.vertices),
+                None => rs2convert::preview::location_model(records, d, l.kind)
+                    .ok()
+                    .flatten()
+                    .map_or(0, |m| horizontal_radius(&m.vertices)),
+            }
+        } else {
+            0
+        };
+        out.insert(
+            key,
+            Caster {
+                size: (d.size_x, d.size_y),
+                radius,
+            },
         );
+    }
+    out
+}
+
+/// The shadow the block's locations cast, over the stitched block (see
+/// [`stitched`]).
+pub fn shadows(region: &Region, around: &Around, casters: &BTreeMap<(u16, u8), Caster>) -> Shadows {
+    let mut s = Shadows::new(3 * REGION_SIZE);
+    for (at, l) in block_locations(region, around) {
+        if let Some(c) = casters.get(&(l.id, l.kind)) {
+            s.add(l.plane, at, l.kind, l.rotation, c.size, c.radius);
+        }
     }
     s
 }
 
-/// Each plane's ground, blended, lit and shaped as the original client
-/// draws it (see [`rs2classic::terrain`]); `None` for a plane with
-/// nothing on it.
-pub fn grounds(region: &Region, floors: &Floors, shadows: &Shadows) -> Vec<Option<Ground>> {
+/// Each of the region's planes stitched together with its neighbours'.
+pub fn stitched(region: &Region, around: &Around) -> Vec<Tiles> {
     region
         .planes
         .iter()
+        .enumerate()
+        .map(|(p, centre)| {
+            let mut planes = [[None; 3]; 3];
+            for (i, row) in around.iter().enumerate() {
+                for (j, r) in row.iter().enumerate() {
+                    planes[i][j] = r.as_ref().and_then(|r| r.planes.get(p));
+                }
+            }
+            Tiles::stitched(centre, planes)
+        })
+        .collect()
+}
+
+/// Each plane's ground, blended, lit and shaped as the original client
+/// draws it (see [`rs2classic::terrain`]), meeting its neighbours without
+/// a seam; `None` for a plane with nothing on it.
+pub fn grounds(tiles: &[Tiles], floors: &Floors, shadows: &Shadows) -> Vec<Option<Ground>> {
+    tiles
+        .iter()
         .zip(&shadows.planes)
-        .map(|(p, s)| rs2classic::terrain::ground(p, &floors.terrain, Some(s)))
+        .map(|(t, s)| rs2classic::terrain::ground(t, &floors.terrain, Some(s)))
         .collect()
 }
 
@@ -321,7 +448,14 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
             models.insert((id, kind), m);
         }
     }
-    let ground = grounds(&region, &floors, &shadows(&region, &defs, &models));
+    // The neighbours only shape the ground: its edges, light and shadows.
+    let around = neighbours(records, &region);
+    let casters = casters(records, &region, &around, &defs, &models);
+    let ground = grounds(
+        &stitched(&region, &around),
+        &floors,
+        &shadows(&region, &around, &casters),
+    );
     let classic = Arc::new(classic_scene(&region, &ground, &defs, &models));
     Ok(Built {
         classic,

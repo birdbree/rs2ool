@@ -130,3 +130,74 @@ fn region_with_upper_floors_builds_every_plane() {
             > world.regions.len() * 64 * 64 / 4
     );
 }
+
+/// Two neighbouring regions, built apart, meet without a seam: the light
+/// and the heights along their shared edge agree, both east–west and
+/// south–north.
+#[test]
+fn neighbouring_regions_meet_without_a_seam() {
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = Cache::open(&dir).unwrap();
+    let records = Records::new(&cache);
+    let region =
+        |x: u8, y: u8| match records.decode(RecordType::Map, u32::from(x) << 8 | u32::from(y)) {
+            Ok(Record::Map(r)) => Some(r),
+            _ => None,
+        };
+    // The first region with neighbours to the east and the north, all
+    // three with ground on plane 0.
+    let has_ground =
+        |r: &rs2cache::types::map::Region| r.planes[0].underlays.iter().any(|&u| u != 0);
+    let (a, east, north) = records
+        .ids(RecordType::Map)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| {
+            let a = region((id >> 8) as u8, id as u8).filter(has_ground)?;
+            let east = region(a.x + 1, a.y).filter(has_ground)?;
+            let north = region(a.x, a.y + 1).filter(has_ground)?;
+            Some((a, east, north))
+        })
+        .expect("a region with east and north neighbours");
+    let (ax, ay) = (a.x, a.y);
+    let build = |r| build(&records, r).unwrap();
+    let (a, east, north) = (build(a), build(east), build(north));
+    let ground = |b: &rs2ool::explorer::map_view::Built| b.ground[0].clone().unwrap();
+    let (ga, ge, gn) = (ground(&a), ground(&east), ground(&north));
+    const G: usize = rs2classic::terrain::GRID;
+    for k in 0..G {
+        assert_eq!(
+            ga.light[64 * G + k],
+            ge.light[k],
+            "region {ax}_{ay} east edge, point {k}"
+        );
+        assert_eq!(
+            ga.light[k * G + 64],
+            gn.light[k * G],
+            "region {ax}_{ay} north edge, point {k}"
+        );
+    }
+    // Every vertex on a shared edge has a twin at the same height across
+    // it (where the other side draws a tile there).
+    let edge = |g: &rs2classic::terrain::Ground, axis: usize, at: i32| {
+        let other = 2 - axis;
+        g.vertices
+            .iter()
+            .filter(|p| p[axis] == at)
+            .map(|p| (p[other], p[1]))
+            .collect::<std::collections::BTreeMap<i32, i32>>()
+    };
+    for (mine, theirs) in [
+        (edge(&ga, 0, 64 * 128), edge(&ge, 0, 0)),
+        (edge(&ga, 2, 64 * 128), edge(&gn, 2, 0)),
+    ] {
+        for (along, h) in &mine {
+            if let Some(t) = theirs.get(along) {
+                assert_eq!(h, t, "region {ax}_{ay}: height at {along} along the edge");
+            }
+        }
+    }
+}
