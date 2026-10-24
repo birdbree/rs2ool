@@ -31,7 +31,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#26](https://github.com/birdbree/rs2ool/issues/26) Apply alpha transforms
 - [x] [#27](https://github.com/birdbree/rs2ool/issues/27) Draw terrain the way the original client does
 - [x] [#28](https://github.com/birdbree/rs2ool/issues/28) Draw overlay shapes and rotations
-- [ ] [#29](https://github.com/birdbree/rs2ool/issues/29) Stitch neighbouring regions
+- [x] [#29](https://github.com/birdbree/rs2ool/issues/29) Stitch neighbouring regions
 - [ ] [#30](https://github.com/birdbree/rs2ool/issues/30) Draw interfaces with the cache's fonts and models
 - [ ] [#31](https://github.com/birdbree/rs2ool/issues/31) Pixel-exact check against the original renderer
 
@@ -47,6 +47,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#39](https://github.com/birdbree/rs2ool/issues/39) Search every record type at once
 - [ ] [#40](https://github.com/birdbree/rs2ool/issues/40) Female default body and real hide masks for the player kit
 - [ ] [#41](https://github.com/birdbree/rs2ool/issues/41) Compare two caches
+- [ ] [#55](https://github.com/birdbree/rs2ool/issues/55) Fly the camera across the whole map
 
 ## Housekeeping
 

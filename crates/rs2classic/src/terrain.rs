@@ -10,10 +10,13 @@
 //! elsewhere.
 //!
 //! The original client builds ground over its whole loaded scene, several
-//! regions wide. This works on one region, so at the region's edges it
-//! makes do: the blend window stops at the edge, and grid points past the
-//! last tile reuse the edge tile's height. Bridges (tile flag 2) and the
-//! low-detail mode aren't modelled.
+//! regions wide. This builds one region's ground at a time from [`Tiles`]:
+//! the region alone, or stitched together with its eight neighbours so
+//! that blending, lighting and shadows read across its edges and it meets
+//! them without a seam. Where there's no neighbour, it makes do: the blend
+//! window stops at the edge, and grid points past the last tile reuse the
+//! nearest tile's height. Bridges (tile flag 2) and the low-detail mode
+//! aren't modelled.
 //!
 //! Like the rest of the crate, this is written from the original client's
 //! observable behaviour; see `docs/client/terrain.md` for the rules.
@@ -23,7 +26,8 @@ use rs2cache::types::map::{Plane, REGION_SIZE};
 
 use crate::light::LitModel;
 
-/// Grid points per side: one more than tiles, for the far corners.
+/// A region's grid points per side: one more than tiles, for the far
+/// corners.
 pub const GRID: usize = REGION_SIZE + 1;
 
 /// A floor's colour terms, worked out once from its RGB.
@@ -136,22 +140,27 @@ pub fn texture_shade(light: i32) -> i32 {
 ///
 /// A tile blends the underlays of the 10 × 10 tiles from 4 before it to 5
 /// after it on each axis (so the window sits half a tile off centre),
-/// clipped to the region. Tiles without an underlay add nothing. Hue is
-/// averaged weighted by chroma; saturation and lightness are plain means.
-/// `floors` is indexed by floor id (map ids are one more).
-pub fn blend_underlays(plane: &Plane, floors: &[FloorColour]) -> Vec<Option<i32>> {
-    let floor = |i: usize| floor_of(floors, plane.underlays[i]);
-    let n = REGION_SIZE as isize;
+/// clipped to what `tiles` holds. Tiles without an underlay add nothing.
+/// Hue is averaged weighted by chroma; saturation and lightness are plain
+/// means. `floors` is indexed by floor id (map ids are one more).
+///
+/// Only the region's own tiles come back, but the window reads its
+/// neighbours' when `tiles` has them.
+pub fn blend_underlays(tiles: &Tiles, floors: &[FloorColour]) -> Vec<Option<i32>> {
+    let n = tiles.size as isize;
+    let floor = |x: isize, y: isize| floor_of(floors, tiles.underlays[(x * n + y) as usize]);
+    let o = tiles.origin as isize;
+    let r = REGION_SIZE as isize;
     let mut out = vec![None; REGION_SIZE * REGION_SIZE];
-    for x in 0..n {
-        for y in 0..n {
-            if floor((x * n + y) as usize).is_none() {
+    for x in o..o + r {
+        for y in o..o + r {
+            if floor(x, y).is_none() {
                 continue;
             }
             let (mut hw, mut s, mut l, mut c, mut count) = (0, 0, 0, 0, 0);
             for bx in (x - 4).max(0)..(x + 6).min(n) {
                 for by in (y - 4).max(0)..(y + 6).min(n) {
-                    if let Some(f) = floor((bx * n + by) as usize) {
+                    if let Some(f) = floor(bx, by) {
                         hw += f.hue_weight;
                         s += f.saturation;
                         l += f.lightness;
@@ -162,7 +171,7 @@ pub fn blend_underlays(plane: &Plane, floors: &[FloorColour]) -> Vec<Option<i32>
             }
             // Only floors without a colour have no chroma.
             let hue = if c == 0 { 0 } else { hw * 256 / c };
-            out[(x * n + y) as usize] = Some(pack_hsl(hue, s / count, l / count));
+            out[((x - o) * r + y - o) as usize] = Some(pack_hsl(hue, s / count, l / count));
         }
     }
     out
@@ -173,35 +182,131 @@ fn floor_of(floors: &[FloorColour], id: u8) -> Option<&FloorColour> {
     floors.get(usize::from(id).checked_sub(1)?)
 }
 
-/// A plane's height at grid point `(x, y)`; past the last tile it reuses
-/// the edge tile's height.
-fn height(plane: &Plane, x: usize, y: usize) -> i32 {
-    plane.heights[x.min(REGION_SIZE - 1) * REGION_SIZE + y.min(REGION_SIZE - 1)]
+/// One plane's tiles: a region's, or a region's with its neighbours'
+/// around it. Every grid is `size × size`, indexed `x * size + y`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tiles {
+    /// Tiles per side: 64 for a region alone, 192 stitched.
+    pub size: usize,
+    /// Where the region's tile (0, 0) is: 0 alone, 64 stitched.
+    pub origin: usize,
+    /// Tile heights, negative up.
+    pub heights: Vec<i32>,
+    /// Underlay ids (floor id + 1, 0 for none).
+    pub underlays: Vec<u8>,
+    /// Overlay ids (floor id + 1, 0 for none).
+    pub overlays: Vec<u8>,
+    /// Overlay shapes, 0–11.
+    pub shapes: Vec<u8>,
+    /// Overlay rotations, 0–3.
+    pub rotations: Vec<u8>,
 }
 
-/// The light at every grid point, indexed `x * GRID + y`: 84 on level
-/// ground, more on slopes facing the light (which comes from the −x and
-/// −z side, a little from above), less facing away, minus the shadow
-/// around the point.
-///
-/// `shadows` is the plane's shadow grid (see [`Shadows`]), or `None` for
-/// none.
-pub fn light_grid(plane: &Plane, shadows: Option<&[u8]>) -> Vec<i32> {
-    let shadow = |x: isize, y: isize| -> i32 {
-        let (Some(s), true) = (shadows, (0..GRID as isize).contains(&x)) else {
-            return 0;
-        };
-        if !(0..GRID as isize).contains(&y) {
-            return 0;
+impl Tiles {
+    /// A region's plane on its own.
+    pub fn region(plane: &Plane) -> Self {
+        Self {
+            size: REGION_SIZE,
+            origin: 0,
+            heights: plane.heights.clone(),
+            underlays: plane.underlays.clone(),
+            overlays: plane.overlays.clone(),
+            shapes: plane.shapes.clone(),
+            rotations: plane.rotations.clone(),
         }
-        i32::from(s[x as usize * GRID + y as usize])
+    }
+
+    /// A region's plane with its neighbours' around it, as a 3 × 3 block
+    /// of regions. `around[i][j]` is the region `i − 1` regions east and
+    /// `j − 1` north (the centre slot is ignored for `centre`), or `None`
+    /// where there's no region.
+    ///
+    /// A missing neighbour has no floors, and its heights are the nearest
+    /// present tile's: across its edge, or the centre region's corner.
+    pub fn stitched(centre: &Plane, around: [[Option<&Plane>; 3]; 3]) -> Self {
+        let r = REGION_SIZE;
+        let size = 3 * r;
+        let plane = |i: usize, j: usize| {
+            if (i, j) == (1, 1) {
+                Some(centre)
+            } else {
+                around[i][j]
+            }
+        };
+        let mut t = Self {
+            size,
+            origin: r,
+            heights: vec![0; size * size],
+            underlays: vec![0; size * size],
+            overlays: vec![0; size * size],
+            shapes: vec![0; size * size],
+            rotations: vec![0; size * size],
+        };
+        // Clamp a coordinate into the centre region's tiles.
+        let inner = |v: usize| v.clamp(r, 2 * r - 1);
+        for x in 0..size {
+            for y in 0..size {
+                let k = x * size + y;
+                let local = |x: usize, y: usize| (x % r) * r + y % r;
+                if let Some(p) = plane(x / r, y / r) {
+                    let i = local(x, y);
+                    t.heights[k] = p.heights[i];
+                    t.underlays[k] = p.underlays[i];
+                    t.overlays[k] = p.overlays[i];
+                    t.shapes[k] = p.shapes[i];
+                    t.rotations[k] = p.rotations[i];
+                    continue;
+                }
+                // No region here: borrow the nearest height, trying the
+                // region across one axis, then the other, then the centre.
+                // The centre is always there, so the last try never fails.
+                t.heights[k] = [(inner(x), y), (x, inner(y)), (inner(x), inner(y))]
+                    .into_iter()
+                    .find_map(|(bx, by)| Some(plane(bx / r, by / r)?.heights[local(bx, by)]))
+                    .unwrap_or_default();
+            }
+        }
+        t
+    }
+
+    /// The region's tile `(x, y)`'s index in the grids.
+    fn index(&self, x: usize, y: usize) -> usize {
+        (self.origin + x) * self.size + self.origin + y
+    }
+
+    /// The height at grid point `(x, y)` of the whole grid; past the last
+    /// tile it reuses the edge tile's height.
+    fn height(&self, x: usize, y: usize) -> i32 {
+        self.heights[x.min(self.size - 1) * self.size + y.min(self.size - 1)]
+    }
+}
+
+/// The light at each of the region's grid points, indexed `x * GRID + y`:
+/// 84 on level ground, more on slopes facing the light (which comes from
+/// the −x and −z side, a little from above), less facing away, minus the
+/// shadow around the point.
+///
+/// `shadows` is the plane's shadow grid over the same tiles (see
+/// [`Shadows`]), or `None` for none. Heights and shadows are read across
+/// the region's edges when `tiles` has its neighbours.
+pub fn light_grid(tiles: &Tiles, shadows: Option<&[u8]>) -> Vec<i32> {
+    let side = tiles.size as isize + 1;
+    let shadow = |x: isize, y: isize| -> i32 {
+        match shadows {
+            Some(s) if (0..side).contains(&x) && (0..side).contains(&y) => {
+                i32::from(s[(x * side + y) as usize])
+            }
+            _ => 0,
+        }
     };
     let mut out = vec![0; GRID * GRID];
     for x in 0..GRID {
         for y in 0..GRID {
+            // The point in the whole grid.
+            let (gx, gy) = (tiles.origin + x, tiles.origin + y);
             let h = |dx: isize, dy: isize| {
                 let at = |v: usize, d: isize| v.saturating_add_signed(d);
-                height(plane, at(x, dx), at(y, dy))
+                tiles.height(at(gx, dx), at(gy, dy))
             };
             // Height differences across the point, both ways; heights
             // grow downwards, so these lean the normal uphill.
@@ -211,7 +316,7 @@ pub fn light_grid(plane: &Plane, shadows: Option<&[u8]>) -> Vec<i32> {
             let (nx, ny, nz) = ((dx << 8) / len, 65536 / len, (dy << 8) / len);
             // Light (−50, −10, −50): length 71, and 768 · 71 / 256 = 213.
             let lit = 96 + (-50 * nx - 10 * ny - 50 * nz) / 213;
-            let (xi, yi) = (x as isize, y as isize);
+            let (xi, yi) = (gx as isize, gy as isize);
             // Shadow is weighted towards the point itself and its −x and
             // −y neighbours.
             let dark = (shadow(xi - 1, yi) >> 2)
@@ -226,21 +331,24 @@ pub fn light_grid(plane: &Plane, shadows: Option<&[u8]>) -> Vec<i32> {
 }
 
 /// The shadow walls and scenery cast on the ground, one grid per plane,
-/// each `GRID × GRID` indexed `x * GRID + y`, 0 (none) to 127.
+/// each with one point per tile corner (`side × side`, indexed
+/// `x * side + y`), 0 (none) to 127.
 ///
-/// Feed it the region's locations in file order: a wall sets its points
-/// outright, so a later one wins.
+/// Feed it the locations in file order: a wall sets its points outright,
+/// so a later one wins. For stitched [`Tiles`], size it to match and add
+/// the neighbours' locations too, at their place in the block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shadows {
+    /// Grid points per side: tiles plus one.
+    pub side: usize,
     /// Plane 0 to 3.
     pub planes: [Vec<u8>; 4],
 }
 
 impl Default for Shadows {
+    /// Shadows over one region.
     fn default() -> Self {
-        Self {
-            planes: std::array::from_fn(|_| vec![0; GRID * GRID]),
-        }
+        Self::new(REGION_SIZE)
     }
 }
 
@@ -248,12 +356,22 @@ impl Default for Shadows {
 const WALL_SHADOW: u8 = 50;
 
 impl Shadows {
+    /// No shadows over `tiles` tiles per side.
+    pub fn new(tiles: usize) -> Self {
+        let side = tiles + 1;
+        Self {
+            side,
+            planes: std::array::from_fn(|_| vec![0; side * side]),
+        }
+    }
+
     fn set(&mut self, plane: u8, x: usize, y: usize, v: u8, max: bool) {
+        let side = self.side;
         let Some(p) = self.planes.get_mut(usize::from(plane)) else {
             return;
         };
-        if x < GRID && y < GRID {
-            let s = &mut p[x * GRID + y];
+        if x < side && y < side {
+            let s = &mut p[x * side + y];
             *s = if max { (*s).max(v) } else { v };
         }
     }
@@ -265,17 +383,17 @@ impl Shadows {
     /// included, by a quarter of the model's horizontal radius (see
     /// [`horizontal_radius`]) up to 30. Other types cast none.
     ///
-    /// `size` is the definition's footprint, before turning.
+    /// `(x, y)` is the location's tile in the grid and `size` its
+    /// definition's footprint, before turning.
     pub fn add(
         &mut self,
         plane: u8,
-        (x, y): (u8, u8),
+        (x, y): (usize, usize),
         kind: u8,
         rotation: u8,
         size: (u8, u8),
         radius: i32,
     ) {
-        let (x, y) = (usize::from(x), usize::from(y));
         // Corners of the tile going round from (x, y + 1): the end each
         // rotation's edge or corner starts from.
         let corner = |r: u8| match r & 3 {
@@ -337,8 +455,12 @@ pub struct Ground {
     /// (textured, a shade per corner), with each textured face's P/M/N
     /// triangle on tile corners.
     pub model: LitModel,
-    /// Vertex positions in cache coordinates.
+    /// Vertex positions in cache coordinates, with the region's tile
+    /// (0, 0) at the origin.
     pub vertices: Vec<[i32; 3]>,
+    /// The light at each of the region's grid points, from
+    /// [`light_grid`].
+    pub light: Vec<i32>,
 }
 
 /// Marks a corner that isn't drawn (no underlay, or a hidden overlay).
@@ -546,22 +668,25 @@ impl Builder {
 /// coloured as the original client colours it. `None` when there's
 /// nothing to draw.
 ///
-/// `floors` is indexed by floor id; `shadows` is the plane's grid from
-/// [`Shadows`], or `None`.
-pub fn ground(plane: &Plane, floors: &[FloorColour], shadows: Option<&[u8]>) -> Option<Ground> {
-    let under = blend_underlays(plane, floors);
-    let light = light_grid(plane, shadows);
+/// Only the region's own tiles are drawn; neighbours in `tiles` only
+/// inform them. `floors` is indexed by floor id; `shadows` is the plane's
+/// grid from [`Shadows`] over the same tiles, or `None`.
+pub fn ground(tiles: &Tiles, floors: &[FloorColour], shadows: Option<&[u8]>) -> Option<Ground> {
+    let under = blend_underlays(tiles, floors);
+    let light = light_grid(tiles, shadows);
     let mut b = Builder::default();
     for x in 0..REGION_SIZE {
         for y in 0..REGION_SIZE {
             let i = x * REGION_SIZE + y;
-            let over = floor_of(floors, plane.overlays[i]);
+            let t = tiles.index(x, y);
+            let over = floor_of(floors, tiles.overlays[t]);
             if under[i].is_none() && over.is_none() {
                 continue;
             }
             let at = |dx: usize, dy: usize| (x + dx, y + dy);
             let corners = [at(0, 0), at(1, 0), at(1, 1), at(0, 1)];
-            let h: Corners = corners.map(|(cx, cy)| height(plane, cx, cy));
+            let h: Corners =
+                corners.map(|(cx, cy)| tiles.height(tiles.origin + cx, tiles.origin + cy));
             let l: Corners = corners.map(|(cx, cy)| light[cx * GRID + cy]);
             let u: Corners = match under[i] {
                 Some(c) => l.map(|v| shade(c, v)),
@@ -576,8 +701,8 @@ pub fn ground(plane: &Plane, floors: &[FloorColour], shadows: Option<&[u8]>) -> 
                 Some(f) => (l.map(|v| shade(f.hsl(), v)), None),
             };
             let flat = h.iter().all(|&v| v == h[0]);
-            let shape = plane.shapes[i];
-            let rotation = plane.rotations[i];
+            let shape = tiles.shapes[t];
+            let rotation = tiles.rotations[t];
             let place = |p: u8| {
                 let (dx, dz) = POINTS[usize::from(p - 1)];
                 [x as i32 * 128 + dx, at_point(h, p), y as i32 * 128 + dz]
@@ -659,6 +784,7 @@ pub fn ground(plane: &Plane, floors: &[FloorColour], shadows: Option<&[u8]>) -> 
             priorities: None,
         },
         vertices: b.vertices,
+        light,
     })
 }
 
@@ -721,7 +847,7 @@ mod tests {
                 p.underlays[x * 64 + y] = if y < 32 { 1 } else { 2 };
             }
         }
-        let b = blend_underlays(&p, &floors);
+        let b = blend_underlays(&Tiles::region(&p), &floors);
         let light = |x: usize, y: usize| b[x * 64 + y].unwrap() & 0x7f;
         // The window reaches 5 tiles up but only 4 down, so the row just
         // below the boundary sees 5 white rows of 10, the row above it 6.
@@ -732,7 +858,7 @@ mod tests {
         assert!(light(10, 35) < 127, "y − 4 = 31 still sees black");
         // A tile without an underlay isn't coloured and doesn't count.
         p.underlays[10 * 64 + 40] = 0;
-        let b = blend_underlays(&p, &floors);
+        let b = blend_underlays(&Tiles::region(&p), &floors);
         assert_eq!(b[10 * 64 + 40], None);
         assert_eq!(b[10 * 64 + 41].unwrap() & 0x7f, 127);
     }
@@ -740,7 +866,11 @@ mod tests {
     #[test]
     fn level_ground_gets_84_and_slopes_face_the_light() {
         let mut p = plane();
-        assert!(light_grid(&p, None).iter().all(|&l| l == 84));
+        assert!(
+            light_grid(&Tiles::region(&p), None)
+                .iter()
+                .all(|&l| l == 84)
+        );
         // Ground rising towards +x (heights grow downwards) faces −x,
         // where the light comes from; ground falling that way faces away.
         for x in 0..64 {
@@ -748,13 +878,13 @@ mod tests {
                 p.heights[x * 64 + y] = -(x as i32) * 32;
             }
         }
-        assert!(light_grid(&p, None)[10 * GRID + 10] > 84);
+        assert!(light_grid(&Tiles::region(&p), None)[10 * GRID + 10] > 84);
         for x in 0..64 {
             for y in 0..64 {
                 p.heights[x * 64 + y] = (x as i32) * 32;
             }
         }
-        assert!(light_grid(&p, None)[10 * GRID + 10] < 84);
+        assert!(light_grid(&Tiles::region(&p), None)[10 * GRID + 10] < 84);
     }
 
     #[test]
@@ -772,7 +902,7 @@ mod tests {
         assert_eq!(p1[10 * GRID + 10], 30, "capped at 30");
         assert_eq!(p1[11 * GRID + 12], 30);
         assert_eq!(p1[12 * GRID + 10], 0);
-        let light = light_grid(&plane(), Some(&s.planes[0]));
+        let light = light_grid(&Tiles::region(&plane()), Some(&s.planes[0]));
         assert_eq!(light[5 * GRID + 5], 84 - 25 - 6);
         // Decorations cast none.
         let before = s.clone();
@@ -800,7 +930,7 @@ mod tests {
             FloorColour::from_rgb(0x00ff00),
             FloorColour::from_rgb(0x0000ff),
         ];
-        ground(&p, &floors, None).unwrap()
+        ground(&Tiles::region(&p), &floors, None).unwrap()
     }
 
     #[test]
@@ -863,12 +993,12 @@ mod tests {
             secondary_rgb: None,
             unknown_opcodes: Vec::new(),
         })];
-        assert!(ground(&p, &floors, None).is_none());
+        assert!(ground(&Tiles::region(&p), &floors, None).is_none());
         // A shaped overlay with no underlay draws only its overlay half.
         p.overlays[0] = 2;
         p.shapes[0] = 1;
         let floors = [floors[0], FloorColour::from_rgb(0x0000ff)];
-        let g = ground(&p, &floors, None).unwrap();
+        let g = ground(&Tiles::region(&p), &floors, None).unwrap();
         assert_eq!(g.model.faces.len(), 1);
     }
 
@@ -880,7 +1010,7 @@ mod tests {
             texture: Some(24),
             ..FloorColour::default()
         }];
-        let g = ground(&p, &floors, None).unwrap();
+        let g = ground(&Tiles::region(&p), &floors, None).unwrap();
         assert_eq!(g.model.kinds, [2, 2]);
         assert_eq!(g.model.base, [24, 24]);
         // Level: both halves lay the texture on SW, SE, NW.
@@ -888,8 +1018,102 @@ mod tests {
         assert_eq!(g.model.colours[0], [127 - 84; 3]);
         // Sloping: the north-east half uses its own corners.
         p.heights[0] = -64;
-        let g = ground(&p, &floors, None).unwrap();
+        let g = ground(&Tiles::region(&p), &floors, None).unwrap();
         assert_eq!(g.model.textured_faces[0], g.model.faces[0]);
+    }
+
+    /// Two regions side by side, west and east, on bumpy ground that
+    /// carries on across the boundary, with different floors.
+    fn pair() -> (Plane, Plane) {
+        let (mut west, mut east) = (plane(), plane());
+        for x in 0..64 {
+            for y in 0..64 {
+                let h = |wx: i32| -(((wx * 7 + y as i32 * 3) % 23) * 8);
+                west.heights[x * 64 + y] = h(x as i32);
+                east.heights[x * 64 + y] = h(64 + x as i32);
+                west.underlays[x * 64 + y] = 1;
+                east.underlays[x * 64 + y] = 2;
+            }
+        }
+        (west, east)
+    }
+
+    fn floors() -> [FloorColour; 2] {
+        [
+            FloorColour::from_rgb(0x20a020),
+            FloorColour::from_rgb(0xa0a020),
+        ]
+    }
+
+    #[test]
+    fn stitched_neighbours_meet_without_a_seam() {
+        let (west, east) = pair();
+        let mut around = [[None; 3]; 3];
+        around[2][1] = Some(&east);
+        let w = Tiles::stitched(&west, around);
+        let mut around = [[None; 3]; 3];
+        around[0][1] = Some(&west);
+        let e = Tiles::stitched(&east, around);
+        let (gw, ge) = (
+            ground(&w, &floors(), None).unwrap(),
+            ground(&e, &floors(), None).unwrap(),
+        );
+        // The shared edge: west's x = 64 is east's x = 0, lit the same.
+        for y in 0..GRID {
+            assert_eq!(gw.light[64 * GRID + y], ge.light[y], "y {y}");
+        }
+        // And the corners there sit at the same heights.
+        let edge = |g: &Ground, x: i32| {
+            let mut v: Vec<[i32; 2]> = g
+                .vertices
+                .iter()
+                .filter(|p| p[0] == x)
+                .map(|p| [p[2], p[1]])
+                .collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        assert_eq!(edge(&gw, 64 * 128), edge(&ge, 0));
+        // Alone, the west region's edge is lit differently.
+        let alone = ground(&Tiles::region(&west), &floors(), None).unwrap();
+        assert_ne!(alone.light[64 * GRID..], gw.light[64 * GRID..]);
+        // The blend reaches across: the west edge tiles take on some of
+        // the east floor's colour, the ones further in don't.
+        let (b, a) = (
+            blend_underlays(&w, &floors()),
+            blend_underlays(&Tiles::region(&west), &floors()),
+        );
+        assert_ne!(b[63 * 64 + 10], a[63 * 64 + 10]);
+        assert_eq!(b[58 * 64 + 10], a[58 * 64 + 10], "x + 5 = 63 stays inside");
+        assert_ne!(b[59 * 64 + 10], a[59 * 64 + 10], "x + 5 = 64 reaches east");
+    }
+
+    #[test]
+    fn stitching_without_neighbours_changes_nothing() {
+        let (west, _) = pair();
+        let alone = ground(&Tiles::region(&west), &floors(), None).unwrap();
+        let stitched = ground(&Tiles::stitched(&west, [[None; 3]; 3]), &floors(), None).unwrap();
+        assert_eq!(alone.vertices, stitched.vertices);
+        assert_eq!(alone.model.colours, stitched.model.colours);
+        assert_eq!(alone.light, stitched.light);
+    }
+
+    #[test]
+    fn a_neighbours_wall_shades_the_shared_edge() {
+        let (west, east) = pair();
+        let mut around = [[None; 3]; 3];
+        around[2][1] = Some(&east);
+        let w = Tiles::stitched(&west, around);
+        let mut s = Shadows::new(w.size);
+        assert_eq!(s.side, 193);
+        // A wall on the west edge of the east region's tile (0, 10): grid
+        // points (64, 10) and (64, 11) of the west region.
+        s.add(0, (128, 64 + 10), 0, 0, (1, 1), 0);
+        let lit = light_grid(&w, Some(&s.planes[0]));
+        let unlit = light_grid(&w, None);
+        assert_eq!(lit[64 * GRID + 10], unlit[64 * GRID + 10] - 25 - 6);
+        assert_eq!(lit[64 * GRID + 20], unlit[64 * GRID + 20]);
     }
 
     #[test]
