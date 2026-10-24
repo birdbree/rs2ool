@@ -94,7 +94,7 @@ Opcodes 100–109 fill ten slots. Each `StackVariant` is `{ slot, item, count }`
 5. Merge the chosen models (vertex welding, as for npcs), then add the body type's offset (`male_offset` or `female_offset`) to every vertex's y.
 6. Apply `recolours` in order.
 
-The explorer's kit view uses this model for any slot holding an item, in place of the identity-kit part. See [Model assembly](../client/assembly.md) for equipment models and [Idk](idk.md) for the body parts they replace.
+The explorer's kit view uses this model for any slot holding an item, in place of the identity-kit part. The definition doesn't say which slot that is; [Inference](../conversion/inference.md#equipment-slots) covers how to work it out from the wear models. See [Model assembly](../client/assembly.md) for equipment models and [Idk](idk.md) for the body parts they replace.
 
 The plain preview of an obj, in the explorer, is `inventory_model` with the recolours applied and scaled by `[scale_x, scale_y, scale_z] / 128` ([`rs2convert::preview`](../../crates/rs2convert/src/preview.rs)).
 
@@ -105,3 +105,4 @@ The plain preview of an obj, in the explorer, is `inventory_model` with the reco
 - [Idk](idk.md): the body parts equipment models sit on.
 - [Model](model.md): the model records the obj fields refer to.
 - [Explorer](../tools/explorer.md): the kit view that dresses a body with items.
+- [Inference](../conversion/inference.md#equipment-slots): an item's equipment slot from its wear models.

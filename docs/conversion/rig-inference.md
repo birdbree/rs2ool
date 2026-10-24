@@ -105,6 +105,7 @@ A bone's pivot is the centroid of its vertices in the rest mesh (scale baked in)
 
 - [Clips](clips.md): keys computed against these bones and pivots.
 - [Validation](validation.md): the bone summary in `validation.json`.
+- [Inference](inference.md): the same label-to-region table, used to place items in equipment slots.
 - [Explorer](../tools/explorer.md#vertex-colours-and-bones): **View › Bones** draws the bones and pivots on the converted creature as it plays.
 - [Animation](../client/animation.md): how the original client applies frame bases.
 - [Glossary](../glossary.md): label, transform slot, rig.

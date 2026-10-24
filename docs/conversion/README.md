@@ -18,6 +18,7 @@ All conversion code lives in [`rs2convert`](../crates/rs2convert.md) ([`crates/r
 - [Floors](floors.md): floor definitions as floor materials.
 - [Textures and sprites](textures-and-sprites.md): the texture atlas, texture materials, sprites and font glyphs.
 - [Determinism](determinism.md): why two runs produce byte-identical packs.
+- [Inference](inference.md): links the cache doesn't store (which sequences animate an NPC, an item's equipment slot) and how they can be inferred.
 
 ## Source to record mapping
 
