@@ -276,6 +276,117 @@ pub fn render_in_view(
     true
 }
 
+/// Whether a face can be drawn: every corner projected and the face turned
+/// towards the camera. `Some(clip)` if so, where `clip` says a corner is
+/// off the buffer horizontally.
+fn facing(fb: &Framebuffer, p: &Projected, face: [u16; 3]) -> Option<bool> {
+    let [a, b, c] = face.map(usize::from);
+    if !(p.ok[a] && p.ok[b] && p.ok[c]) {
+        return None;
+    }
+    let (sx, sy) = (&p.sx, &p.sy);
+    let (x0, x1, x2) = (sx[a], sx[b], sx[c]);
+    // Screen-space cross product; > 0 means it faces us. It wraps like a
+    // Java int, as the original does, for vertices just past the near
+    // plane whose screen coordinates are huge.
+    let cross = (x0.wrapping_sub(x1))
+        .wrapping_mul(sy[c].wrapping_sub(sy[b]))
+        .wrapping_sub((sy[a].wrapping_sub(sy[b])).wrapping_mul(x2.wrapping_sub(x1)));
+    if cross <= 0 {
+        return None;
+    }
+    let w = fb.width as i32 - 1;
+    Some([x0, x1, x2].iter().any(|&x| x < 0 || x > w))
+}
+
+/// Project world-space `vertices` through a world camera for
+/// [`draw_in_order`]. Vertices nearer than [`NEAR`] aren't projected.
+pub fn project_in_view(fb: &Framebuffer, vertices: &[[i32; 3]], view: &View) -> Projected {
+    let centre = (fb.width as i32 / 2, fb.height as i32 / 2);
+    let mut p = Projected::with_capacity(vertices.len());
+    for (i, v) in vertices.iter().enumerate() {
+        p.set(i, view.to_camera(*v), 0, centre, NEAR);
+    }
+    p
+}
+
+/// Draw faces `faces` of a projected model in the order they're listed,
+/// with no depth sorting: how the original client draws a map tile's
+/// ground. Back faces are skipped, and if any vertex the faces use wasn't
+/// projected, none of them are drawn (the original drops the whole tile).
+pub fn draw_in_order(
+    fb: &mut Framebuffer,
+    model: &LitModel,
+    p: &Projected,
+    faces: std::ops::Range<usize>,
+    textures: &Textures,
+) {
+    let Some(list) = model.faces.get(faces.clone()) else {
+        return;
+    };
+    if list.iter().flatten().any(|&v| !p.ok[usize::from(v)]) {
+        return;
+    }
+    for f in faces {
+        if let Some(clip) = facing(fb, p, model.faces[f]) {
+            draw_face(fb, model, p, f, clip, textures);
+        }
+    }
+}
+
+/// Draw face `f` of a projected model with its kind's filler. `clip`
+/// says a corner is off the buffer horizontally.
+fn draw_face(
+    fb: &mut Framebuffer,
+    model: &LitModel,
+    p: &Projected,
+    f: usize,
+    clip: bool,
+    textures: &Textures,
+) {
+    let (cx, cy) = (fb.width as i32 / 2, fb.height as i32 / 2);
+    let Projected {
+        sx, sy: syv, camv, ..
+    } = p;
+    let [a, b, c] = model.faces[f].map(usize::from);
+    let ys = [syv[a], syv[b], syv[c]];
+    let xs = [sx[a], sx[b], sx[c]];
+    // Lit colours, shades or RGB, depending on the face kind.
+    let col = model.colours[f];
+    let st = State {
+        clip,
+        alpha: i32::from(model.alphas[f]),
+    };
+    match model.kinds[f] {
+        0 => raster::gouraud(fb, st, ys, xs, col),
+        1 => raster::flat(fb, st, ys, xs, hsl(col[0])),
+        kind::FLAT_RGB => raster::flat(fb, st, ys, xs, col[0] as u32),
+        // Textured: 2 smooth, 3 flat.
+        kind => {
+            // A texture triangle index out of range: not drawn at all.
+            let Some(&[p, m, nn]) = model.textured_faces.get(model.texture_triple[f]) else {
+                return;
+            };
+            let Some(page) = textures.page(model.base[f]) else {
+                // No texture loaded: flat mid grey stands in.
+                raster::flat(fb, st, ys, xs, 0x808080);
+                return;
+            };
+            // A flat textured face has one shade; use it at every corner.
+            let shades = if kind == 3 { [col[0]; 3] } else { col };
+            let tex = TexSpace {
+                p: camv[usize::from(p)],
+                m: camv[usize::from(m)],
+                n: camv[usize::from(nn)],
+                centre: (cx, cy),
+            };
+            // The textured filler ignores transparency.
+            let st = State { alpha: 0, ..st };
+            raster::textured(fb, st, ys, xs, shades, tex, page);
+        }
+    }
+}
+
 /// Sort a projected model's visible faces and draw them.
 ///
 /// `near` and `range` are the model's extent: the bucket offset for depth
@@ -290,35 +401,17 @@ pub fn draw_projected(
     range: i32,
     textures: &Textures,
 ) {
-    let (cx, cy) = (fb.width as i32 / 2, fb.height as i32 / 2);
-    let Projected {
-        sx,
-        sy: syv,
-        depth,
-        camv,
-        ok,
-    } = p;
+    let depth = &p.depth;
     // Visible faces into depth buckets; index = depth + near, so higher is
     // farther. clip[f]: face f has a corner off the buffer horizontally.
     let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); range.max(1) as usize];
     let mut clip = vec![false; model.faces.len()];
     for (f, face) in model.faces.iter().enumerate() {
+        let Some(off) = facing(fb, p, *face) else {
+            continue;
+        };
         let [a, b, c] = face.map(usize::from);
-        if !(ok[a] && ok[b] && ok[c]) {
-            continue;
-        }
-        let (x0, x1, x2) = (sx[a], sx[b], sx[c]);
-        // Screen-space cross product; > 0 means it faces us. It wraps like
-        // a Java int, as the original does, for vertices just past the
-        // near plane whose screen coordinates are huge.
-        let cross = (x0.wrapping_sub(x1))
-            .wrapping_mul(syv[c].wrapping_sub(syv[b]))
-            .wrapping_sub((syv[a].wrapping_sub(syv[b])).wrapping_mul(x2.wrapping_sub(x1)));
-        if cross <= 0 {
-            continue;
-        }
-        let w = fb.width as i32 - 1;
-        clip[f] = [x0, x1, x2].iter().any(|&x| x < 0 || x > w);
+        clip[f] = off;
         // Average corner depth, shifted so the nearest possible face is 0.
         let key = (depth[a].wrapping_add(depth[b]).wrapping_add(depth[c])) / 3 + near;
         if let Some(bucket) = usize::try_from(key).ok().and_then(|k| buckets.get_mut(k)) {
@@ -326,45 +419,7 @@ pub fn draw_projected(
         }
     }
 
-    let draw = |f: usize, fb: &mut Framebuffer| {
-        let [a, b, c] = model.faces[f].map(usize::from);
-        let ys = [syv[a], syv[b], syv[c]];
-        let xs = [sx[a], sx[b], sx[c]];
-        // Lit colours, shades or RGB, depending on the face kind.
-        let col = model.colours[f];
-        let st = State {
-            clip: clip[f],
-            alpha: i32::from(model.alphas[f]),
-        };
-        match model.kinds[f] {
-            0 => raster::gouraud(fb, st, ys, xs, col),
-            1 => raster::flat(fb, st, ys, xs, hsl(col[0])),
-            kind::FLAT_RGB => raster::flat(fb, st, ys, xs, col[0] as u32),
-            // Textured: 2 smooth, 3 flat.
-            kind => {
-                // A texture triangle index out of range: not drawn at all.
-                let Some(&[p, m, nn]) = model.textured_faces.get(model.texture_triple[f]) else {
-                    return;
-                };
-                let Some(page) = textures.page(model.base[f]) else {
-                    // No texture loaded: flat mid grey stands in.
-                    raster::flat(fb, st, ys, xs, 0x808080);
-                    return;
-                };
-                // A flat textured face has one shade; use it at every corner.
-                let shades = if kind == 3 { [col[0]; 3] } else { col };
-                let tex = TexSpace {
-                    p: camv[usize::from(p)],
-                    m: camv[usize::from(m)],
-                    n: camv[usize::from(nn)],
-                    centre: (cx, cy),
-                };
-                // The textured filler ignores transparency.
-                let st = State { alpha: 0, ..st };
-                raster::textured(fb, st, ys, xs, shades, tex, page);
-            }
-        }
-    };
+    let draw = |f: usize, fb: &mut Framebuffer| draw_face(fb, model, p, f, clip[f], textures);
 
     // No priorities: just buckets, far to near.
     let Some(priorities) = &model.priorities else {

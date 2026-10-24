@@ -333,15 +333,27 @@ pub struct Built {
 /// A region prepared for the classic renderer, in cache coordinates (y
 /// down, z along the tile y axis).
 pub struct ClassicScene {
-    /// One ground model per plane that has any: its plane, the model and
-    /// its vertices.
-    pub terrain: Vec<(u8, rs2classic::LitModel, Vec<[i32; 3]>)>,
-    /// Each placed object: its plane, lit model and vertices already
-    /// turned and moved into place.
-    pub objects: Vec<(u8, Arc<rs2classic::LitModel>, Vec<[i32; 3]>)>,
+    /// The ground of each plane that has any, with its plane.
+    pub terrain: Vec<(u8, Ground)>,
+    /// Each placed object, in file order.
+    pub objects: Vec<SceneObject>,
     /// The region's middle at plane 0's ground height there, for the
     /// camera target.
     pub centre: [i32; 3],
+}
+
+/// One placed object in a [`ClassicScene`].
+pub struct SceneObject {
+    /// Its plane.
+    pub plane: u8,
+    /// The tile it stands on: its footprint's south-west corner.
+    pub tile: (u8, u8),
+    /// Its footprint in tiles, turned with it (east, north).
+    pub size: (u8, u8),
+    /// The lit model, shared by every placement of it.
+    pub model: Arc<rs2classic::LitModel>,
+    /// Its vertices, already turned and moved into place.
+    pub vertices: Vec<[i32; 3]>,
 }
 
 /// Rotates a vertex by `steps` quarter turns the way the original client
@@ -368,13 +380,7 @@ pub fn classic_scene(
     let terrain = ground
         .iter()
         .enumerate()
-        .filter_map(|(p, g)| {
-            Some((
-                p as u8,
-                g.as_ref()?.model.clone(),
-                g.as_ref()?.vertices.clone(),
-            ))
-        })
+        .filter_map(|(p, g)| Some((p as u8, g.clone()?)))
         .collect();
     // Light each distinct model once; placements share it.
     let lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> = models
@@ -410,7 +416,13 @@ pub fn classic_scene(
             let r = quarter_turns(*v, l.rotation);
             [r[0] + ox, r[1] + ground, r[2] + oz]
         });
-        objects.push((l.plane, lm.clone(), verts.collect()));
+        objects.push(SceneObject {
+            plane: l.plane,
+            tile: (l.x, l.y),
+            size: (w, h),
+            model: lm.clone(),
+            vertices: verts.collect(),
+        });
     }
     let half = (REGION_SIZE as i32 * 128) / 2;
     // Height at tile (32, 32).

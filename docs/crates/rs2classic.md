@@ -46,7 +46,7 @@ Texture pages are prepared the way the original client prepares them: 128 × 128
 
 Map ground comes from `terrain`, which draws one region at a time, reading its neighbours when given them; [Terrain](../client/terrain.md#what-the-region-viewer-draws) lists what that leaves out.
 
-The lower-level modules are public too: `raster` (the `gouraud`, `flat` and `textured` fillers and `blend`), `render::draw_projected`, and `tables` (`sin`, `cos`, the span reciprocal `recip`, and `hsl`).
+The lower-level modules are public too: `raster` (the `gouraud`, `flat` and `textured` fillers and `blend`), `render::draw_projected`, and `tables` (`sin`, `cos`, the span reciprocal `recip`, and `hsl`). For scenes drawn in the original client's order, `render::project_in_view` projects a model's vertices once, and `render::draw_in_order` then draws a range of its faces in the order listed: how a map tile's ground is drawn, one tile at a time, using `Ground::tile_faces` to find each tile's faces.
 
 ## Deliberate deviations
 

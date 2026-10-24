@@ -19,10 +19,11 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#18](https://github.com/birdbree/rs2ool/issues/18) Font column rule sums palette indices as unsigned
 - [ ] [#19](https://github.com/birdbree/rs2ool/issues/19) `--meta-only --xref` rebuilds cross-references every run
 - [ ] [#20](https://github.com/birdbree/rs2ool/issues/20) `rs2ool pack sprites --all` is accepted and ignored
-- [ ] [#21](https://github.com/birdbree/rs2ool/issues/21) Terrain colours disagree between views
+- [x] [#21](https://github.com/birdbree/rs2ool/issues/21) Terrain colours disagree between views
 - [ ] [#22](https://github.com/birdbree/rs2ool/issues/22) Classic renderer: last column of clipped faces isn't drawn
 - [ ] [#23](https://github.com/birdbree/rs2ool/issues/23) Check engine lighting in the explorer after the normals fix
 - [x] [#46](https://github.com/birdbree/rs2ool/issues/46) Commands panic when stdout is closed early
+- [x] [#57](https://github.com/birdbree/rs2ool/issues/57) Classic view paints lower planes over upper-plane ground
 
 ## Fidelity gaps
 
