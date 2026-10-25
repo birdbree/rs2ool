@@ -12,7 +12,8 @@
 //! The pose formula, from the records alone:
 //!
 //! ```text
-//! local_b = T(restPos_b + pos) · R(rot)   if bone b has a key at t
+//! local_b = T(restPos_b + pos) · R(rot) · S(scale / 256)
+//!                                         if bone b has a key at t
 //!         = T(restPos_b)                  otherwise
 //! world_b = world_parent · local_b        (root: local_b)
 //! pivot_b = pivot_parent + restPos_b      (root: restPos_b)
@@ -154,6 +155,40 @@ pub fn rest_pivots(rig: &Rig) -> Vec<DVec3> {
     out
 }
 
+/// The creature's scaled rest mesh skinned by the rig at frame `t` of a
+/// clip, in pack space, with each vertex's label and bone.
+fn skin_rest<'a>(
+    creature: &'a Creature,
+    rig: &'a Rig,
+    clip: &Clip,
+    t: u8,
+) -> impl Iterator<Item = (DVec3, u8, usize)> + 'a {
+    let labels = creature.model.vertex_labels.as_deref().unwrap_or_default();
+    let world = pose(rig, clip, t);
+    let pivots = rest_pivots(rig);
+    creature.rest.iter().enumerate().map(move |(v, p)| {
+        let label = labels.get(v).copied().unwrap_or(0);
+        let b = match rig.label_bone[usize::from(label)] {
+            UNBOUND => 0,
+            b => usize::from(b),
+        };
+        let rest = crate::space::to_pack_vec(*p);
+        (world[b].transform_point3(rest - pivots[b]), label, b)
+    })
+}
+
+/// The creature's vertices at frame `t` of a clip, skinned by the rig
+/// the way [`validate`] skins them, back in cache space and rounded: the
+/// converted pose, to draw beside [`Creature::posed`].
+pub fn converted(creature: &Creature, rig: &Rig, clip: &Clip, t: u8) -> Vec<[i32; 3]> {
+    skin_rest(creature, rig, clip, t)
+        .map(|(p, _, _)| {
+            let c = p * crate::space::FLIP;
+            [c.x, c.y, c.z].map(|v| v.round() as i32)
+        })
+        .collect()
+}
+
 /// Compare a clip against the reference deformation, frame by frame.
 ///
 /// `rig` and `clip` should be decoded records, so the report covers exactly
@@ -161,7 +196,6 @@ pub fn rest_pivots(rig: &Rig) -> Vec<DVec3> {
 pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> ClipReport {
     let labels = creature.model.vertex_labels.clone().unwrap_or_default();
     let groups = Groups::new(&labels);
-    let pivots = rest_pivots(rig);
     let mut frames = Vec::new();
     for i in 0..s.def.frames.len() {
         let Some((pack, frame)) = creature.frame(s, i) else {
@@ -169,29 +203,13 @@ pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> Cl
         };
         let reference =
             deform::deformed(&creature.model, &groups, &pack.base, frame, creature.scale);
-        let world = pose(rig, clip, i as u8);
-        let mut errors: Vec<WorstVertex> = creature
-            .rest
-            .iter()
+        let mut errors: Vec<WorstVertex> = skin_rest(creature, rig, clip, i as u8)
             .enumerate()
-            .map(|(v, p)| {
-                let label = labels.get(v).copied().unwrap_or(0);
-                let bone = rig.label_bone[usize::from(label)];
-                let b = if bone == contentpack::records::rig::UNBOUND {
-                    0
-                } else {
-                    usize::from(bone)
-                };
-                let rest = crate::space::to_pack_vec(*p);
-                let skinned = world[b].transform_point3(rest - pivots[b]);
-                let r = reference[v];
-                let want = crate::space::to_pack_vec(r);
-                WorstVertex {
-                    vertex: v,
-                    label,
-                    bone: b as u8,
-                    error: skinned.distance(want),
-                }
+            .map(|(v, (skinned, label, b))| WorstVertex {
+                vertex: v,
+                label,
+                bone: b as u8,
+                error: skinned.distance(crate::space::to_pack_vec(reference[v])),
             })
             .collect();
         let n = errors.len().max(1) as f64;

@@ -1,5 +1,5 @@
-//! `rs2ool cache`: list, dump, decode, describe and verify a 317 cache, or
-//! browse it.
+//! `rs2ool cache`: list, dump, decode, describe and verify a 317 cache,
+//! draw its models, or browse it.
 //!
 //! The clap structs here only parse; each converts into its plain
 //! counterpart in `rs2ool::cache` (`IdCli` into `IdArgs` and so on), and
@@ -17,7 +17,11 @@ use std::process::ExitCode;
 use clap::{Args, Subcommand};
 use rs2cache::types::record::RecordType;
 use rs2cache::{Cache, Records};
-use rs2ool::cache::{DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, select, verify};
+use rs2ool::cache::render::{Frames, Motion, RenderArgs, Target};
+use rs2ool::cache::{
+    DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, render, select, verify,
+};
+use rs2ool::render::View;
 
 // The `cache` subcommands.
 #[derive(Subcommand)]
@@ -32,6 +36,8 @@ pub enum Cmd {
     Info(InfoArgs),
     /// Check every sector chain and every file; exit 3 on damage.
     Verify,
+    /// Draw a record's model with the classic renderer, still or animated.
+    Render(RenderCli),
     /// Caption candidate sequences with a vision model on a server you run.
     #[cfg(feature = "caption")]
     Caption(CaptionArgs),
@@ -275,6 +281,136 @@ pub struct InfoArgs {
     id: u32,
 }
 
+// `render TYPE --id N -o FILE`, with a sequence and camera.
+#[derive(Args)]
+pub struct RenderCli {
+    /// A record type with a model (model, npc, obj, idk, spotanim, loc), or
+    /// `kit` for the default player body.
+    #[arg(value_name = "TYPE", value_parser = parse_target)]
+    kind: RenderType,
+    /// The record's id (not for `kit`).
+    #[arg(long)]
+    id: Option<u32>,
+    /// With `kit`, the default female body.
+    #[arg(long)]
+    female: bool,
+    /// Pose it with this sequence, or with no id, with its own.
+    #[arg(long, value_name = "ID")]
+    seq: Option<Option<u16>>,
+    /// Draw just this frame of the sequence (its index).
+    #[arg(long, value_name = "N", requires = "seq", conflicts_with = "sheet")]
+    frame: Option<usize>,
+    /// Draw a grid of N frames evenly spaced in time (9 with no N).
+    #[arg(long, value_name = "N", requires = "seq", num_args = 0..=1, default_missing_value = "9")]
+    sheet: Option<usize>,
+    /// Draw the converted rig and clip beside the original, and print the
+    /// clip's validation.
+    #[arg(long, requires = "seq")]
+    compare: bool,
+    /// Image size, `N` or `WxH` (each tile's with --sheet). Default 512,
+    /// or 256 with --sheet.
+    #[arg(long, value_parser = parse_size)]
+    size: Option<(usize, usize)>,
+    /// Turn of the camera about the model, 2048 per turn.
+    #[arg(long, default_value_t = 256, allow_negative_numbers = true)]
+    yaw: i32,
+    /// Tilt of the camera, 2048 per turn; positive looks down.
+    #[arg(long, default_value_t = 48, allow_negative_numbers = true)]
+    pitch: i32,
+    /// Distance from the camera to the model's centre; fitted if not given.
+    #[arg(long)]
+    distance: Option<i32>,
+    /// Background colour, `RRGGBB`.
+    #[arg(long, value_name = "RRGGBB", value_parser = parse_rgb)]
+    background: Option<u32>,
+    /// The file to write: `.gif` for a GIF, anything else for a PNG
+    /// (animated when there's more than one frame).
+    #[arg(short, long, value_name = "FILE")]
+    out: PathBuf,
+}
+
+// What `render` draws: a record type, or the player kit.
+#[derive(Clone, Copy)]
+enum RenderType {
+    Record(RecordType),
+    Kit,
+}
+
+fn parse_target(s: &str) -> Result<RenderType, String> {
+    if s.eq_ignore_ascii_case("kit") {
+        return Ok(RenderType::Kit);
+    }
+    s.parse()
+        .map(RenderType::Record)
+        .map_err(|e| format!("{e}"))
+}
+
+// `N` or `WxH`, each 1–4096.
+fn parse_size(s: &str) -> Result<(usize, usize), String> {
+    let (w, h) = s.split_once(['x', 'X']).unwrap_or((s, s));
+    let side = |v: &str| match v.trim().parse::<usize>() {
+        Ok(n @ 1..=4096) => Ok(n),
+        _ => Err(format!("{v}: expected a size from 1 to 4096")),
+    };
+    Ok((side(w)?, side(h)?))
+}
+
+// `RRGGBB`, with or without a leading `#`.
+fn parse_rgb(s: &str) -> Result<u32, String> {
+    let hex = s.trim_start_matches('#');
+    match u32::from_str_radix(hex, 16) {
+        Ok(v) if hex.len() == 6 => Ok(v),
+        _ => Err(format!("{s}: expected RRGGBB")),
+    }
+}
+
+impl RenderCli {
+    // The plain options, or a usage error for an id where none belongs.
+    fn args(self) -> anyhow::Result<RenderArgs> {
+        let target = match (self.kind, self.id) {
+            (RenderType::Record(kind), Some(id)) if !self.female => Target::Record(kind, id),
+            (RenderType::Kit, None) => Target::Kit {
+                female: self.female,
+            },
+            (RenderType::Record(_), None) => {
+                return Err(select::usage("render needs --id for a record type"));
+            }
+            (RenderType::Record(_), Some(_)) => {
+                return Err(select::usage("--female is for kit only"));
+            }
+            (RenderType::Kit, Some(_)) => return Err(select::usage("kit takes no --id")),
+        };
+        let motion = match self.seq {
+            None => Motion::Still,
+            Some(None) => Motion::Own,
+            Some(Some(s)) => Motion::Seq(s),
+        };
+        let frames = match (self.frame, self.sheet) {
+            (Some(f), _) => Frames::One(f),
+            (None, Some(n)) => Frames::Sheet(n),
+            (None, None) => Frames::All,
+        };
+        let side = if self.sheet.is_some() { 256 } else { 512 };
+        let (width, height) = self.size.unwrap_or((side, side));
+        let view = View {
+            width,
+            height,
+            yaw: self.yaw,
+            pitch: self.pitch,
+            distance: self.distance,
+            background: self.background.unwrap_or(rs2ool::render::BACKGROUND),
+        };
+        Ok(RenderArgs {
+            target,
+            motion,
+            frames,
+            compare: self.compare,
+            view,
+            out: self.out,
+        })
+    }
+}
+
 impl From<IdCli> for IdArgs {
     fn from(a: IdCli) -> Self {
         IdArgs {
@@ -379,6 +515,9 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Ok(Outcome::Ok)
             }),
         Cmd::Verify => verify::run(&cache, &mut std::io::stdout().lock()),
+        Cmd::Render(a) => a
+            .args()
+            .and_then(|args| render::run(&records, &args, &mut std::io::stdout().lock())),
         #[cfg(feature = "caption")]
         Cmd::Caption(a) => caption::run(&cache, &records, &a),
         #[cfg(feature = "caption")]

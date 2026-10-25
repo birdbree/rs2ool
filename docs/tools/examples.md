@@ -102,6 +102,18 @@ rs2ool cache verify
 
 It reports, per index, files that are present, absent, truncated, bad-sector or inflate-failed, with ids, and exits `3` if any are damaged. Files that differ from the versionlist are listed as *modified*, which is not an error.
 
+### `render`
+
+Draw a model with the classic renderer: an NPC at rest, its stand sequence as a GIF, and the player's walk as six frames, the converted clip under the original:
+
+```
+rs2ool cache render npc --id 1 -o npc1.png
+rs2ool cache render npc --id 1 --seq -o npc1-stand.gif
+rs2ool cache render kit --seq 819 --sheet 6 --compare -o walk.png
+```
+
+`--yaw`, `--pitch`, `--distance` and `--size` set the camera and image. Any other extension than `.gif` writes a PNG, animated when there's more than one frame. See [Cache commands](cache-commands.md#render).
+
 ### `caption`
 
 Draw NPC 1's candidate sequences as frame grids without sending anything, then caption five of them with a vision model on a local Ollama server:

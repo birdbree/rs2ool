@@ -51,22 +51,31 @@ pub fn layer_of(kind: u8) -> u8 {
 /// faces still point outwards.
 pub fn shaped(mut m: Model, d: &LocDef) -> Model {
     if d.mirrored {
-        for v in &mut m.vertices {
-            v[2] = -v[2];
-        }
         for f in &mut m.faces {
             f.swap(0, 2);
         }
     }
+    shape_vertices(&mut m.vertices, d);
+    m
+}
+
+/// The vertex half of [`shaped`]: mirror, scale, offset. For a model whose
+/// faces are already shaped, posed by a sequence first, as the original
+/// client animates a location's model before shaping it.
+pub fn shape_vertices(vertices: &mut [[i32; 3]], d: &LocDef) {
+    if d.mirrored {
+        for v in vertices.iter_mut() {
+            v[2] = -v[2];
+        }
+    }
     let scale = [d.scale_x, d.scale_y, d.scale_z].map(i32::from);
-    crate::deform::apply_scale(&mut m.vertices, scale);
+    crate::deform::apply_scale(vertices, scale);
     let off = [d.offset_x, d.offset_y, d.offset_z].map(i32::from);
-    for v in &mut m.vertices {
+    for v in vertices.iter_mut() {
         for a in 0..3 {
             v[a] += off[a];
         }
     }
-    m
 }
 
 /// The models of a definition, by placement type, each already
@@ -76,6 +85,14 @@ pub fn shaped(mut m: Model, d: &LocDef) -> Model {
 /// model, as the original client draws them. Otherwise each typed model
 /// stands alone, and any untyped one among them counts as type 10.
 pub fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, ConvertError> {
+    Ok(unshaped_models_of(records, d)?
+        .into_iter()
+        .map(|(k, m)| (k, shaped(m, d)))
+        .collect())
+}
+
+/// [`models_of`] before shaping.
+pub fn unshaped_models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, ConvertError> {
     let load = |id: u16| -> Result<Model, ConvertError> {
         match records.decode(RecordType::Model, id.into())? {
             Record::Model(m) => Ok(m),
@@ -91,11 +108,11 @@ pub fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, Conv
             .iter()
             .map(|m| load(m.model))
             .collect::<Result<Vec<_>, _>>()?;
-        return Ok(vec![(10, shaped(merge(&parts), d))]);
+        return Ok(vec![(10, merge(&parts))]);
     }
     d.models
         .iter()
-        .map(|m| Ok((m.kind.unwrap_or(10), shaped(load(m.model)?, d))))
+        .map(|m| Ok((m.kind.unwrap_or(10), load(m.model)?)))
         .collect()
 }
 

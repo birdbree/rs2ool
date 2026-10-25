@@ -4,7 +4,7 @@
 
 `rs2ool` is the workspace's one binary. It's also a library, which holds the `rs2ool cache` command code and, behind a cargo feature, the GUI explorer. This page covers how the crate is laid out and why. For using the commands, see the [tools section](../tools/README.md).
 
-Sources: [`src/main.rs`](../../src/main.rs), [`src/lib.rs`](../../src/lib.rs), [`src/cli/`](../../src/cli/mod.rs), [`src/cache/`](../../src/cache/mod.rs), [`src/caption/`](../../src/caption/mod.rs), [`src/settings.rs`](../../src/settings.rs) and [`src/explorer/`](../../src/explorer/mod.rs).
+Sources: [`src/main.rs`](../../src/main.rs), [`src/lib.rs`](../../src/lib.rs), [`src/cli/`](../../src/cli/mod.rs), [`src/cache/`](../../src/cache/mod.rs), [`src/render.rs`](../../src/render.rs), [`src/caption/`](../../src/caption/mod.rs), [`src/settings.rs`](../../src/settings.rs) and [`src/explorer/`](../../src/explorer/mod.rs).
 
 ## Layout
 
@@ -15,8 +15,9 @@ Cargo.toml       the workspace, and the rs2ool package
 src/
   main.rs        the binary: argument parsing, logging, dispatch
   cli/           binary only: the clap definitions for `cache` and `pack`
-  lib.rs         the library: `cache`, and with their features `caption`, `settings` and `explorer`
-  cache/         list, dump, decode, verify, groups, xref, output layout
+  lib.rs         the library: `cache`, `render`, and with their features `caption`, `settings` and `explorer`
+  cache/         list, dump, decode, verify, render, groups, xref, output layout
+  render.rs      drawing models with rs2classic into PNG, APNG and GIF images
   caption/       sequence captioning, behind the `caption` feature
   settings.rs    settings.json, shared by the explorer and `cache caption`
   explorer/      the Bevy + egui GUI, behind the `explorer` feature
@@ -28,11 +29,13 @@ crates/          rs2cache, contentpack, rs2convert, rs2classic
 
 **`cli`**, declared with `mod cli` in `main.rs` and so private to the binary, maps arguments onto library calls:
 
-- `cli::cache` defines `list`, `dump`, `decode`, `info`, `verify`, `caption` and `explorer`, and calls into the library's `cache` module.
+- `cli::cache` defines `list`, `dump`, `decode`, `info`, `verify`, `render`, `caption` and `explorer`, and calls into the library's `cache` module.
 - `cli::pack` defines `inspect`, `materials`, `textures`, `npc`, `player-kit`, `sprites`, `floors`, `objects`, `models`, `build` and `explorer`.
 - `cli::convert` holds the converting `pack` subcommands as thin wrappers over `rs2convert::run`. `pack build` calls `contentpack::loose::bake` directly.
 
-**The `cache` module** is in the library, not the binary. Its option structs (`SourceArgs`, `IdArgs`, `OutArgs`, `DumpArgs`) describe a run without any `clap` types, and `dump::run`, `list::run` and `verify::run` do the work, returning an `Outcome` (`Ok` or `Partial`). The submodules: `dump` (dump and decode), `list`, `verify` (every sector chain, file, archive and versionlist entry), `groups` (dependency closures for `--group`), `xref` (reverse references, cached in `<out>/xref.json`), `select` (selector flags to ids), and `output` (files, sidecars and `manifest.json`).
+**The `cache` module** is in the library, not the binary. Its option structs (`SourceArgs`, `IdArgs`, `OutArgs`, `DumpArgs`) describe a run without any `clap` types, and `dump::run`, `list::run`, `verify::run` and `render::run` do the work, returning an `Outcome` (`Ok` or `Partial`). The submodules: `dump` (dump and decode), `list`, `verify` (every sector chain, file, archive and versionlist entry), `render` (a record's model drawn still, as an animation, a frame or a sheet, optionally beside its conversion; its options are `RenderArgs`), `groups` (dependency closures for `--group`), `xref` (reverse references, cached in `<out>/xref.json`), `select` (selector flags to ids), and `output` (files, sidecars and `manifest.json`).
+
+**The `render` module** draws with `rs2classic` into images, for `cache render` and the caption frame grids. `View` holds the image size and camera; `frame` fits one camera to every pose of a drawing; `draw` renders one pose over the background and ground; `outline` and `grid` lay tiles out; `png`, `apng` and `gif` encode. It needs no feature: the GIF and APNG encoders come from `image` (with its `gif` feature) and `png`, which `image` already uses.
 
 ## Why the explorer is a module
 
@@ -73,7 +76,7 @@ The default build speaks plain HTTP only, which is all a server on this machine 
 
 The module has three parts:
 
-- `caption::frames` draws a sequence as a grid of frames with `rs2classic`.
+- `caption::frames` draws a sequence as a grid of frames, through `render`.
 - `caption::client` talks to the server, in Ollama's API or the OpenAI-compatible one.
 - `caption::store` keeps the captions, one JSON file per cache in the data directory.
 - `caption::describe` writes clips' captions into the anims pack manifest for `pack npc --describe` and `pack player-kit --describe`, and for the explorer's Convert action.

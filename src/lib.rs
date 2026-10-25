@@ -21,6 +21,8 @@
 //!   - [`cache::xref`]: reverse references for `--xref`.
 //!   - [`cache::output`]: the output directory, sidecars and
 //!     `manifest.json`.
+//! - [`render`]: drawing models with the classic renderer into PNG, APNG
+//!   and GIF images, behind `rs2ool cache render`.
 //! - `caption`: captioning candidate sequences with a vision model on a
 //!   server you run, behind `rs2ool cache caption`. Only there with the
 //!   `caption` feature (on by default), and off until it's turned on in
@@ -64,5 +66,6 @@ pub mod cache;
 pub mod caption;
 #[cfg(feature = "explorer")]
 pub mod explorer;
+pub mod render;
 #[cfg(any(feature = "explorer", feature = "caption"))]
 pub mod settings;
