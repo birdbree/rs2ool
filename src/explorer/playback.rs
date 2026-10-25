@@ -490,6 +490,7 @@ pub fn playback_ui(
                 // Named sequences first, then the inferred ones in a group
                 // per role, as listed.
                 let groups = role_groups(r, &pb.seqs);
+                let learned = matches!(r, Renderable::Creature { learned: true, .. });
                 for (i, &s) in pb.seqs.iter().enumerate() {
                     if inferred(r, s).is_none() {
                         ui.selectable_value(&mut chosen, i, format!("seq {s}"));
@@ -500,7 +501,9 @@ pub fn playback_ui(
                     // Deaths and actions open; idle and other sequences
                     // are what the named ones already cover.
                     let open = matches!(role, Some(Role::Death | Role::Action));
-                    egui::CollapsingHeader::new(format!("inferred {name} ({})", members.len()))
+                    // Say when the roles come from a learned tree.
+                    let by = if learned { ", learned" } else { "" };
+                    egui::CollapsingHeader::new(format!("inferred {name} ({}{by})", members.len()))
                         .id_salt(("sequence group", name))
                         .default_open(open)
                         .show(ui, |ui| {
@@ -515,8 +518,12 @@ pub fn playback_ui(
                                 if let Some(t) = tag(s) {
                                     text.push_str(&format!(" · {t}"));
                                 }
+                                let mut why = evidence(c);
+                                if learned {
+                                    why.push_str(" The role comes from the tree learned from your labels (rs2ool cache classify --save), not the hand-tuned rules.");
+                                }
                                 ui.selectable_value(&mut chosen, i, text)
-                                    .on_hover_text(evidence(c));
+                                    .on_hover_text(why);
                             }
                         });
                 }

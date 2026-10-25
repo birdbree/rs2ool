@@ -6,12 +6,13 @@
 //! with a question ([`client`]), and the reply is kept in a local file
 //! ([`store`]): a short description, and one class from [`CLASSES`].
 //! Captions are evidence for labelling sequences; they're never written
-//! into a pack.
+//! into a pack. Reviewed captions train a role tree ([`classify`]).
 //!
 //! Nothing is contacted unless captioning is enabled in the
 //! [settings](crate::settings::Caption), and the default endpoint is on
 //! this machine.
 
+pub mod classify;
 pub mod client;
 pub mod frames;
 pub mod store;

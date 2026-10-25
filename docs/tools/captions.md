@@ -133,9 +133,15 @@ Captions are keyed by NPC, sequence and vision model, and written sorted by that
 
 The explorer's **Captions** window holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
 
-## What's next
+## Learning roles from reviews
 
-The reviewed captions are to train a small role classifier, measured against the motion rules ([#72](https://github.com/birdbree/rs2ool/issues/72)).
+Reviewed captions are labels. `rs2ool cache classify` learns a small role tree from them and compares it with the hand-tuned motion rules:
+
+```text
+rs2ool cache classify [--labels FILE] [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
+```
+
+It prints how many labelled sequences each gets right, a confusion table for each (labelled role against what it said), and the tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--weak W` also learns from unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the tree, and the explorer's sequence picker then uses it for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
 
 ## See also
 

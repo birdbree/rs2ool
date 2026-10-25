@@ -35,6 +35,9 @@ pub enum Cmd {
     /// Caption candidate sequences with a vision model on a server you run.
     #[cfg(feature = "caption")]
     Caption(CaptionArgs),
+    /// Learn sequence roles from reviewed captions and compare with the rules.
+    #[cfg(feature = "caption")]
+    Classify(ClassifyArgs),
     /// Open the explorer on the cache.
     #[cfg(feature = "explorer")]
     Explorer {
@@ -164,6 +167,33 @@ pub struct CaptionArgs {
     /// Also write each image to this directory.
     #[arg(long, value_name = "DIR")]
     images: Option<PathBuf>,
+}
+
+// `classify`'s flags.
+#[cfg(feature = "caption")]
+#[derive(Args)]
+pub struct ClassifyArgs {
+    /// Also take labels from this JSON file
+    /// (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`); reviews win.
+    #[arg(long, value_name = "FILE", env = "RS2_SEQUENCE_LABELS")]
+    labels: Option<PathBuf>,
+    /// Also learn from unreviewed captions' own classes, each counting
+    /// this much (a reviewed label counts 1). They're never scored.
+    #[arg(long, value_name = "W")]
+    weak: Option<f64>,
+    /// How deep the tree may grow.
+    #[arg(long, default_value_t = 4)]
+    depth: usize,
+    /// The least weight a leaf may have.
+    #[arg(long, default_value_t = 1.0)]
+    min_leaf: f64,
+    /// List every labelled sequence with its three roles.
+    #[arg(long)]
+    verbose: bool,
+    /// Save the tree, grown on every label, as role-tree.json in the data
+    /// directory, where the explorer's sequence picker uses it for roles.
+    #[arg(long)]
+    save: bool,
 }
 
 // `RX_RY` into `(rx, ry)`; each part has to fit a u8.
@@ -342,6 +372,8 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
         Cmd::Verify => verify::run(&cache, &mut std::io::stdout().lock()),
         #[cfg(feature = "caption")]
         Cmd::Caption(a) => caption::run(&cache, &records, &a),
+        #[cfg(feature = "caption")]
+        Cmd::Classify(a) => caption::classify(&cache, &records, &a),
         // Returned early above.
         #[cfg(feature = "explorer")]
         Cmd::Explorer { .. } => unreachable!(),
@@ -375,7 +407,7 @@ mod caption {
     use rs2ool::caption::{self, Event, Options, Target};
     use rs2ool::settings::{self, Caption, Settings};
 
-    use super::CaptionArgs;
+    use super::{CaptionArgs, ClassifyArgs};
 
     // The saved caption settings with this run's flags on top.
     fn settings(a: &CaptionArgs) -> Caption {
@@ -526,5 +558,118 @@ mod caption {
             println!("captions are in {}", lock(&store).path().display());
         }
         Ok(outcome)
+    }
+
+    // `classify`: gather the labels, grow and score the tree, print the
+    // comparison, and save the tree if asked.
+    pub fn classify(cache: &Cache, records: &Records, a: &ClassifyArgs) -> Result<Outcome> {
+        use rs2convert::classify::Params;
+        use rs2convert::infer::{ROLE_ORDER, Role};
+        use rs2ool::caption::classify::{self as learn, Origin};
+
+        let dir = settings::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("this platform has no data directory for captions"))?;
+        let store = Store::open(&dir, rs2convert::source_cache_crc(cache)?)?;
+        let file = match &a.labels {
+            Some(p) => learn::read_labels(p)?,
+            None => Vec::new(),
+        };
+        let (labels, overridden) = learn::gather(&store, &file, a.weak.is_some());
+        let params = Params {
+            max_depth: a.depth,
+            min_leaf: a.min_leaf,
+        };
+        let report = learn::run(records, labels, a.weak.unwrap_or(0.0), params)?;
+        let count = |o: Origin| report.judged.iter().filter(|j| j.label.from == o).count();
+        let (n, rules, tree) = report.scores();
+        if n == 0 {
+            println!("no labelled sequences yet: review some captions in the explorer");
+            return Ok(Outcome::Ok);
+        }
+        println!(
+            "{n} labelled sequences: {} reviewed captions, {} from the labels file",
+            count(Origin::Review),
+            count(Origin::Labels)
+        );
+        if overridden > 0 {
+            println!("  ({overridden} labels-file entries disagree with a review; the review won)");
+        }
+        if a.weak.is_some() {
+            println!(
+                "  plus {} unreviewed captions as weak labels, not scored",
+                count(Origin::Caption)
+            );
+        }
+        for (l, why) in &report.skipped {
+            println!("  skipped npc {} seq {}: {why}", l.npc, l.seq);
+        }
+        let pct = |k: usize| 100.0 * k as f64 / n as f64;
+        println!();
+        println!(
+            "rules                 {rules:>3}/{n} right ({:.0}%)",
+            pct(rules)
+        );
+        println!(
+            "tree, leave-one-out   {tree:>3}/{n} right ({:.0}%)",
+            pct(tree)
+        );
+        // One confusion table per judge: rows the true role, columns what
+        // the judge said.
+        let table = |name: &str, said: fn(&learn::Judged) -> Role| {
+            println!();
+            print!("{name:<8}");
+            for r in ROLE_ORDER {
+                print!("{:>7}", r.name());
+            }
+            println!();
+            for truth in ROLE_ORDER {
+                let row: Vec<usize> = ROLE_ORDER
+                    .iter()
+                    .map(|&s| {
+                        report
+                            .checked()
+                            .filter(|j| j.truth == truth && said(j) == s)
+                            .count()
+                    })
+                    .collect();
+                if row.iter().sum::<usize>() == 0 {
+                    continue;
+                }
+                print!("{:<8}", truth.name());
+                for c in row {
+                    print!("{:>7}", if c == 0 { ".".into() } else { c.to_string() });
+                }
+                println!();
+            }
+        };
+        println!();
+        println!("rows are the labelled role, columns what each said");
+        table("rules", |j| j.rules);
+        table("tree", |j| j.tree);
+        if a.verbose {
+            println!();
+            for j in report.checked() {
+                println!(
+                    "npc {:>4} seq {:<5} {:<10} → {:<7} rules {:<7} tree {:<7}",
+                    j.label.npc,
+                    j.label.seq,
+                    j.label.class,
+                    j.truth.name(),
+                    j.rules.name(),
+                    j.tree.name()
+                );
+            }
+        }
+        println!();
+        println!("the tree, grown on every label:");
+        print!("{}", report.tree.describe());
+        if a.save {
+            let path = settings::role_tree_path()
+                .ok_or_else(|| anyhow::anyhow!("this platform has no data directory"))?;
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&path, serde_json::to_vec_pretty(&report.tree)?)?;
+            println!("saved to {}", path.display());
+        }
+        Ok(Outcome::Ok)
     }
 }

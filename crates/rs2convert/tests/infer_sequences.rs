@@ -272,3 +272,54 @@ fn humanoid_candidates_are_grouped_by_role() {
     }
     assert_eq!(tried, 4, "four humanoid layouts to try");
 }
+
+#[test]
+fn a_judge_changes_roles_not_candidates() {
+    use rs2convert::classify::{Params, Sample, Tree, features};
+    use rs2convert::creature;
+    use rs2convert::infer::{Role, npc_candidates, npc_candidates_by};
+
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let frames = cache.frame_index().unwrap();
+    let index = SequenceIndex::build(&cache, &records, &frames).unwrap();
+    // The first NPC with a handful of candidates.
+    let (id, rules) = records
+        .ids(RecordType::Npc)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| {
+            let named = creature::npc(&records, &frames, id, &[]).ok()?;
+            let (_, c) = npc_candidates(&index, &records, &frames, id, named);
+            (c.len() >= 3).then_some((id, c))
+        })
+        .unwrap();
+    let named = creature::npc(&records, &frames, id, &[]).unwrap();
+    let (_, judged) = npc_candidates_by(&index, &records, &frames, id, named, &|_| Role::Vanish);
+    let seqs =
+        |c: &[rs2convert::infer::Candidate]| -> BTreeSet<u32> { c.iter().map(|c| c.seq).collect() };
+    assert_eq!(seqs(&judged), seqs(&rules));
+    assert!(judged.iter().all(|c| c.role == Some(Role::Vanish)));
+    // A tree that learned the rules' own roles gives them back.
+    let samples: Vec<Sample> = rules
+        .iter()
+        .map(|c| Sample {
+            x: features(&c.motion.unwrap()),
+            role: c.role.unwrap(),
+            weight: 1.0,
+        })
+        .collect();
+    let tree = Tree::train(
+        &samples,
+        Params {
+            max_depth: 12,
+            min_leaf: 0.5,
+        },
+    );
+    let named = creature::npc(&records, &frames, id, &[]).unwrap();
+    let (_, learned) = npc_candidates_by(&index, &records, &frames, id, named, &|m| tree.role(m));
+    let roles = |c: &[rs2convert::infer::Candidate]| -> BTreeMap<u32, Option<Role>> {
+        c.iter().map(|c| (c.seq, c.role)).collect()
+    };
+    assert_eq!(roles(&learned), roles(&rules));
+}

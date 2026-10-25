@@ -100,3 +100,49 @@ fn captions_are_stored_and_resumed() {
     assert!(first.iter().all(|&s| lock(&again).has(npc, s, "stand-in")));
     let _ = std::fs::remove_dir_all(data);
 }
+
+#[test]
+fn labels_are_measured_and_judged() {
+    use rs2ool::caption::classify::{self, Label, Origin};
+
+    let Some(dir) = std::env::var_os("RS2_CACHE") else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = Cache::open(std::path::Path::new(&dir)).unwrap();
+    let records = Records::new(&cache);
+    let npc = common::walking_npc(&records);
+    let rs2cache::types::record::Record::Npc(d) = records
+        .decode(rs2cache::types::record::RecordType::Npc, npc)
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let (stand, walk) = (d.stand_anim.unwrap(), d.walk_anim.unwrap());
+    let label = |seq: u16, class: &str| Label {
+        npc,
+        seq: seq.into(),
+        class: class.into(),
+        from: Origin::Labels,
+    };
+    let labels = vec![
+        label(stand, "idle"),
+        label(walk, "walk"),
+        label(stand, "dance"),
+        // Not a sequence id at all.
+        label(u16::MAX - 1, "death"),
+    ];
+    let report = classify::run(&records, labels, 0.0, Default::default()).unwrap();
+    assert_eq!(report.judged.len(), 2);
+    assert_eq!(report.skipped.len(), 2);
+    assert!(
+        report
+            .skipped
+            .iter()
+            .any(|(_, why)| why.contains("unknown class"))
+    );
+    let (n, rules, _) = report.scores();
+    assert_eq!(n, 2);
+    // A walk moves and comes back: the rules call it an action.
+    assert!(rules >= 1);
+}

@@ -98,6 +98,12 @@ pub fn data_dir() -> Option<PathBuf> {
     dirs().map(|d| d.data_dir().to_path_buf())
 }
 
+/// Where `rs2ool cache classify --save` keeps the role tree it learns,
+/// and where the explorer looks for one.
+pub fn role_tree_path() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("role-tree.json"))
+}
+
 impl Settings {
     /// Reads the settings, falling back to the defaults if the file's
     /// missing or won't parse.

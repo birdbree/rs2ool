@@ -153,6 +153,8 @@ Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/an
 
 ### Captions
 
+If you've saved a role tree with `rs2ool cache classify --save`, the picker groups inferred sequences by the tree's roles instead of the hand-tuned rules, and says "learned" in each group's heading ([Learning roles from labels](../conversion/inference.md#learning-roles-from-labels)). It's read each time an NPC loads, so a newly saved tree shows on the next one. Conversion doesn't use it.
+
 With the `caption` feature (on by default), an inferred sequence that has a [caption](captions.md) shows its class after its name in the picker, as `seq 2820 · 💬 death`. Once it's reviewed, the mark changes: ✔ for marked right, ✎ with the class it was corrected to, and ✘ for wrong with no class given. A caption drawn on this NPC is shown first, by the model in the settings if there's one; otherwise it's one drawn on another NPC, which is what `--all` makes.
 
 Under the playback bar, the chosen sequence's caption shows its class and description. Hovering it shows the whole reply, the frame count and the model; "(drawn on npc N)" marks one from another NPC. Review it by eye as it plays:
