@@ -199,13 +199,7 @@ fn humanoids_get_the_whole_pool_grouped_by_role() {
         "npc 1 is on the shared pool"
     );
     assert!(inferred.len() > 1000, "the whole pool: {}", inferred.len());
-    let group = |r: Option<Role>| match r {
-        Some(Role::Death) => 0,
-        Some(Role::Action) => 1,
-        Some(Role::Idle) => 2,
-        Some(Role::Other) => 3,
-        None => 4,
-    };
+    let group = |r: Option<Role>| r.map_or(usize::MAX, |r| r.order());
     assert!(
         inferred
             .windows(2)
