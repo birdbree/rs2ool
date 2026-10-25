@@ -1,0 +1,869 @@
+{
+  "cache_crc": 999217025,
+  "global": {
+    "split": {
+      "feature": 3,
+      "at": 0.046970433241984924,
+      "below": {
+        "split": {
+          "feature": 10,
+          "at": 1.0604166217849378,
+          "below": {
+            "split": {
+              "feature": 11,
+              "at": 0.9593933140009796,
+              "below": {
+                "split": {
+                  "feature": 1,
+                  "at": 0.002617801047120419,
+                  "below": {
+                    "leaf": {
+                      "role": "death"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  }
+                }
+              },
+              "above": {
+                "split": {
+                  "feature": 9,
+                  "at": 50.5,
+                  "below": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "above": {
+            "split": {
+              "feature": 9,
+              "at": 38.0,
+              "below": {
+                "split": {
+                  "feature": 2,
+                  "at": 0.010214174976763336,
+                  "below": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  }
+                }
+              },
+              "above": {
+                "split": {
+                  "feature": 4,
+                  "at": 150.0,
+                  "below": {
+                    "leaf": {
+                      "role": "death"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "death"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "above": {
+        "split": {
+          "feature": 1,
+          "at": 0.2050425493391273,
+          "below": {
+            "split": {
+              "feature": 12,
+              "at": 0.5200250312891113,
+              "below": {
+                "split": {
+                  "feature": 11,
+                  "at": 0.20216061920498885,
+                  "below": {
+                    "leaf": {
+                      "role": "vanish"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "other"
+                    }
+                  }
+                }
+              },
+              "above": {
+                "split": {
+                  "feature": 10,
+                  "at": 1.0654868808314544,
+                  "below": {
+                    "leaf": {
+                      "role": "idle"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "action"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "above": {
+            "split": {
+              "feature": 7,
+              "at": -0.24128859755045712,
+              "below": {
+                "split": {
+                  "feature": 8,
+                  "at": 0.8903508771929824,
+                  "below": {
+                    "leaf": {
+                      "role": "vanish"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "other"
+                    }
+                  }
+                }
+              },
+              "above": {
+                "split": {
+                  "feature": 9,
+                  "at": 15.5,
+                  "below": {
+                    "leaf": {
+                      "role": "action"
+                    }
+                  },
+                  "above": {
+                    "leaf": {
+                      "role": "death"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "families": {
+    "7": {
+      "split": {
+        "feature": 3,
+        "at": 0.04793465969334204,
+        "below": {
+          "leaf": {
+            "role": "idle"
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 2,
+            "at": 0.17231846563998154,
+            "below": {
+              "split": {
+                "feature": 3,
+                "at": 0.7193449677816905,
+                "below": {
+                  "leaf": {
+                    "role": "action"
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "down"
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 0,
+                "at": 0.6204775310186633,
+                "below": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.4822258681979765,
+                    "below": {
+                      "leaf": {
+                        "role": "death"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "other"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "11": {
+      "split": {
+        "feature": 1,
+        "at": 0.19020911231131424,
+        "below": {
+          "split": {
+            "feature": 10,
+            "at": 1.2679444413359184,
+            "below": {
+              "split": {
+                "feature": 0,
+                "at": 1.0112997957099081,
+                "below": {
+                  "leaf": {
+                    "role": "idle"
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 0,
+                    "at": 1.0418263964950714,
+                    "below": {
+                      "leaf": {
+                        "role": "vanish"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "action"
+              }
+            }
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 0,
+            "at": 0.7727925809822362,
+            "below": {
+              "leaf": {
+                "role": "death"
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "other"
+              }
+            }
+          }
+        }
+      }
+    },
+    "25": {
+      "split": {
+        "feature": 3,
+        "at": 0.11997547035234439,
+        "below": {
+          "leaf": {
+            "role": "idle"
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 4,
+            "at": 1153.5,
+            "below": {
+              "split": {
+                "feature": 9,
+                "at": 8.0,
+                "below": {
+                  "split": {
+                    "feature": 0,
+                    "at": 1.293659420289855,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "other"
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "vanish"
+              }
+            }
+          }
+        }
+      }
+    },
+    "38": {
+      "split": {
+        "feature": 3,
+        "at": 0.17926500994475664,
+        "below": {
+          "split": {
+            "feature": 3,
+            "at": 0.011422640202417175,
+            "below": {
+              "split": {
+                "feature": 10,
+                "at": 1.0687155658598302,
+                "below": {
+                  "leaf": {
+                    "role": "other"
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "death"
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "idle"
+              }
+            }
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 7,
+            "at": 0.49196217494089833,
+            "below": {
+              "split": {
+                "feature": 0,
+                "at": 1.2685612260080346,
+                "below": {
+                  "split": {
+                    "feature": 10,
+                    "at": 1.1591239318474087,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 0,
+                    "at": 11.2,
+                    "below": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "drop"
+              }
+            }
+          }
+        }
+      }
+    },
+    "55": {
+      "split": {
+        "feature": 3,
+        "at": 0.05587555638996211,
+        "below": {
+          "split": {
+            "feature": 3,
+            "at": 0.0042636201789281345,
+            "below": {
+              "split": {
+                "feature": 10,
+                "at": 1.1392365597885648,
+                "below": {
+                  "leaf": {
+                    "role": "idle"
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "other"
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "idle"
+              }
+            }
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 2,
+            "at": 0.368281640697553,
+            "below": {
+              "split": {
+                "feature": 6,
+                "at": 0.008928571428571428,
+                "below": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.9172642643980224,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.6249458796363112,
+                    "below": {
+                      "leaf": {
+                        "role": "death"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "leaf": {
+                "role": "down"
+              }
+            }
+          }
+        }
+      }
+    },
+    "57": {
+      "split": {
+        "feature": 9,
+        "at": 9.0,
+        "below": {
+          "split": {
+            "feature": 10,
+            "at": 1.2108095874178213,
+            "below": {
+              "split": {
+                "feature": 3,
+                "at": 0.07042295502425301,
+                "below": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.9967532467532467,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 4,
+                    "at": 418.5,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 5,
+                "at": 0.16358098423315814,
+                "below": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.9967948717948718,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "down"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 2,
+            "at": 0.3443415658762402,
+            "below": {
+              "split": {
+                "feature": 1,
+                "at": 0.010765673175745118,
+                "below": {
+                  "split": {
+                    "feature": 10,
+                    "at": 1.1963691957979985,
+                    "below": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "down"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 0,
+                    "at": 0.4902597402597403,
+                    "below": {
+                      "leaf": {
+                        "role": "vanish"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 0,
+                "at": 0.2329136690647482,
+                "below": {
+                  "leaf": {
+                    "role": "vanish"
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 4,
+                    "at": 10139.0,
+                    "below": {
+                      "leaf": {
+                        "role": "death"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "death"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "68": {
+      "split": {
+        "feature": 3,
+        "at": 0.2006510040361414,
+        "below": {
+          "split": {
+            "feature": 0,
+            "at": 0.9943396226415094,
+            "below": {
+              "split": {
+                "feature": 0,
+                "at": 0.8500837479678802,
+                "below": {
+                  "leaf": {
+                    "role": "drop"
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "action"
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 10,
+                "at": 1.0077468012833815,
+                "below": {
+                  "leaf": {
+                    "role": "idle"
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 10,
+                    "at": 1.007806062654714,
+                    "below": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 2,
+            "at": 0.1413595265930624,
+            "below": {
+              "split": {
+                "feature": 3,
+                "at": 0.6921132618797439,
+                "below": {
+                  "split": {
+                    "feature": 3,
+                    "at": 0.2423510885971584,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 2,
+                    "at": 0.07137904465732318,
+                    "below": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 8,
+                "at": 1.0039139093137255,
+                "below": {
+                  "leaf": {
+                    "role": "drop"
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 1,
+                    "at": 0.27358490566037735,
+                    "below": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "190": {
+      "split": {
+        "feature": 9,
+        "at": 6.5,
+        "below": {
+          "leaf": {
+            "role": "action"
+          }
+        },
+        "above": {
+          "split": {
+            "feature": 8,
+            "at": 0.845945945945946,
+            "below": {
+              "split": {
+                "feature": 0,
+                "at": 0.7825506173310688,
+                "below": {
+                  "leaf": {
+                    "role": "other"
+                  }
+                },
+                "above": {
+                  "leaf": {
+                    "role": "action"
+                  }
+                }
+              }
+            },
+            "above": {
+              "split": {
+                "feature": 0,
+                "at": 1.2048611111111112,
+                "below": {
+                  "split": {
+                    "feature": 4,
+                    "at": 50.0,
+                    "below": {
+                      "leaf": {
+                        "role": "idle"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "death"
+                      }
+                    }
+                  }
+                },
+                "above": {
+                  "split": {
+                    "feature": 0,
+                    "at": 1.9947161835748792,
+                    "below": {
+                      "leaf": {
+                        "role": "other"
+                      }
+                    },
+                    "above": {
+                      "leaf": {
+                        "role": "action"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "267": {
+      "split": {
+        "feature": 0,
+        "at": 0.910343757274773,
+        "below": {
+          "leaf": {
+            "role": "death"
+          }
+        },
+        "above": {
+          "leaf": {
+            "role": "action"
+          }
+        }
+      }
+    }
+  }
+}

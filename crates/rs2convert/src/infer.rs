@@ -394,6 +394,8 @@ impl Motion {
             Role::Death
         } else if lowered {
             Role::Down
+        } else if self.end_visible < FADED {
+            Role::Vanish
         } else if self.peak < IDLE_PEAK {
             Role::Idle
         } else if self.returns <= ACTION_RETURN {
@@ -789,14 +791,15 @@ mod tests {
         // Nothing left at the end: vanish, whatever else happened.
         assert_eq!(held(m(0.0, 0.7, 0.4, 0.4)).role(), Role::Vanish);
         // Going down and fading away is a death even without the hold;
-        // fading away in place says nothing on its own.
+        // fading away in place is a vanish.
         let fades = |m: Motion| Motion {
             end_visible: 0.02,
             min_visible: 0.02,
             ..m
         };
         assert_eq!(fades(m(0.5, 0.56, 0.3, 0.42)).role(), Role::Death);
-        assert_eq!(fades(m(1.0, 0.0, 0.0, 0.1)).role(), Role::Action);
+        assert_eq!(fades(m(1.0, 0.0, 0.0, 0.1)).role(), Role::Vanish);
+        assert_eq!(m(1.0, 0.0, 0.0, 0.1).role(), Role::Action);
         assert_eq!(m(1.0, 0.0, 0.01, 0.02).role(), Role::Idle);
         assert_eq!(m(1.0, 0.0, 0.05, 0.15).role(), Role::Action);
         assert_eq!(m(0.97, 0.03, 0.3, 0.3).role(), Role::Other);
