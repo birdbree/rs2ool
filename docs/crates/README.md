@@ -14,7 +14,7 @@ All crates use Rust edition 2024 and share one `Cargo.lock`. The workspace manif
 | `contentpack` | library | The pack container (writer and reader), the encoders and decoders for every pack record, the HSL colour helpers, and loose record directories. | [contentpack](contentpack.md) |
 | `rs2convert` | library | Turns decoded cache records into pack records: palette, models, creatures, rig inference, clips, validation, textures, sprites, floors and objects. | [rs2convert](rs2convert.md) |
 | `rs2classic` | library | A software renderer that reimplements the original client's model renderer, drawing into a plain pixel buffer. | [rs2classic](rs2classic.md) |
-| `rs2ool` | binary and library | The `rs2ool` command line (`rs2ool cache …`, `rs2ool pack …`) and, behind the default `explorer` feature, the GUI explorer. | [rs2ool](rs2ool.md) |
+| `rs2ool` | binary and library | The `rs2ool` command line (`rs2ool cache …`, `rs2ool pack …`) and, behind the default `explorer` feature, the GUI explorer. Sequence captioning is behind the default `caption` feature. | [rs2ool](rs2ool.md) |
 
 ## Dependency graph
 
@@ -45,7 +45,7 @@ graph TD
 | `contentpack` | `zstd`, `sha2`, `crc32fast`, `serde`, `serde_json`, `thiserror` |
 | `rs2convert` | `glam`, `rayon`, `crc32fast`, `serde`, `serde_json`, `thiserror`, `tracing` |
 | `rs2classic` | none outside the workspace |
-| `rs2ool` | `clap`, `anyhow`, `image`, `indicatif`, `rayon`, `tracing-subscriber`; optional `bevy`, `bevy_egui`, `directories`, `rfd` |
+| `rs2ool` | `clap`, `anyhow`, `image`, `indicatif`, `rayon`, `tracing-subscriber`; optional `bevy`, `bevy_egui`, `directories`, `rfd`, `ureq`, `base64` |
 
 None of the four libraries depends on `clap`, `bevy` or `egui`. Command-line parsing and the GUI live only in `rs2ool`, and `rs2classic` renders into a `Vec<u32>` rather than a window. `anyhow` is used only in `rs2ool`; the libraries return their own `thiserror` error types.
 

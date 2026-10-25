@@ -32,6 +32,9 @@ pub enum Cmd {
     Info(InfoArgs),
     /// Check every sector chain and every file; exit 3 on damage.
     Verify,
+    /// Caption candidate sequences with a vision model on a server you run.
+    #[cfg(feature = "caption")]
+    Caption(CaptionArgs),
     /// Open the explorer on the cache.
     #[cfg(feature = "explorer")]
     Explorer {
@@ -106,6 +109,58 @@ pub struct SourceCli {
     /// A dependency group: `npc:<id>`, `item:<id>` or `player-kit`.
     #[arg(long)]
     pub group: Option<String>,
+}
+
+// `caption`'s flags. Each server flag overrides the saved setting for this
+// run only.
+#[cfg(feature = "caption")]
+#[derive(Args)]
+pub struct CaptionArgs {
+    /// Caption every candidate of one NPC.
+    #[arg(long, group = "target", required_unless_present = "check")]
+    npc: Option<u32>,
+    /// Caption every candidate sequence of every NPC, each once.
+    #[arg(long, group = "target")]
+    all: bool,
+    /// Ask the server which models it has, then stop.
+    #[arg(long, conflicts_with_all = ["dry_run", "target"])]
+    check: bool,
+    /// Draw the images and print what would be sent, without sending it.
+    #[arg(long)]
+    dry_run: bool,
+    /// Contact the server even if captioning is off in the settings.
+    #[arg(long)]
+    enable: bool,
+    /// The API the server speaks.
+    #[arg(long, value_enum)]
+    backend: Option<rs2ool::settings::Backend>,
+    /// The server's base URL.
+    #[arg(long)]
+    endpoint: Option<String>,
+    /// The model to ask.
+    #[arg(long)]
+    model: Option<String>,
+    /// The environment variable holding an API key.
+    #[arg(long, value_name = "VAR")]
+    api_key_env: Option<String>,
+    /// Seconds to wait for each reply.
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<u64>,
+    /// Frames per image.
+    #[arg(long)]
+    frames: Option<u32>,
+    /// The question, with {frames} and {classes} filled in.
+    #[arg(long)]
+    prompt: Option<String>,
+    /// Caption again what's already captioned.
+    #[arg(long)]
+    redo: bool,
+    /// Stop after this many images.
+    #[arg(long, value_name = "N")]
+    limit: Option<usize>,
+    /// Also write each image to this directory.
+    #[arg(long, value_name = "DIR")]
+    images: Option<PathBuf>,
 }
 
 // `RX_RY` into `(rx, ry)`; each part has to fit a u8.
@@ -234,6 +289,11 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
     if let Cmd::Explorer { view, packs } = cmd {
         return view.open(cache, packs);
     }
+    #[cfg(feature = "caption")]
+    let cmd = match cmd {
+        Cmd::Caption(a) if a.check => return caption::check(&a),
+        cmd => cmd,
+    };
     let Some(dir) = cache else {
         eprintln!("error: no cache directory; pass --cache <dir> or set RS2_CACHE");
         return ExitCode::from(1);
@@ -277,6 +337,8 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Ok(Outcome::Ok)
             }),
         Cmd::Verify => verify::run(&cache, &mut std::io::stdout().lock()),
+        #[cfg(feature = "caption")]
+        Cmd::Caption(a) => caption::run(&cache, &records, &a),
         // Returned early above.
         #[cfg(feature = "explorer")]
         Cmd::Explorer { .. } => unreachable!(),
@@ -291,5 +353,170 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
             let usage = e.downcast_ref::<select::UsageError>().is_some();
             ExitCode::from(if usage { 1 } else { 2 })
         }
+    }
+}
+
+// `cache caption`: the saved settings with the flags on top, then
+// `rs2ool::caption::run` with a progress bar.
+#[cfg(feature = "caption")]
+mod caption {
+    use std::process::ExitCode;
+
+    use anyhow::Result;
+    use indicatif::{ProgressBar, ProgressStyle};
+    use rs2cache::{Cache, Records};
+    use rs2ool::cache::Outcome;
+    use rs2ool::caption::client::{Client, is_local};
+    use rs2ool::caption::store::Store;
+    use rs2ool::caption::{self, Event, Options, Target};
+    use rs2ool::settings::{self, Caption, Settings};
+
+    use super::CaptionArgs;
+
+    // The saved caption settings with this run's flags on top.
+    fn settings(a: &CaptionArgs) -> Caption {
+        let mut c = Settings::load_default().caption;
+        c.enabled |= a.enable;
+        if let Some(b) = a.backend {
+            c.backend = b;
+        }
+        if let Some(e) = &a.endpoint {
+            c.endpoint.clone_from(e);
+        }
+        if let Some(m) = &a.model {
+            c.model.clone_from(m);
+        }
+        if a.api_key_env.is_some() {
+            c.api_key_env.clone_from(&a.api_key_env);
+        }
+        if a.prompt.is_some() {
+            c.prompt.clone_from(&a.prompt);
+        }
+        c.timeout_secs = a.timeout.unwrap_or(c.timeout_secs);
+        c.frames = a.frames.unwrap_or(c.frames);
+        c
+    }
+
+    // Frames sent anywhere but this machine leave it; say so.
+    fn warn_if_remote(c: &Caption) {
+        if !is_local(&c.endpoint) {
+            eprintln!(
+                "warning: {} isn't this machine; images will be sent to it",
+                c.endpoint
+            );
+        }
+    }
+
+    // `--check`: list the server's models. Needs no cache.
+    pub fn check(a: &CaptionArgs) -> ExitCode {
+        let c = settings(a);
+        if !c.enabled {
+            eprintln!(
+                "error: captioning is off: turn it on in the explorer's caption settings, or pass --enable"
+            );
+            return ExitCode::from(1);
+        }
+        warn_if_remote(&c);
+        // Listing models doesn't need one chosen.
+        let probe = Caption {
+            model: if c.model.is_empty() {
+                "-".into()
+            } else {
+                c.model.clone()
+            },
+            ..c.clone()
+        };
+        match Client::new(&probe).and_then(|cl| cl.models()) {
+            Ok(models) => {
+                println!(
+                    "{} ({}) has {} models:",
+                    c.endpoint,
+                    c.backend.name(),
+                    models.len()
+                );
+                for m in &models {
+                    let mark = if *m == c.model { "  (chosen)" } else { "" };
+                    println!("  {m}{mark}");
+                }
+                if !c.model.is_empty() && !models.contains(&c.model) {
+                    eprintln!("warning: the chosen model {} isn't among them", c.model);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::from(2)
+            }
+        }
+    }
+
+    pub fn run(cache: &Cache, records: &Records, a: &CaptionArgs) -> Result<Outcome> {
+        let c = settings(a);
+        let target = match a.npc {
+            Some(id) => Target::Npc(id),
+            None => Target::All,
+        };
+        let opts = Options {
+            dry_run: a.dry_run,
+            redo: a.redo,
+            limit: a.limit,
+            images: a.images.clone(),
+        };
+        let dir = settings::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("this platform has no data directory for captions"))?;
+        let mut store = Store::open(&dir, rs2convert::source_cache_crc(cache)?)?;
+        if a.dry_run {
+            match Client::new(&c) {
+                Ok(cl) => println!("would ask {} at {}", cl.model(), cl.chat_url()),
+                Err(e) => println!("couldn't ask anything yet: {e:#}"),
+            }
+            println!(
+                "with each image, the question:\n{}\n",
+                caption::prompt(&c, c.frames as usize)
+            );
+        } else if c.enabled {
+            warn_if_remote(&c);
+        }
+        let bar = ProgressBar::hidden();
+        let outcome = caption::run(records, &c, &mut store, target, &opts, |e| match e {
+            Event::Planned(n) => {
+                bar.set_length(n as u64);
+                bar.set_style(
+                    ProgressStyle::with_template("{bar:30} {pos}/{len} {msg}")
+                        .expect("the template is valid"),
+                );
+                if !a.dry_run {
+                    bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                }
+                if n == 0 {
+                    println!("nothing to caption");
+                }
+            }
+            Event::Drawn {
+                npc,
+                seq,
+                size,
+                bytes,
+            } => {
+                println!(
+                    "npc {npc} seq {seq}: {}×{} PNG, {bytes} bytes",
+                    size.0, size.1
+                );
+            }
+            Event::Captioned(e) => {
+                bar.inc(1);
+                let class = e.class.as_deref().unwrap_or("?");
+                bar.println(format!("npc {} seq {}: [{class}] {}", e.npc, e.seq, e.text));
+            }
+            Event::Failed { npc, seq, error } => {
+                bar.inc(1);
+                bar.println(format!("npc {npc} seq {seq}: failed: {error:#}"));
+            }
+        })?;
+        bar.finish_and_clear();
+        if !a.dry_run {
+            println!("captions are in {}", store.path().display());
+        }
+        Ok(outcome)
     }
 }

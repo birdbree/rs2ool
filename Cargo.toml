@@ -8,9 +8,14 @@ publish.workspace = true
 readme = "README.md"
 
 [features]
-default = ["explorer"]
+default = ["explorer", "caption"]
 # The Bevy GUI behind `rs2ool cache explorer` and `rs2ool pack explorer`.
 explorer = ["dep:bevy", "dep:bevy_egui", "dep:directories", "dep:rfd"]
+# `rs2ool cache caption`: captions sequences with a vision model on a server
+# you run. Off until you turn it on in the settings. Plain HTTP only.
+caption = ["dep:ureq", "dep:base64", "dep:directories"]
+# https endpoints too, for a server on another machine.
+caption-tls = ["caption", "ureq/rustls"]
 
 [dependencies]
 rs2cache.workspace = true
@@ -31,6 +36,8 @@ bevy = { version = "=0.20.0", optional = true }
 bevy_egui = { version = "=0.43.1", optional = true }
 directories = { version = "=6.0.0", optional = true }
 rfd = { version = "=0.17.2", optional = true }
+ureq = { version = "3", default-features = false, features = ["json"], optional = true }
+base64 = { version = "0.23", optional = true }
 
 [lints]
 workspace = true

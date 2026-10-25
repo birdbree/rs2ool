@@ -186,7 +186,7 @@ It draws cache models, assembled definitions, NPCs (relit at every animation fra
 
 ## The Actions menu
 
-**Actions** runs dumps and conversions through the same library calls as the command line, so the files are byte-identical to the CLI's. Every action writes into the output folder at the top of the menu: choose it with **Choose output folder…**. The explorer remembers it between runs in `settings.json` in your platform's config directory.
+**Actions** runs dumps and conversions through the same library calls as the command line, so the files are byte-identical to the CLI's. Every action writes into the output folder at the top of the menu: choose it with **Choose output folder…**. The explorer remembers it between runs in `settings.json` in your platform's config directory, the same file that holds the [caption settings](captions.md#settings).
 
 | Action | Same as |
 | --- | --- |

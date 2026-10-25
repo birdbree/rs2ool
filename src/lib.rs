@@ -21,6 +21,12 @@
 //!   - [`cache::xref`]: reverse references for `--xref`.
 //!   - [`cache::output`]: the output directory, sidecars and
 //!     `manifest.json`.
+//! - `caption`: captioning candidate sequences with a vision model on a
+//!   server you run, behind `rs2ool cache caption`. Only there with the
+//!   `caption` feature (on by default), and off until it's turned on in
+//!   the settings.
+//! - `settings`: what the explorer and `cache caption` remember between
+//!   runs, in `settings.json`.
 //! - `explorer`: the Bevy GUI behind `rs2ool cache explorer` and
 //!   `rs2ool pack explorer`. It's only there with the `explorer` feature
 //!   (on by default), and its own docs have the module map.
@@ -54,5 +60,9 @@
 #![warn(missing_docs)]
 
 pub mod cache;
+#[cfg(feature = "caption")]
+pub mod caption;
 #[cfg(feature = "explorer")]
 pub mod explorer;
+#[cfg(any(feature = "explorer", feature = "caption"))]
+pub mod settings;

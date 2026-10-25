@@ -212,15 +212,7 @@ impl Motion {
             total / a.len().max(1) as f64
         };
         let (end_top, end_bottom) = span(last);
-        let seq = &c.sequences[s];
-        let delays: Vec<u32> = (0..n)
-            .map(|i| match seq.def.frames[i].delay {
-                0 => c
-                    .frame(seq, i)
-                    .map_or(1, |(_, f)| u32::from(f.delay.max(1))),
-                d => u32::from(d),
-            })
-            .collect();
+        let delays = c.delays(s);
         // The widest horizontal extent, x or z.
         let extent = |v: &[[i32; 3]]| {
             let along = |a: usize| {

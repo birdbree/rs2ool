@@ -55,7 +55,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [x] [#67](https://github.com/birdbree/rs2ool/issues/67) Converted NPCs don't play their inferred sequences in compare view
 - [x] [#68](https://github.com/birdbree/rs2ool/issues/68) Label each "Open as source" button with what it opens
 - [x] [#69](https://github.com/birdbree/rs2ool/issues/69) Show inferred bones on cache models too
-- [ ] [#70](https://github.com/birdbree/rs2ool/issues/70) Tell deaths apart from jumps, falls and kneels
+- [x] [#70](https://github.com/birdbree/rs2ool/issues/70) Tell deaths apart from jumps, falls and kneels
 - [ ] [#72](https://github.com/birdbree/rs2ool/issues/72) Opt-in captioning of candidate sequences with a local vision model, to train a role classifier
 - [x] [#61](https://github.com/birdbree/rs2ool/issues/61) Spike: how far do frame bases alone narrow an NPC's sequences?
 

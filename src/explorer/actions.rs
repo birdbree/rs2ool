@@ -16,44 +16,12 @@ use bevy_egui::egui;
 use rs2cache::Records;
 use rs2cache::types::record::RecordType;
 use rs2convert::run;
-use serde::{Deserialize, Serialize};
 
 use crate::explorer::jobs::{Done, Jobs};
 use crate::explorer::selection::{Sel, Selected};
 use crate::explorer::sources::{Kind, Source, Sources};
 
-/// What the explorer remembers between runs.
-#[derive(Resource, Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Settings {
-    /// Where actions write; `None` until you choose one.
-    pub out_dir: Option<PathBuf>,
-}
-
-/// `settings.json` in the platform config directory, or `None` if the
-/// platform doesn't have one.
-pub fn settings_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "rs2ool").map(|d| d.config_dir().join("settings.json"))
-}
-
-impl Settings {
-    /// Reads the settings, falling back to the defaults if the file's
-    /// missing or won't parse.
-    pub fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
-    }
-
-    /// Writes the settings as pretty JSON, making the directory if needed.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(d) = path.parent() {
-            std::fs::create_dir_all(d)?;
-        }
-        let json = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, json)
-    }
-}
+pub use crate::settings::{Settings, settings_path};
 
 /// A conversion, as an `rs2ool pack` subcommand.
 ///
@@ -466,22 +434,6 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn settings_round_trip() {
-        let dir = std::env::temp_dir().join(format!("rs2ool-settings-{}", std::process::id()));
-        let p = dir.join("settings.json");
-        let s = Settings {
-            out_dir: Some(PathBuf::from("/tmp/out")),
-        };
-        s.save(&p).unwrap();
-        assert_eq!(Settings::load(&p), s);
-        assert_eq!(
-            Settings::load(&dir.join("missing.json")),
-            Settings::default()
-        );
-        let _ = std::fs::remove_dir_all(dir);
-    }
 
     #[test]
     fn selections_map_to_pack_commands() {

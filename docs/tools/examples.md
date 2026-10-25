@@ -102,6 +102,17 @@ rs2ool cache verify
 
 It reports, per index, files that are present, absent, truncated, bad-sector or inflate-failed, with ids, and exits `3` if any are damaged. Files that differ from the versionlist are listed as *modified*, which is not an error.
 
+### `caption`
+
+Draw NPC 1's candidate sequences as frame grids without sending anything, then caption five of them with a vision model on a local Ollama server:
+
+```
+rs2ool cache caption --npc 1 --dry-run --images frames/
+rs2ool cache caption --npc 1 --enable --model <a vision model> --limit 5
+```
+
+Each caption prints as `npc 1 seq 2820: [death] Collapses forward and lies flat` and is kept in your data directory, outside the repository. `--check` lists the server's models. Captioning is off until it's turned on in the settings or with `--enable`. See [Captions](captions.md).
+
 ### `explorer`
 
 Open the GUI on the cache. `--select` picks a record at startup (`TYPE:ID`, or `kit` for the player kit), `--compare` shows its converted version beside it, `--classic` starts in the classic renderer, and `--pack` opens packs too:
