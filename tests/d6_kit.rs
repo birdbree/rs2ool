@@ -91,4 +91,20 @@ fn kit_slots_dress_the_player() {
         faces(&dressed) - torso + equip_faces(body).unwrap(),
         "an item in a kit-backed slot replaces the kit part"
     );
+
+    // "Wear in its slot": every item whose wear models point at a slot goes
+    // in the kit view's slot of that name; the rest say why not.
+    use rs2ool::explorer::kit::SLOTS;
+    for (&item, g) in &base.guesses {
+        match (g.slot, base.slot_of(item)) {
+            (Some(s), Ok(i)) => assert_eq!(SLOTS[i], s.name(), "item {item}"),
+            (None, Err(_)) => {}
+            (s, r) => panic!("item {item}: inferred {s:?}, placed {r:?}"),
+        }
+        assert!(base.explain(item).starts_with(&format!("item {item}")));
+    }
+    assert!(
+        base.slot_of(u32::MAX).is_err(),
+        "an unknown item can't be placed"
+    );
 }

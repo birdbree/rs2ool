@@ -8,6 +8,7 @@
 //! selected; after that every change rebuilds the dressed model in the
 //! background too.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
@@ -17,6 +18,7 @@ use rs2cache::Records;
 use rs2cache::types::model::Model;
 use rs2convert::creature::{self, Creature};
 use rs2convert::pipeline::{self, KitPart};
+use rs2convert::slot::SlotGuess;
 
 use crate::explorer::renderable::Renderable;
 use crate::explorer::selection::{Loaded, Sel, Selected};
@@ -56,6 +58,8 @@ pub struct KitBase {
     /// The default player, whose sequences and frame packs every dressed
     /// model reuses.
     pub creature: Arc<Creature>,
+    /// Every item with a wear model, with its inferred slot.
+    pub guesses: BTreeMap<u32, SlotGuess>,
 }
 
 /// What one equipment slot wears.
@@ -77,6 +81,40 @@ impl KitBase {
             .iter()
             .map(|(p, _)| p)
             .filter(move |p| p.slot == part && p.body_type == body && p.selectable)
+    }
+
+    /// The kit view's slot (an index into [`SLOTS`]) item `item` goes in,
+    /// by its inferred slot, or why it can't be placed.
+    pub fn slot_of(&self, item: u32) -> Result<usize, String> {
+        let g = self
+            .guesses
+            .get(&item)
+            .ok_or_else(|| format!("item {item} has no wear model"))?;
+        let slot = g
+            .slot
+            .ok_or_else(|| format!("item {item}'s wear models don't point at a slot"))?;
+        SLOTS
+            .iter()
+            .position(|s| *s == slot.name())
+            .ok_or_else(|| format!("no {} slot", slot.name()))
+    }
+
+    /// A line on how item `item`'s slot was inferred.
+    pub fn explain(&self, item: u32) -> String {
+        let Some(g) = self.guesses.get(&item) else {
+            return format!("item {item} has no wear model");
+        };
+        let slot = g.slot.map_or("no slot", |s| s.name());
+        let held = if g.wearable {
+            ""
+        } else {
+            "; it has no wear option, so it's only held during animations"
+        };
+        let hands = if g.both_hands { ", both hands" } else { "" };
+        format!(
+            "item {item}: {slot}{hands}, from wear-model labels {:?}{held}",
+            g.labels
+        )
     }
 
     /// The default appearance: each kit-backed slot's first selectable
@@ -134,10 +172,12 @@ impl KitBase {
 pub fn load_base(records: Arc<Records<'static>>) -> Result<KitBase, String> {
     let index = records.cache().frame_index().map_err(|e| e.to_string())?;
     let (parts, creature) = pipeline::player_kit(&records, &index).map_err(|e| e.to_string())?;
+    let guesses = rs2convert::slot::guesses(&records).map_err(|e| e.to_string())?;
     Ok(KitBase {
         records,
         parts,
         creature: Arc::new(creature),
+        guesses,
     })
 }
 
@@ -154,6 +194,10 @@ pub struct Kit {
     pub error: Option<String>,
     /// Rebuild the model on the next frame.
     pub dirty: bool,
+    /// The item id typed into "Wear item".
+    pub wear_item: u32,
+    /// What the last "Wear item" did.
+    pub wear_note: Option<String>,
     // Whether the kit is the current selection.
     active: bool,
     /// The last dressed model, reapplied if the selection's own load lands
@@ -282,6 +326,32 @@ pub fn kit_ui(ui: &mut egui::Ui, kit: &mut Kit) {
             changed = true;
         }
     });
+    // An item into whichever slot its wear models point at.
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::DragValue::new(&mut kit.wear_item)
+                .range(0..=65535)
+                .prefix("item "),
+        );
+        if ui
+            .button("Wear in its slot")
+            .on_hover_text("put the item in the slot its wear models point at")
+            .clicked()
+        {
+            let item = kit.wear_item;
+            match base.slot_of(item) {
+                Ok(i) => {
+                    kit.slots[i].item = item;
+                    changed = true;
+                }
+                Err(e) => kit.error = Some(e),
+            }
+            kit.wear_note = Some(base.explain(item));
+        }
+    });
+    if let Some(note) = &kit.wear_note {
+        ui.weak(note);
+    }
     egui::Grid::new("kit_slots").num_columns(3).show(ui, |ui| {
         for (i, name) in SLOTS.iter().enumerate() {
             ui.label(*name);
@@ -312,7 +382,11 @@ pub fn kit_ui(ui: &mut egui::Ui, kit: &mut Kit) {
                         .range(0..=65535)
                         .prefix("item "),
                 )
-                .on_hover_text("an item id to wear in this slot (0 for none)")
+                .on_hover_text(if item == 0 {
+                    "an item id to wear in this slot (0 for none)".to_owned()
+                } else {
+                    base.explain(item)
+                })
                 .changed()
             {
                 kit.slots[i].item = item;
