@@ -2,7 +2,7 @@
 
 # Anims
 
-An `anims` record (kind 9) is one clip: per-frame rotation and translation keys for the bones of one [rig](rigs.md), with frame timing in 20 ms cycles. This page gives the layout, the timing fields, the key ordering, and the rotation convention.
+An `anims` record (kind 9) is one clip: per-frame rotation, translation and scale keys for the bones of one [rig](rigs.md), with frame timing in 20 ms cycles. This page gives the layout, the timing fields, the key ordering, and the rotation convention.
 
 Implemented in [`contentpack::records::anim`](../../crates/contentpack/src/records/anim.rs); the rotation matrices are in [`rs2convert::clip`](../../crates/rs2convert/src/clip.rs). All integers are little-endian.
 
@@ -10,7 +10,7 @@ Implemented in [`contentpack::records::anim`](../../crates/contentpack/src/recor
 
 ```text
 magic        4 bytes   "RANM"
-version      u8        2
+version      u8        3
 rig          u32       id of the rigs record this clip drives
 frameCount   u8
 frameStart   frameCount × u16   start of each frame, in 20 ms cycles
@@ -24,10 +24,11 @@ keys         keyCount × {
                t      u8        frame index
                rot    u8 × 3    rx, ry, rz in 1/256 turn
                pos    i16 × 3   translation, pack space
+               scale  u16 × 3   scale per pack-space axis, 256 = 1.0
              }
 ```
 
-Each key is 11 bytes. A key's bytes put `bone` before `t`, but keys are sorted by `t` first. Don't let the byte order fool you into sorting the other way.
+Each key is 17 bytes. A key's bytes put `bone` before `t`, but keys are sorted by `t` first. Don't let the byte order fool you into sorting the other way.
 
 ## Timing
 
@@ -42,12 +43,16 @@ The tools set `frameStart[0]` to 0 and each later start to the sum of the earlie
 A key sets bone `bone`'s local transform at frame `t`:
 
 ```text
-L = T(restPos[bone] + pos) · R(rot)
+L = T(restPos[bone] + pos) · R(rot) · S(scale / 256)
 ```
 
 where `restPos` comes from the rig. A bone with no key at a frame keeps its rest transform, `T(restPos[bone])`. The world transforms and skinning that follow are on [Rigs](rigs.md#pose-formulas).
 
-A key has rotation and translation only: there are no scale keys. Keys sit on frame indices only; the format has no keys between frames. The tools write one key for every bone at every frame, root included, so `keyCount` is `frameCount × boneCount` in their output.
+`S` scales each pack-space axis about the bone's pivot, before the rotation; children inherit it through their parent's world transform. Keys sit on frame indices only; the format has no keys between frames. The tools write one key for every bone at every frame, root included, so `keyCount` is `frameCount × boneCount` in their output.
+
+## Version 2
+
+Version 2 is the same record without `scale`, so each key is 11 bytes. Decoders still read it, with every key at scale 1.0 (256), and the encoder always writes version 3. Version 3 added scale for sequences that grow or shrink a model: most spot animations, and some NPC vanishes and deaths.
 
 ## Rotation
 

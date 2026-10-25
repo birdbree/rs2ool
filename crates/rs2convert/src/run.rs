@@ -295,6 +295,108 @@ pub fn items(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, Co
     })
 }
 
+/// One spot animation, converted: its model, and with a sequence its rig
+/// and clip as a validated creature.
+enum Spot {
+    /// No sequence: just the model.
+    Still(Vec<u8>),
+    /// A model, a rig and a clip.
+    Animated(Box<CreatureOutput>),
+}
+
+/// Spot animation `id`, or every one, as models (`SPOTANIM_MODEL | id`),
+/// rigs (`SPOTANIM_RIG | id`) and clips, each clip validated like a
+/// creature's. A spot animation with no sequence, or whose model has no
+/// vertex labels for one to move, is just a model.
+///
+/// The models pack's manifest lists each one under `spotanims`, with what
+/// the records can't hold: the turn about the vertical axis (applied
+/// after posing and scaling) and the lighting ambient and contrast. One
+/// that won't convert is skipped, with the reason in the log; asking for a
+/// single one that won't is an error.
+pub fn spotanims(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, ConvertError> {
+    let (palette, _) = palette(records)?;
+    let index = records.cache().frame_index()?;
+    let list = match id {
+        Some(id) => vec![id],
+        None => records.ids(RecordType::SpotAnim)?,
+    };
+    let converted: Vec<(u32, Result<Spot, ConvertError>)> = list
+        .par_iter()
+        .map(|&s| {
+            let spot = crate::creature::spotanim(records, &index, s).and_then(|c| {
+                // No sequence, or a model with no labels for one to move:
+                // just the model.
+                if c.sequences.is_empty() || c.mesh_labels().is_empty() {
+                    Ok(Spot::Still(
+                        model::convert(&c.rest_model(), &palette)?.encode()?,
+                    ))
+                } else {
+                    let out = pipeline::convert(c, &palette, pids::SPOTANIM_RIG | s, true, None)?;
+                    Ok(Spot::Animated(Box::new(out)))
+                }
+            });
+            (s, spot)
+        })
+        .collect();
+
+    let (mut models, mut rigs, mut clips) = pipeline::writers(crc);
+    let (mut creatures, mut log, mut meta) = (Vec::new(), Vec::new(), BTreeMap::new());
+    let (mut still, mut animated) = (0, 0);
+    for (s, spot) in converted {
+        let model_id = pids::SPOTANIM_MODEL | s;
+        let rig_id = pids::SPOTANIM_RIG | s;
+        let (rig, clip) = match spot {
+            Ok(Spot::Still(bytes)) => {
+                models.insert(model_id, bytes);
+                still += 1;
+                (None, None)
+            }
+            Ok(Spot::Animated(out)) => {
+                out.write(model_id, rig_id, &mut models, &mut rigs, &mut clips)?;
+                let clip = out.clips.first().map(|(c, _, _)| *c);
+                creatures.push((format!("spotanim_{s}"), *out));
+                animated += 1;
+                (Some(rig_id), clip)
+            }
+            Err(e) if id.is_some() => return Err(e),
+            Err(e) => {
+                log.push(format!("spotanim {s}: skipped: {e}"));
+                continue;
+            }
+        };
+        let Record::SpotAnim(d) = records.decode(RecordType::SpotAnim, s)? else {
+            unreachable!()
+        };
+        meta.insert(
+            model_id.to_string(),
+            serde_json::json!({
+                "spotanim": s,
+                "rig": rig,
+                "clip": clip,
+                "rotation": d.rotation,
+                "ambient": d.ambient,
+                "contrast": d.contrast,
+            }),
+        );
+    }
+    models.set_extra("spotanims", serde_json::to_value(meta).expect("serialises"));
+    log.insert(
+        0,
+        format!("{animated} animated spot animations, {still} without a sequence"),
+    );
+    let packs = [models, rigs, clips]
+        .into_iter()
+        .filter(|w| !w.is_empty())
+        .collect();
+    Ok(Outcome {
+        packs,
+        creatures,
+        log,
+        ..Default::default()
+    })
+}
+
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ConvertError + '_ {
     move |e| ConvertError::Invalid(format!("{}: {e}", path.display()))
 }

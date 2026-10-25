@@ -215,6 +215,7 @@ mod tests {
                 bone: 0,
                 rot: [0; 3],
                 pos: [0, -4, 0],
+                scale: [contentpack::records::anim::SCALE_ONE; 3],
             }],
         };
         let rig = rig();

@@ -203,6 +203,14 @@ impl<'c> Ctx<'c> {
         )
     }
 
+    /// `pack spotanims`: one spot animation or every one.
+    pub fn spotanims(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
+        finish(
+            run::spotanims(&self.records, self.crc, ids.id).map_err(Into::into),
+            dir,
+        )
+    }
+
     /// `pack items`: one item or every item, with inferred slots.
     pub fn items(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
         finish(

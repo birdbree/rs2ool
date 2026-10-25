@@ -26,6 +26,8 @@ rs2ool [--cache DIR] pack  materials   -o DIR
                          sprites     [--archive media|title] [--all] -o DIR
                          floors      -o DIR
                          objects     (--id N | --all) -o DIR
+                         items       (--id N | --all) -o DIR
+                         spotanims   (--id N | --all) -o DIR
                          inspect     PACK
                          build       DIR -o OUT
                          explorer    PACK… [--select TYPE:ID|kit] [--compare] [--classic]

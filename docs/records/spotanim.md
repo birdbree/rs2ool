@@ -53,7 +53,7 @@ Unlike npc and obj, `contrast` here is an unsigned byte kept as read.
 
 ## Use in the tools
 
-No pack is converted from spotanims. The explorer previews one with [`rs2convert::preview`](../../crates/rs2convert/src/preview.rs): `model` with the recolours applied, scaled by `[scale_xy, scale_z, scale_xy] / 128` on x, y, z. A spotanim with no model has no preview. `rotation` isn't applied. The inspector links `model` to its [model](model.md) and `sequence` to its [seq](seq.md).
+`rs2ool pack spotanims` converts them into a model, a rig and a clip each ([Spot animations](../conversion/creatures.md#spot-animations)). In the explorer, one with a sequence plays it, posed and scaled as the original client does, and one without shows its model. That preview comes with [`rs2convert::preview`](../../crates/rs2convert/src/preview.rs): `model` with the recolours applied, scaled by `[scale_xy, scale_z, scale_xy] / 128` on x, y, z. A spotanim with no model has no preview. `rotation` isn't applied; conversion lists it in the models pack's manifest instead. The inspector links `model` to its [model](model.md) and `sequence` to its [seq](seq.md).
 
 ## See also
 

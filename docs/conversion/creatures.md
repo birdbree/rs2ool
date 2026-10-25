@@ -69,6 +69,31 @@ The player-kit run also puts a `kit_parts` table in the models pack's manifest `
 
 The rigs and clips come from `pipeline::convert`, which converts the rest model, infers the rig, and (with `--with-anims`) converts and [validates](validation.md) each sequence. The `anims` pack is written only with `--with-anims`.
 
+## Spot animations
+
+`rs2ool pack spotanims --id N` or `--all` ([`run::spotanims`](../../crates/rs2convert/src/run.rs)) converts spot animations the same way. [`creature::spotanim`](../../crates/rs2convert/src/creature.rs) assembles one: its model recoloured, its scale as `[scale_xy, scale_z, scale_xy]`, and its sequence. That follows the original client, which recolours the model, poses it with the sequence, then scales it.
+
+| Record | Id |
+| --- | --- |
+| model | `models` `0x70000000 \| spotanim id` |
+| rig | `rigs` `0x8000 \| spotanim id`, above every NPC id and below the player rigs |
+| clip | `anims` `rig << 16 \| seq id` |
+| report | `spotanim_<id>/validation.json` |
+
+A spot animation with no sequence, or whose model has no vertex labels for one to move, is just a model: no rig or clip. On the test cache all 666 convert in under 3 seconds (release build), 592 with a clip and 74 without. 49 clips are flagged by validation. 33 of those scale in a way a key can't hold ([What isn't carried](clips.md#what-isnt-carried)); the rest move vertices no bone can follow, as with creatures.
+
+The original client also turns a spot animation by its `rotation` (0, 90, 180 or 270 degrees about the vertical axis, after posing and scaling) and lights it with ambient `64 + ambient` and contrast `850 + contrast`. No record has a place for those, so the models pack's manifest lists every spot animation under `spotanims`, keyed by model record id:
+
+```json
+{
+  "spotanims": {
+    "1879048192": { "spotanim": 0, "rig": 32768, "clip": 2147483733, "rotation": 0, "ambient": 0, "contrast": 0 }
+  }
+}
+```
+
+`rig` and `clip` are null for one without a clip. One spot animation on the test cache is turned (by 270 degrees), and 261 have their own lighting.
+
 ## See also
 
 - [Assembly](../client/assembly.md): how the original client merges, recolours and scales.

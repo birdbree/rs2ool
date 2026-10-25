@@ -5,23 +5,24 @@
 //! Next to the integer reference deformation (whose origins are used as
 //! is), every bone collects the affine transform of the ops that move its
 //! whole label set. Each bone's transform relative to its parent is then
-//! split into a 317-convention rotation (1/256 turn, applied z, x, y) and a
-//! translation. Bones go parents first, each against its parent's
+//! split into a per-axis scale, a 317-convention rotation (1/256 turn,
+//! applied z, x, y) and a translation. Bones go parents first, each against its parent's
 //! *quantised* transform, so rounding doesn't pile up down the chain.
 //!
 //! Pack space is y up: `P = diag(1, −1, −1)` ([`FLIP`]) maps cache
 //! coordinates to pack coordinates, and a key rotation `(rx, ry, rz)` means
 //! `P · R317 · P`.
 //!
-//! Two things don't make it into keys. Scale ops are folded into each
-//! bone's affine, but a key only holds a rotation and a translation, so
-//! the scaling is lost and shows up as validation error. And only each
+//! A key's scale is per pack-space axis, about the bone's pivot and before
+//! its rotation, so a scale op followed by a rotation of the same bone is
+//! exact, but a non-uniform scale that's turned before it's scaled leaves a
+//! shear no key can hold, and that shows up as validation error. Only each
 //! sequence frame's primary frame is converted; secondary frames are
 //! ignored.
 
 use std::f64::consts::TAU;
 
-use contentpack::records::anim::{Clip, Key, NO_LOOP};
+use contentpack::records::anim::{Clip, Key, NO_LOOP, SCALE_ONE};
 use glam::{DAffine3, DMat3, DVec3};
 use rs2cache::types::anim::{Frame, FramePack, kind};
 
@@ -268,8 +269,22 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
         let local = parent.inverse() * target;
         // Rest offset from the parent's pivot; keys store pos relative to it.
         let rest = pivot(rig, b) - bone.parent.map_or(DVec3::ZERO, |p| pivot(rig, p));
+        // The scale per axis is the length of each column of the linear
+        // part (M = R · S), quantised to 1/256; the rotation is what's left.
+        let cols = [
+            local.matrix3.x_axis,
+            local.matrix3.y_axis,
+            local.matrix3.z_axis,
+        ];
+        let scale = cols.map(|c| {
+            (c.length() * f64::from(SCALE_ONE))
+                .round()
+                .clamp(1.0, f64::from(u16::MAX)) as u16
+        });
+        let s = scale_of(scale);
+        let unscaled = local.matrix3 * DMat3::from_diagonal(DVec3::ONE / s);
         // Back to cache convention (P · M · P) to read off 317 angles.
-        let exact = angles_317(p * local.matrix3 * p);
+        let exact = angles_317(p * unscaled * p);
         let to_i16 = |t: DVec3| {
             [t.x, t.y, t.z].map(|v| v.round().clamp(i16::MIN.into(), i16::MAX.into()) as i16)
         };
@@ -297,9 +312,9 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
                         (i32::from(exact[1]) + dy).rem_euclid(256) as u8,
                         (i32::from(exact[2]) + dz).rem_euclid(256) as u8,
                     ];
-                    let r = key_rotation(rot);
-                    // With the rotation fixed, the mean of d − R·o is the
-                    // least-squares translation.
+                    let r = key_rotation(rot) * DMat3::from_diagonal(s);
+                    // With the rotation and scale fixed, the mean of
+                    // d − R·S·o is the least-squares translation.
                     let mean =
                         pts.iter().map(|(o, d)| *d - r * *o).sum::<DVec3>() / pts.len() as f64;
                     let pos = to_i16(mean - rest);
@@ -317,22 +332,29 @@ pub fn frame_keys(rig: &InferredRig, world: &[DAffine3], bound: &Bound, t: u8) -
         }
         let (_, rot, pos) = best;
         // Children are fitted against this, not the exact transform.
-        quantised.push(parent * local_from_key(rest, rot, pos));
+        quantised.push(parent * local_from_key(rest, rot, pos, scale));
         keys.push(Key {
             t,
             bone: b as u8,
             rot,
             pos,
+            scale,
         });
     }
     keys
 }
 
-/// A bone's local transform from its rest offset and key: translate by
-/// `rest + pos`, after rotating by the key angles.
-pub fn local_from_key(rest: DVec3, rot: [u8; 3], pos: [i16; 3]) -> DAffine3 {
+/// A key's scale as a multiplier per axis.
+fn scale_of(scale: [u16; 3]) -> DVec3 {
+    DVec3::new(scale[0].into(), scale[1].into(), scale[2].into()) / f64::from(SCALE_ONE)
+}
+
+/// A bone's local transform from its rest offset and key: scale, then
+/// rotate by the key angles, then translate by `rest + pos`.
+pub fn local_from_key(rest: DVec3, rot: [u8; 3], pos: [i16; 3], scale: [u16; 3]) -> DAffine3 {
     let t = rest + DVec3::new(pos[0].into(), pos[1].into(), pos[2].into());
-    DAffine3::from_translation(t) * DAffine3::from_mat3(key_rotation(rot))
+    DAffine3::from_translation(t)
+        * DAffine3::from_mat3(key_rotation(rot) * DMat3::from_diagonal(scale_of(scale)))
 }
 
 /// Frame lengths in original-client cycles: the sequence's delay, else the

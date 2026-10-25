@@ -311,6 +311,33 @@ pub fn equip_model(
     Ok(Some(merged))
 }
 
+/// Assemble spot animation `id`: its model recoloured, its scale, and its
+/// sequence with the sequence's frame packs. A spot animation with no
+/// sequence comes back with none.
+pub fn spotanim(records: &Records, index: &FrameIndex, id: u32) -> Result<Creature, ConvertError> {
+    let Record::SpotAnim(d) = records.decode(RecordType::SpotAnim, id)? else {
+        unreachable!()
+    };
+    let m = d
+        .model
+        .ok_or_else(|| ConvertError::Invalid(format!("spotanim {id} has no model")))?;
+    let mut m = model(records, m)?;
+    recolour(&mut m, &d.recolours);
+    let seqs: Vec<u16> = d.sequence.into_iter().collect();
+    let (sequences, packs) = sequences(records, index, &seqs)?;
+    Ok(Creature::new(
+        format!("spotanim {id}"),
+        m,
+        [
+            i32::from(d.scale_xy),
+            i32::from(d.scale_z),
+            i32::from(d.scale_xy),
+        ],
+        sequences,
+        packs,
+    ))
+}
+
 /// Assemble NPC `id`: its models merged and recoloured, its stand and walk
 /// sequences (plus `extra` sequence ids, since 317 `npc.dat` names no combat
 /// animations) and their frame packs.

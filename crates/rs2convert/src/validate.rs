@@ -91,7 +91,7 @@ pub fn pose(rig: &Rig, clip: &Clip, t: u8) -> Vec<DAffine3> {
             bone.rest_pos[2].into(),
         );
         let local = key.map_or(DAffine3::from_translation(rest), |k| {
-            local_from_key(rest, k.rot, k.pos)
+            local_from_key(rest, k.rot, k.pos, k.scale)
         });
         let parent = if bone.parent == NO_PARENT {
             DAffine3::IDENTITY

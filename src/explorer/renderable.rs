@@ -227,6 +227,25 @@ pub fn load_renderable(
                 Record::Interface(i) => {
                     return Ok(Some(Renderable::Interface(interface_scene(records, i))));
                 }
+                // A spot animation with a sequence plays it, posed as the
+                // original client poses it; one without shows its model.
+                Record::SpotAnim(d) => {
+                    if let Some(index) = records.cache().frame_index().ok()
+                        && let Some(c) = creature::spotanim(records, &index, d.id)
+                            .ok()
+                            .filter(|c| !c.sequences.is_empty())
+                    {
+                        let model = c.rest_model();
+                        let rig = rig::infer(&c, None).ok().map(Arc::new);
+                        return Ok(Some(Renderable::Creature {
+                            creature: Arc::new(c),
+                            model,
+                            inferred: Vec::new(),
+                            rig,
+                            learned: false,
+                        }));
+                    }
+                }
                 // An NPC whose sequences resolve plays them; otherwise it
                 // shows its preview like any definition.
                 Record::Npc(d) => {
@@ -504,6 +523,7 @@ pub fn creature_rig(model: u32) -> Option<u32> {
     // The top nibble of a pack model id says what it is.
     match model & 0xF000_0000 {
         ids::CREATURE_MODEL => Some(model & 0x0FFF_FFFF),
+        ids::SPOTANIM_MODEL => Some(ids::SPOTANIM_RIG | (model & 0x0FFF_FFFF)),
         ids::PLAYER_MODEL => Some(ids::PLAYER_RIG),
         _ => None,
     }
@@ -612,11 +632,13 @@ pub fn find_match(sources: &[Source], from: usize, sel: &Sel) -> Option<(usize, 
 }
 
 /// The pack model record a cache record converts to: a model keeps its
-/// id, an NPC becomes `CREATURE_MODEL | id`. `None` for other types.
+/// id, an NPC becomes `CREATURE_MODEL | id`, a spot animation
+/// `SPOTANIM_MODEL | id`. `None` for other types.
 pub fn cache_to_pack((t, id): (RecordType, u32)) -> Option<u32> {
     match t {
         RecordType::Model if id < ids::CREATURE_MODEL => Some(id),
         RecordType::Npc => Some(ids::CREATURE_MODEL | id),
+        RecordType::SpotAnim => Some(ids::SPOTANIM_MODEL | id),
         _ => None,
     }
 }
@@ -627,6 +649,7 @@ pub fn pack_to_cache(id: u32) -> Option<(RecordType, u32)> {
     match id & 0xF000_0000 {
         0 => Some((RecordType::Model, id)),
         ids::CREATURE_MODEL => Some((RecordType::Npc, id & 0x0FFF_FFFF)),
+        ids::SPOTANIM_MODEL => Some((RecordType::SpotAnim, id & 0x0FFF_FFFF)),
         _ => None,
     }
 }

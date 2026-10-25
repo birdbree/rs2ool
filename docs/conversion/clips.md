@@ -58,7 +58,7 @@ else (gimbal lock):
 each angle → round(θ / 2π × 256) mod 256
 ```
 
-The bone's exact angles are `angles_317(P · local.rotation · P)`.
+First the scale comes off: the linear part of `local` is taken as `R · S`, each axis's scale is the length of that column, rounded to 1/256 and clamped to 1–65535, and the rotation is what's left, `M · S⁻¹`. The bone's exact angles are `angles_317(P · M · S⁻¹ · P)`.
 
 ## The 27-neighbour search
 
@@ -66,14 +66,14 @@ Rounding to 1/256 of a turn loses detail, so the exact angles are only a startin
 
 For each of the 27 candidates (each angle −1, 0 or +1 from exact, mod 256):
 
-1. `R` is the candidate's pack-space key rotation.
-2. The least-squares translation for that rotation is the mean of `d − R·o`.
+1. `R` is the candidate's pack-space key rotation, times the rounded scale `S`.
+2. The least-squares translation for that is the mean of `d − R·S·o`.
 3. `pos` is that mean minus `rest`, rounded and clamped to `i16`.
-4. The error is the **largest** `|R·o + rest + pos − d|` over the bound vertices.
+4. The error is the **largest** `|R·S·o + rest + pos − d|` over the bound vertices.
 
 The candidate with the smallest error wins. On equal errors the first one tried is kept (−1 before 0 before +1, x outermost, z innermost). A bone with no bound vertices skips the search and keeps the exact angles, with `pos = round(local.translation − rest)`.
 
-The quantised transform is then `Q_B = Q_parent · T(rest + pos) · R(rot)`, and the key is `{t: frame index, bone: B, rot, pos}`. Every bone gets a key in every frame, root included, so keys come out sorted by `(t, bone)`.
+The quantised transform is then `Q_B = Q_parent · T(rest + pos) · R(rot) · S(scale)`, and the key is `{t: frame index, bone: B, rot, pos, scale}`. Every bone gets a key in every frame, root included, so keys come out sorted by `(t, bone)`.
 
 ## Clip fields
 
@@ -92,7 +92,7 @@ A sequence with more than 255 frames is an error, since `frameCount` is a `u8`. 
 
 ## What isn't carried
 
-- **Scale.** Scale ops are folded into the per-bone affine, but a key holds only a rotation and a translation, so any scaling is lost and shows up as [validation](validation.md) error.
+- **Shear.** A key scales along the bone's own axes before turning it. A scale op followed by a rotation is exact. A non-uniform scale applied after a rotation shears the bone, which no key can hold, and that shows up as [validation](validation.md) error. Of the 592 spot animation clips, which scale a lot, 33 are flagged that way.
 - **Secondary frames.** Only each sequence frame's primary frame is converted. Secondary frames and the sequence's interleave labels are ignored.
 - **Alpha.** Alpha ops change face transparency, not positions, and keys have nowhere to put them.
 

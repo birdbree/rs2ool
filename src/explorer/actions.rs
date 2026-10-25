@@ -50,6 +50,8 @@ pub enum ConvertTarget {
     Objects(Option<u32>),
     /// One item, or every item.
     Items(Option<u32>),
+    /// One spot animation, or every one.
+    Spotanims(Option<u32>),
 }
 
 impl ConvertTarget {
@@ -62,6 +64,7 @@ impl ConvertTarget {
             Sel::Record(RecordType::Npc, id) => Self::Npc(*id),
             Sel::Record(RecordType::Loc, id) => Self::Objects(Some(*id)),
             Sel::Record(RecordType::Obj, id) => Self::Items(Some(*id)),
+            Sel::Record(RecordType::SpotAnim, id) => Self::Spotanims(Some(*id)),
             Sel::Record(RecordType::Texture, _) => Self::Textures,
             Sel::Record(RecordType::Sprite | RecordType::Font, _) => Self::Sprites,
             Sel::Record(RecordType::Flo, _) => Self::Floors,
@@ -71,12 +74,13 @@ impl ConvertTarget {
     }
 
     /// The conversion of every record of a type, where one exists (models,
-    /// locations and items).
+    /// locations, items and spot animations).
     pub fn whole_type(t: RecordType) -> Option<Self> {
         match t {
             RecordType::Model => Some(Self::Models(None)),
             RecordType::Loc => Some(Self::Objects(None)),
             RecordType::Obj => Some(Self::Items(None)),
+            RecordType::SpotAnim => Some(Self::Spotanims(None)),
             _ => None,
         }
     }
@@ -96,6 +100,8 @@ impl ConvertTarget {
             Self::Objects(None) => "every object".into(),
             Self::Items(Some(id)) => format!("item {id}"),
             Self::Items(None) => "every item".into(),
+            Self::Spotanims(Some(id)) => format!("spot animation {id}"),
+            Self::Spotanims(None) => "every spot animation".into(),
         }
     }
 }
@@ -158,6 +164,7 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
         ConvertTarget::Floors => run::floors(records, crc),
         ConvertTarget::Objects(id) => run::objects(records, crc, *id),
         ConvertTarget::Items(id) => run::items(records, crc, *id),
+        ConvertTarget::Spotanims(id) => run::spotanims(records, crc, *id),
     }?;
     let outcome = described(outcome, records, target)?;
     let written = run::write(&outcome, dir, png)?;
