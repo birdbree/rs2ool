@@ -52,7 +52,7 @@ pub enum RecordError {
         /// The magic the decoder wanted.
         expected: &'static [u8; 4],
     },
-    /// The version byte isn't [`VERSION`].
+    /// The version byte isn't one the decoder reads.
     #[error("unsupported record version {0}")]
     Version(u8),
     /// The record breaks one of its kind's invariants (an index out of
@@ -64,22 +64,34 @@ pub enum RecordError {
     Trailing(usize),
 }
 
-/// Version byte of the model, rig and anim record headers.
+/// Version byte of the model and rig record headers. Anims have their
+/// own, [`anim::VERSION`].
 ///
 /// Version 2 maps cache space to pack space by negating y and z. Version 1
 /// negated y only, which mirrored every asset, so the decoders turn it away.
 pub const VERSION: u8 = 2;
 
-/// Read and check a header: the 4-byte magic, then the version byte.
+/// Read and check a header: the 4-byte magic, then the version byte, which
+/// has to be [`VERSION`].
 pub(crate) fn magic(r: &mut crate::bytes::Reader, m: &'static [u8; 4]) -> Result<(), RecordError> {
+    header(r, m, &[VERSION]).map(|_| ())
+}
+
+/// Read a header: the 4-byte magic, then a version byte that has to be one
+/// of `accepted`. Returns the version.
+pub(crate) fn header(
+    r: &mut crate::bytes::Reader,
+    m: &'static [u8; 4],
+    accepted: &[u8],
+) -> Result<u8, RecordError> {
     if r.bytes(4)? != m {
         return Err(RecordError::Magic { expected: m });
     }
     let v = r.u8()?;
-    if v != VERSION {
+    if !accepted.contains(&v) {
         return Err(RecordError::Version(v));
     }
-    Ok(())
+    Ok(v)
 }
 
 /// Fail with [`RecordError::Trailing`] unless the reader's used every byte.

@@ -144,6 +144,7 @@ When the selection can animate, the bottom panel shows a playback bar: a sequenc
 What plays:
 
 - a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then its inferred sequences, grouped by role;
+- a cache spot animation with a sequence: its model recoloured, posed by the sequence, then scaled, as the original client draws it (without its turn), paired in compare mode with its converted model;
 - the player kit, with the player stance sequences;
 - a converted creature: a models-pack record whose rig is in the rigs pack beside it (`<dir>/rigs/`), with its clips from `<dir>/anims/`.
 
@@ -223,8 +224,8 @@ It draws cache models, assembled definitions, NPCs (relit at every animation fra
 | Export TYPE ID (decoded) | `rs2ool cache dump --type TYPE --id ID --meta` |
 | Export TYPE ID (file bytes) | `rs2ool cache dump --index N --id ID --meta`, for `model`, `anim` and `midi` |
 | Dump every TYPE | `rs2ool cache dump --type TYPE --all --meta` |
-| Convert … | the `rs2ool pack` command for the selection: a model, an NPC (with animations and its inferred sequences, `--with-anims --infer`, and with the `caption` feature its clips' captions, `--describe`) or the player kit (with animations, and captions likewise), an object, the textures, the sprites, the floors |
-| Convert every model / object | `rs2ool pack models --all`, `rs2ool pack objects --all` |
+| Convert … | the `rs2ool pack` command for the selection: a model, an NPC (with animations and its inferred sequences, `--with-anims --infer`, and with the `caption` feature its clips' captions, `--describe`) or the player kit (with animations, and captions likewise), an object, an item, a spot animation, the textures, the sprites, the floors |
+| Convert every model / object / item / spot animation | `rs2ool pack models --all`, `objects --all`, `items --all`, `spotanims --all` |
 | Convert materials (palette) | `rs2ool pack materials` |
 | Bake a loose directory… | `rs2ool pack build`, into the output folder |
 

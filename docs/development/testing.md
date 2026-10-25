@@ -63,6 +63,7 @@ These tests only read the cache. Anything they write goes under Cargo's per-targ
 | `rs2convert/tests/c8_textures_sprites.rs` | The texture atlas round-trips every texture pixel-exact, and every sprite round-trips through its pack record. |
 | `rs2convert/tests/c9_floors.rs` | One floor material per `flo.dat` entry, textured floors reference existing texture materials, and the manifest maps every floor. |
 | `rs2convert/tests/c10_objects.rs` | Every `loc.dat` definition converts, footprints carry over, definitions with a morph table get more than one state, and wall definitions produce kits entries. |
+| `rs2convert/tests/c12_spotanims.rs` | Every spot animation converts: a model each, a rig and clip for the animated ones, all listed in the manifest's `spotanims` table; over 200 clips carry scale keys, under 12% are flagged, and two runs give the same packs. |
 
 ## CLI tests
 

@@ -52,7 +52,7 @@ That's standard 32-bit FNV-1a. The hash of the empty string is `0x811C9DC5`.
 
 ## Pose formulas
 
-Write `T(v)` for a translation by `v`, `R(rot)` for a key's rotation matrix in pack space (defined on [Anims](anims.md#rotation)), and `p(b)` for bone `b`'s parent.
+Write `T(v)` for a translation by `v`, `R(rot)` for a key's rotation matrix in pack space (defined on [Anims](anims.md#rotation)), `S(s)` for a scale by `s` per axis, and `p(b)` for bone `b`'s parent.
 
 Rest pivots, in bone order:
 
@@ -64,7 +64,7 @@ Q[b] = Q[p(b)] + restPos[b]        otherwise
 Local and world transforms at frame `t` of a clip:
 
 ```text
-L[b] = T(restPos[b] + pos) · R(rot)    if the clip has a key (t, b) with pos and rot
+L[b] = T(restPos[b] + pos) · R(rot) · S(scale / 256)    if the clip has a key (t, b)
 L[b] = T(restPos[b])                    if it has none
 W[b] = L[b]                             if b has no parent
 W[b] = W[p(b)] · L[b]                   otherwise

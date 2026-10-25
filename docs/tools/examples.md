@@ -210,6 +210,14 @@ Items into items records, their inventory and wear models, and strings, each wit
 rs2ool pack items --all -o packs/
 ```
 
+### `spotanims`
+
+Spot animations into models, rigs and validated clips, with each one's turn and lighting in the models pack's manifest:
+
+```
+rs2ool pack spotanims --all -o packs/
+```
+
 ### `inspect`
 
 Print a pack's manifest and index:

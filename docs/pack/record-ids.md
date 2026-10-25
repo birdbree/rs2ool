@@ -20,6 +20,7 @@ Ids only need to be unique within one pack. Several namespaces share a kind, so 
 | `0x40000000 \| loc << 4 \| i` | Model `i` (0–15) of location definition `loc` |
 | `0x50000000 \| item` | Item `item`'s inventory model |
 | `0x60000000 \| item << 1 \| body` | Item `item`'s wear model for body type `body` (0 male, 1 female) |
+| `0x70000000 \| s` | Spot animation `s`'s model, recoloured and scaled |
 
 A location definition can list at most 16 models after untyped ones are merged; the conversion fails on one with more. See [Models](models.md) for the layout.
 
@@ -30,6 +31,7 @@ A location definition can list at most 16 models after untyped ones are merged; 
 | `rigs` | `n` | NPC `n`'s rig: the rig id is the NPC id |
 | `rigs` | `0xFFFF` | The male player rig |
 | `rigs` | `0xFFFE` | The female player rig |
+| `rigs` | `0x8000 \| s` | Spot animation `s`'s rig, above every NPC id and below the player rigs |
 | `anims` | `rig << 16 \| seq` | Sequence `seq` converted for rig `rig` |
 
 The clip id packs the rig id into the top 16 bits, so it's only unique while rig ids stay below `0x10000`. A clip also names its rig in its own `rig` field. See [Rigs](rigs.md) and [Anims](anims.md).
@@ -87,7 +89,7 @@ Locale 0 is English and is the only locale the tools write. Object records refer
 
 ## Manifest extras
 
-Three packs carry a table in the manifest's `extra` object ([Container](container.md#manifest)). JSON object keys are decimal strings.
+Four packs carry a table in the manifest's `extra` object ([Container](container.md#manifest)). JSON object keys are decimal strings.
 
 `floors`, in the `materials` pack the floor conversion writes, maps each `flo.dat` id to its material and its name:
 
@@ -106,6 +108,14 @@ Every floor gets a name entry, an empty string when the definition has no name, 
 The key is the model record id (`0x20000000 | idk`, written in decimal). `slot` is the kit's body part modulo 7 and `body_type` is the body part divided by 7. `hide_mask` is always 0, by design. In the original client a kit part never hides another: for each of its 12 slots the server sends empty, a kit part or an item, and the client draws what it's sent, so worn items hide body parts only because the server leaves those slots empty. Hide masks belong on items, inferred from their wear models ([equipment slots](../conversion/inference.md#equipment-slots)), not on kit parts. `selectable` is copied from the kit definition ([Identity kit](../records/idk.md)).
 
 `descriptions`, in the `anims` pack `npc --describe` and `player-kit --describe` write, says what each described clip shows, keyed by clip id; see [Anims](anims.md#descriptions).
+
+`spotanims`, in the `models` pack `spotanims` writes, lists each spot animation by model record id, with its rig and clip (or `null`) and the turn and lighting no record holds:
+
+```text
+"spotanims": { "<model record id>": { "spotanim": <id>, "rig": <rig id or null>, "clip": <clip id or null>, "rotation": <0, 90, 180 or 270>, "ambient": <n>, "contrast": <n> } }
+```
+
+See [Spot animations](../conversion/creatures.md#spot-animations).
 
 ## See also
 

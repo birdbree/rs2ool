@@ -89,6 +89,14 @@ pub enum Cmd {
         #[command(flatten)]
         out: Out,
     },
+    /// Convert spot animations: each one's model, and with a sequence its
+    /// rig and validated clip.
+    Spotanims {
+        #[command(flatten)]
+        ids: Ids,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -210,6 +218,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 } => ctx.and_then(|c| c.sprites(archive.as_deref(), &out.dir)),
                 Cmd::Objects { ids, out } => ctx.and_then(|c| c.objects(&ids, &out.dir)),
                 Cmd::Items { ids, out } => ctx.and_then(|c| c.items(&ids, &out.dir)),
+                Cmd::Spotanims { ids, out } => ctx.and_then(|c| c.spotanims(&ids, &out.dir)),
                 Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
                 Cmd::PlayerKit {
                     anims,

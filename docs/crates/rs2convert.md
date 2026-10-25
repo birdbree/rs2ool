@@ -12,7 +12,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | --- | --- |
 | [`run`](../../crates/rs2convert/src/run.rs) | The conversion commands as library calls, each returning an `Outcome`, and `write` to put one on disk. |
 | [`pipeline`](../../crates/rs2convert/src/pipeline.rs) | Whole-creature conversion: model, rig, clips and validation. Also the player kit and the creature record-id namespaces. |
-| [`creature`](../../crates/rs2convert/src/creature.rs) | Assembles an NPC or a kit part the way the original client does: models merged, recoloured, with its sequences and frame packs. |
+| [`creature`](../../crates/rs2convert/src/creature.rs) | Assembles an NPC, a kit part or a spot animation the way the original client does: models merged, recoloured, with its sequences and frame packs. |
 | [`rig`](../../crates/rs2convert/src/rig.rs) | Rig inference from frame-base label sets. |
 | [`clip`](../../crates/rs2convert/src/clip.rs) | Converts each frame of a sequence into pose keys per bone. |
 | [`infer`](../../crates/rs2convert/src/infer.rs) | Links the cache doesn't store: candidate sequences for a model from frame-base families, label coverage and id distance, and each one's role (death, action, down, drop, vanish, idle or other) from its motion. See [inference](../conversion/inference.md). |
@@ -46,6 +46,8 @@ Every conversion `rs2ool pack` offers is a function here, and the explorer calls
 | `sprites(records, crc, archives)` | Sprites and fonts from the archives `sprite_archives(name)` picks (media, title, or both). |
 | `floors(records, crc)` | Floor materials and their string table. |
 | `objects(records, crc, id)` | One location definition or all of them: models, objects, kits and strings packs (empty ones dropped). |
+| `items(records, crc, id)` | One item or all of them: items, models and strings packs. |
+| `spotanims(records, crc, id)` | One spot animation or all of them: a model each, and a rig and validated clip for those with a sequence, with the `spotanims` manifest table. |
 
 An `Outcome` holds `packs` (one `PackWriter` each), side `files`, RGBA `images`, the converted `creatures`, and a human-readable `log`. `flagged()` is true when any converted clip went over the validation threshold.
 
@@ -53,7 +55,7 @@ An `Outcome` holds `packs` (one `PackWriter` each), side `files`, RGBA `images`,
 
 ## `pipeline` and `creature`
 
-`creature::npc` assembles an NPC: its models merged, recoloured, and its stand and walk sequences (plus any `extra` ids) with their frame packs. `merge` welds each face vertex to the first existing vertex at the same coordinates and drops unused vertices, as the original client's merge does; `recolour` applies a definition's recolours; `equip_model` builds an item's equipment model. The resulting `Creature` keeps the merged `model`, the definition `scale`, the `rest` mesh with that scale baked in, the resolved `sequences`, and the frame packs they use. `Creature::posed(s, i)` gives the reference vertices at frame `i` of sequence `s`.
+`creature::npc` assembles an NPC: its models merged, recoloured, and its stand and walk sequences (plus any `extra` ids) with their frame packs. `creature::spotanim` assembles a spot animation the same way: its model recoloured, its scale, and its one sequence. `merge` welds each face vertex to the first existing vertex at the same coordinates and drops unused vertices, as the original client's merge does; `recolour` applies a definition's recolours; `equip_model` builds an item's equipment model. The resulting `Creature` keeps the merged `model`, the definition `scale`, the `rest` mesh with that scale baked in, the resolved `sequences`, and the frame packs they use. `Creature::posed(s, i)` gives the reference vertices at frame `i` of sequence `s`.
 
 `pipeline::convert(creature, palette, rig_id, with_anims, overrides)` runs the rest: model conversion, rig inference, then per sequence a clip conversion and validation. Clips are validated from their encoded and decoded records, so the report covers exactly the bytes that get written. `CreatureOutput::write` adds the model, rig and clips to three writers, and `pipeline::writers` makes those writers.
 

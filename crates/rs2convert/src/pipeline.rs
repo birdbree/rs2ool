@@ -37,6 +37,11 @@ pub mod ids {
     pub const PLAYER_RIG: u32 = 0xFFFF;
     /// The female body's rig.
     pub const PLAYER_FEMALE_RIG: u32 = 0xFFFE;
+    /// Spot animation `s`'s model is model record `SPOTANIM_MODEL | s`.
+    pub const SPOTANIM_MODEL: u32 = 0x7000_0000;
+    /// Spot animation `s`'s rig is rig `SPOTANIM_RIG | s`, above every NPC
+    /// id and below the player rigs.
+    pub const SPOTANIM_RIG: u32 = 0x8000;
     /// Clip id for sequence `seq` on rig `rig`: the rig in the high 16 bits,
     /// the sequence in the low 16.
     pub fn clip(rig: u32, seq: u32) -> u32 {

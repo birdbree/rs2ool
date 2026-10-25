@@ -98,6 +98,15 @@ rs2ool pack items --all -o packs/
 
 `objects --id N` also converts the models of the definitions in its morph table, since its states draw them. `items` writes each item's record with its inventory model and wear models; the record layout and the inferred wear slot are on [Items](../pack/items.md).
 
+### spotanims
+
+```text
+rs2ool pack spotanims --id 0 -o packs/
+rs2ool pack spotanims --all -o packs/
+```
+
+Converts spot animations like creatures: each one's model (`0x70000000 | id`), and with a sequence its rig (`0x8000 | id`) and a validated clip, plus `spotanim_<id>/validation.json`. The models pack's manifest lists each one under `spotanims`, with the turn and lighting no record holds. Like `npc`, the command exits 3 if any clip is over the validation threshold. See [Spot animations](../conversion/creatures.md#spot-animations).
+
 ## palette.json and palette.png
 
 `materials` writes two side files next to the kind directories.
@@ -126,7 +135,7 @@ rs2ool pack items --all -o packs/
 
 ## validation.json
 
-`npc` writes `DIR/npc_<N>/validation.json`, and `player-kit` writes `DIR/player/validation.json` and `DIR/player_female/validation.json`. They're written with or without `--with-anims`; without it, `clips` is empty.
+`npc` writes `DIR/npc_<N>/validation.json`, `player-kit` writes `DIR/player/validation.json` and `DIR/player_female/validation.json`, and `spotanims` writes `DIR/spotanim_<N>/validation.json` for each one with a clip. They're written with or without `--with-anims`; without it, `clips` is empty.
 
 ```json
 {
