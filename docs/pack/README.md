@@ -25,12 +25,12 @@ The kind number is stored in the container header; the kind name is used in the 
 | 5 | `objects` | [Objects](objects.md) |
 | 6 | `kits` | [Kits](kits.md) |
 | 7 | `rigs` | [Rigs](rigs.md) |
-| 8 | `items` | Reserved: no record layout implemented |
+| 8 | `items` | [Items](items.md) |
 | 9 | `anims` | [Anims](anims.md): one animation clip per record |
 | 10 | `fluids` | Reserved: no record layout implemented |
 | 11 | `strings` | [Strings](strings.md): string tables |
 
-Kinds 8 (`items`) and 10 (`fluids`) are valid kind numbers: the container reader accepts them and a loose directory can name them. No record encoder or decoder exists for them, and no `rs2ool pack` command writes them.
+Kind 10 (`fluids`) is a valid kind number: the container reader accepts it and a loose directory can name it. No record encoder or decoder exists for it, and no `rs2ool pack` command writes it.
 
 Which ids each kind uses, and the reserved ids within them, are on [Record ids](record-ids.md).
 

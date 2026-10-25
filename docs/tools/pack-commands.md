@@ -36,6 +36,7 @@ Every pack records the source cache's CRC (the CRC32 of the stored versionlist a
 | `sprites` | media and title sprites, and the fonts | `sprites` |
 | `floors` | floor types | `materials` (floor materials), `strings` |
 | `objects (--id N \| --all)` | location definitions | `models`, `objects`, `kits` (wall-class definitions), `strings`; an empty pack is skipped |
+| `items (--id N \| --all)` | item definitions, with each item's slot inferred from its wear models | `models` (inventory and wear models), `items`, `strings`; an empty pack is skipped |
 
 Every command except `textures` and `sprites` first builds the palette from every model colour, so even a one-model run reads all models. The palette comes out the same every time, so colour indices agree across separate runs.
 
@@ -83,7 +84,7 @@ rs2ool pack sprites --archive media -o packs/
 
 With no flag, or with `--all`, it converts both the media and title archives, and the fonts with the title archive. `--archive media` or `--archive title` converts just one. Any other archive is an error (exit 2).
 
-### textures, materials, floors, objects
+### textures, materials, floors, objects, items
 
 ```text
 rs2ool pack materials -o packs/
@@ -91,9 +92,10 @@ rs2ool pack textures -o packs/
 rs2ool pack floors -o packs/
 rs2ool pack objects --id 1 -o packs/
 rs2ool pack objects --all -o packs/
+rs2ool pack items --all -o packs/
 ```
 
-`objects --id N` also converts the models of the definitions in its morph table, since its states draw them.
+`objects --id N` also converts the models of the definitions in its morph table, since its states draw them. `items` writes each item's record with its inventory model and wear models; the record layout and the inferred wear slot are on [Items](../pack/items.md).
 
 ## palette.json and palette.png
 

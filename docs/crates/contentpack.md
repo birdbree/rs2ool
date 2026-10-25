@@ -60,6 +60,7 @@ Each module under `records` has a Rust type and a pair of functions. `encode` re
 | `records::texture` | `TextureRect`, `Atlas`, `ATLAS_BASE` | textures |
 | `records::sprite` | `SpriteRecord`, `FontMetrics` | sprites |
 | `records::object` | `ObjectRecord`, `State`, `Transition`, `KitRecord`, `NONE`, and flag constants | objects, kits |
+| `records::item` | `ItemRecord`, `Icon`, `Wear`, `NONE`, `NO_ITEM`, and the flag, slot and wear-flag constants | items |
 | `records::strings` | `encode(&[String])`, `decode` | strings |
 
 The model, rig and anim records start with a 4-byte magic and a version byte, `records::VERSION` (2); their decoders reject any other version. `PackModel::encode` checks its arrays before writing: one material slot and palette index per face, optional per-face arrays sized to the face count, labels sized to the vertex count, and every face index in range.

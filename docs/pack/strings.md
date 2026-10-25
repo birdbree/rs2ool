@@ -35,8 +35,9 @@ The record id is `domain << 8 | locale`.
 | --- | --- | --- |
 | 1 | Floor names | the `name` field of the `floors` manifest table ([Record ids](record-ids.md#manifest-extras)) |
 | 2 | Object names and option strings | `nameRef` and `optionRefs` in [object records](objects.md) |
+| 3 | Item names, examine texts and option strings | `nameRef`, `examineRef` and `optionRefs` in [item records](items.md) |
 
-Locale 0 is English, and it's the only locale the tools write, so the two tables are records `0x100` and `0x200`. Each comes in its own `strings` pack: `rs2ool pack floors` writes the floor table, `rs2ool pack objects` the object table.
+Locale 0 is English, and it's the only locale the tools write, so the three tables are records `0x100`, `0x200` and `0x300`. Each comes in its own `strings` pack: `rs2ool pack floors` writes the floor table, `rs2ool pack objects` the object table and `rs2ool pack items` the item table.
 
 The floor table has one entry per floor definition, in id order, with an empty string for a floor that has no name. The object table holds each distinct name and option string once, in the order the objects first use them; objects that share a string share its index.
 

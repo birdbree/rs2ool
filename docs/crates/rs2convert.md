@@ -26,6 +26,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`sprite`](../../crates/rs2convert/src/sprite.rs) | Media and title sprites, and fonts, into a `sprites` pack. |
 | [`floor`](../../crates/rs2convert/src/floor.rs) | One floor material per `flo.dat` entry, their names in a string table, and the floor → material map in the materials manifest. |
 | [`object`](../../crates/rs2convert/src/object.rs) | `loc.dat` definitions into models, `objects` records, `kits` entries and a string table. |
+| [`item`](../../crates/rs2convert/src/item.rs) | `obj.dat` definitions into `items` records, their inventory and wear models, and a string table, with inferred slots. See [Items](../pack/items.md). |
 | [`preview`](../../crates/rs2convert/src/preview.rs) | The model a record describes, assembled as the original client draws it, for viewers. |
 
 ## `run`: the entry points

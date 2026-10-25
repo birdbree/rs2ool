@@ -78,6 +78,8 @@ pub enum ConvertTarget {
     Floors,
     /// One object, or every object.
     Objects(Option<u32>),
+    /// One item, or every item.
+    Items(Option<u32>),
 }
 
 impl ConvertTarget {
@@ -89,6 +91,7 @@ impl ConvertTarget {
             Sel::Record(RecordType::Model, id) => Self::Models(Some(*id)),
             Sel::Record(RecordType::Npc, id) => Self::Npc(*id),
             Sel::Record(RecordType::Loc, id) => Self::Objects(Some(*id)),
+            Sel::Record(RecordType::Obj, id) => Self::Items(Some(*id)),
             Sel::Record(RecordType::Texture, _) => Self::Textures,
             Sel::Record(RecordType::Sprite | RecordType::Font, _) => Self::Sprites,
             Sel::Record(RecordType::Flo, _) => Self::Floors,
@@ -97,12 +100,13 @@ impl ConvertTarget {
         })
     }
 
-    /// The conversion of every record of a type, where one exists (models
-    /// and locations).
+    /// The conversion of every record of a type, where one exists (models,
+    /// locations and items).
     pub fn whole_type(t: RecordType) -> Option<Self> {
         match t {
             RecordType::Model => Some(Self::Models(None)),
             RecordType::Loc => Some(Self::Objects(None)),
+            RecordType::Obj => Some(Self::Items(None)),
             _ => None,
         }
     }
@@ -120,6 +124,8 @@ impl ConvertTarget {
             Self::Floors => "floors".into(),
             Self::Objects(Some(id)) => format!("object {id}"),
             Self::Objects(None) => "every object".into(),
+            Self::Items(Some(id)) => format!("item {id}"),
+            Self::Items(None) => "every item".into(),
         }
     }
 }
@@ -156,6 +162,7 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
         }
         ConvertTarget::Floors => run::floors(records, crc),
         ConvertTarget::Objects(id) => run::objects(records, crc, *id),
+        ConvertTarget::Items(id) => run::items(records, crc, *id),
     }?;
     let written = run::write(&outcome, dir, png)?;
     let mut message = written

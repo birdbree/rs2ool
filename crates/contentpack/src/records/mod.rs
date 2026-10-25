@@ -18,6 +18,7 @@
 //! | [`texture`] | `textures` | Texture rectangles and atlas images |
 //! | [`sprite`] | `sprites` | Sprites, font glyphs and font metrics |
 //! | [`object`] | `objects`, `kits` | Placeable objects and model kits |
+//! | [`item`] | `items` | Item definitions |
 //! | [`rig`] | `rigs` | Bone hierarchies |
 //! | [`anim`] | `anims` | Animation clips |
 //! | [`strings`] | `strings` | String tables |
@@ -26,6 +27,7 @@
 //! half a turn about x, so nothing's mirrored and y points up.
 
 pub mod anim;
+pub mod item;
 pub mod material;
 pub mod model;
 pub mod object;

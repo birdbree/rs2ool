@@ -65,7 +65,7 @@ pub enum Kind {
     Kits = 6,
     /// Bone hierarchies, see [`crate::records::rig`].
     Rigs = 7,
-    /// Reserved. The container accepts it, but there's no record layout.
+    /// Item definitions, see [`crate::records::item`].
     Items = 8,
     /// Animation clips, see [`crate::records::anim`].
     Anims = 9,

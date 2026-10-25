@@ -180,6 +180,14 @@ World objects into models, objects, wall kits and strings:
 rs2ool pack objects --all -o packs/
 ```
 
+### `items`
+
+Items into items records, their inventory and wear models, and strings, each with the slot inferred from its wear models:
+
+```
+rs2ool pack items --all -o packs/
+```
+
 ### `inspect`
 
 Print a pack's manifest and index:

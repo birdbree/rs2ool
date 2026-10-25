@@ -179,4 +179,12 @@ impl<'c> Ctx<'c> {
             dir,
         )
     }
+
+    /// `pack items`: one item or every item, with inferred slots.
+    pub fn items(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
+        finish(
+            run::items(&self.records, self.crc, ids.id).map_err(Into::into),
+            dir,
+        )
+    }
 }

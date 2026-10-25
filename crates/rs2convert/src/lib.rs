@@ -32,6 +32,8 @@
 //! - [`floor`]: floor materials and their names.
 //! - [`object`]: location definitions to models, objects, wall kits and
 //!   strings.
+//! - [`item`]: item definitions to items records, their inventory and
+//!   wear models, and strings, with inferred slots.
 //! - [`preview`]: the model a record describes, put together for viewing.
 //! - [`space`]: cache space to pack space (y and z negated).
 //!
@@ -61,6 +63,7 @@ pub mod creature;
 pub mod deform;
 pub mod floor;
 pub mod infer;
+pub mod item;
 pub mod model;
 pub mod object;
 pub mod palette;

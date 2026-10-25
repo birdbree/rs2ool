@@ -98,6 +98,10 @@ The explorer's kit view uses this model for any slot holding an item, in place o
 
 The plain preview of an obj, in the explorer, is `inventory_model` with the recolours applied and scaled by `[scale_x, scale_y, scale_z] / 128` ([`rs2convert::preview`](../../crates/rs2convert/src/preview.rs)).
 
+## Conversion
+
+`rs2ool pack items` converts definitions with [`rs2convert::item`](../../crates/rs2convert/src/item.rs) into `items` records: names, examine texts and options into a string table; the inventory model (recoloured) and each body type's equipment model as model records; the icon camera, scale, stack variants, recolours as palette overrides, noted ids, flags and value. The definition doesn't say which slot an item is worn in, so the record carries the slot and hide mask inferred from its wear models, flagged as inferred. See [Items](../pack/items.md).
+
 ## See also
 
 - [Config archive](../cache/config.md): index layout, recolours, hidden actions.
@@ -105,4 +109,5 @@ The plain preview of an obj, in the explorer, is `inventory_model` with the reco
 - [Idk](idk.md): the body parts equipment models sit on.
 - [Model](model.md): the model records the obj fields refer to.
 - [Explorer](../tools/explorer.md): the kit view that dresses a body with items.
+- [Items](../pack/items.md): the record items convert to.
 - [Inference](../conversion/inference.md#equipment-slots): an item's equipment slot from its wear models.
