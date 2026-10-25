@@ -438,19 +438,7 @@ fn layout(
                 );
                 #[cfg(feature = "caption")]
                 if let Some(captions) = st.captions.as_deref_mut() {
-                    // Work on a copy so `Settings` only changes when they do.
-                    let mut s = st.settings.clone();
-                    crate::explorer::captions::captions_menu(
-                        ui,
-                        captions,
-                        &mut s,
-                        &st.selected,
-                        &st.sources,
-                        &mut st.jobs,
-                    );
-                    if s != *st.settings {
-                        *st.settings = s;
-                    }
+                    ui.toggle_value(&mut captions.open, "Captions");
                 }
                 if st.sources.pending() > 0 {
                     ui.spinner();
@@ -614,6 +602,22 @@ fn layout(
         .height();
     for (kind, path) in open {
         st.sources.open_path(kind, path);
+    }
+    #[cfg(feature = "caption")]
+    if let Some(captions) = st.captions.as_deref_mut() {
+        // Work on a copy so `Settings` only changes when they do.
+        let mut s = st.settings.clone();
+        crate::explorer::captions::captions_window(
+            ctx,
+            captions,
+            &mut s,
+            &st.selected,
+            &st.sources,
+            &mut st.jobs,
+        );
+        if s != *st.settings {
+            *st.settings = s;
+        }
     }
     // Panels are measured in logical pixels; the cameras want physical ones.
     let scale = window.scale_factor();
