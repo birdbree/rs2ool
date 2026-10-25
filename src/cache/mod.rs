@@ -15,6 +15,7 @@ pub mod list;
 pub mod output;
 pub mod render;
 pub mod select;
+pub mod structures;
 pub mod verify;
 pub mod xref;
 

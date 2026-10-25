@@ -29,6 +29,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`floor`](../../crates/rs2convert/src/floor.rs) | One floor material per `flo.dat` entry, their names in a string table, and the floor → material map in the materials manifest. |
 | [`object`](../../crates/rs2convert/src/object.rs) | `loc.dat` definitions into models, `objects` records, `kits` entries and a string table. |
 | [`item`](../../crates/rs2convert/src/item.rs) | `obj.dat` definitions into `items` records, their inventory and wear models, and a string table, with inferred slots. See [Items](../pack/items.md). |
+| [`structure`](../../crates/rs2convert/src/structure.rs) | Whole structures found in the map: rooms flood-filled over roofed tiles and bounded by wall edges, joined by doors, stacked planes and shared walls, with their doors, openings, walls, roofs and contents placed relative to their origin. `structure::find(regions, defs)`. See [Structures](../conversion/structures.md). |
 | [`preview`](../../crates/rs2convert/src/preview.rs) | The model a record describes, assembled as the original client draws it, for viewers, and ready to pose with sequences. |
 
 ## `run`: the entry points

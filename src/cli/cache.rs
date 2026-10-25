@@ -19,7 +19,7 @@ use rs2cache::types::record::RecordType;
 use rs2cache::{Cache, Records};
 use rs2ool::cache::render::{Frames, Motion, RenderArgs, Target};
 use rs2ool::cache::{
-    DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, render, select, verify,
+    DumpArgs, IdArgs, OutArgs, Outcome, SourceArgs, dump, list, render, select, structures, verify,
 };
 use rs2ool::render::View;
 
@@ -38,6 +38,9 @@ pub enum Cmd {
     Verify,
     /// Draw a record's model with the classic renderer, still or animated.
     Render(RenderCli),
+    /// Find whole structures in the map: rooms, doors, walls, roofs and
+    /// what's inside.
+    Structures(StructuresCli),
     /// Caption candidate sequences with a vision model on a server you run.
     #[cfg(feature = "caption")]
     Caption(CaptionArgs),
@@ -209,6 +212,22 @@ pub struct ClassifyArgs {
     /// directory, where the explorer's sequence picker uses it for roles.
     #[arg(long)]
     save: bool,
+}
+
+// `structures --region RX_RY | --all [-o DIR]`.
+#[derive(Args)]
+pub struct StructuresCli {
+    /// Search this region and its neighbours, keeping the structures whose
+    /// south-west corner is in it: `RX_RY`, e.g. `50_50`.
+    #[arg(long, value_parser = parse_region, conflicts_with = "all", required_unless_present = "all")]
+    region: Option<(u8, u8)>,
+    /// Search the whole map.
+    #[arg(long)]
+    all: bool,
+    /// Write `structures/RX_RY.json` per region under this directory
+    /// instead of listing them.
+    #[arg(short, long, value_name = "DIR")]
+    out: Option<PathBuf>,
 }
 
 // `RX_RY` into `(rx, ry)`; each part has to fit a u8.
@@ -520,6 +539,16 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Ok(Outcome::Ok)
             }),
         Cmd::Verify => verify::run(&cache, &mut std::io::stdout().lock()),
+        Cmd::Structures(a) => structures::run(
+            &cache,
+            &records,
+            &structures::StructuresArgs {
+                region: a.region,
+                all: a.all,
+                out: a.out,
+            },
+            &mut std::io::stdout().lock(),
+        ),
         Cmd::Render(a) => a
             .args()
             .and_then(|args| render::run(&records, &args, &mut std::io::stdout().lock())),

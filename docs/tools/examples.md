@@ -125,6 +125,17 @@ rs2ool cache caption --npc 1 --enable --model <a vision model> --limit 5
 
 Each caption prints as `npc 1 seq 2820: [death] Collapses forward and lies flat` and is kept in your data directory, outside the repository. `--check` lists the server's models. Captioning is off until it's turned on in the settings or with `--enable`. See [Captions](captions.md).
 
+### `structures`
+
+Find the buildings in one region, then write every structure in the map as JSON blueprints:
+
+```
+rs2ool cache structures --region 50_50
+rs2ool cache structures --all -o out/
+```
+
+Each line gives a structure's origin, size, planes, rooms, doors and openings, and its commonest named objects; the files hold the rooms, doors, walls, roofs and contents, placed relative to each structure's corner. See [Cache commands](cache-commands.md#structures) and [Structures](../conversion/structures.md).
+
 ### `classify`
 
 Learn roles from the captions you've reviewed and see how they compare with the hand-tuned rules, then keep the tree for the explorer's sequence picker:

@@ -208,12 +208,13 @@ In its low-detail mode the original client also skips upper-plane tiles away fro
 
 ## Tile flags
 
-Flags are `op − 49`, a value from 1 to 32, stored exactly as read. The bits the ground cares about:
+Flags are `op − 49`, a value from 1 to 32, stored exactly as read. The bits that matter:
 
 | Bit | Meaning |
 | --- | --- |
 | 1 | blocked |
 | 2 | bridge: read on plane 1. The original client shifts that tile's planes down one level, so the plane-1 floor is what you stand on at ground level, and height lookups on that tile read the plane above. The ground that was on plane 0 is drawn first, underneath, and each plane's ground keeps the heights of the plane it came from |
+| 4 | under a roof: when the camera is over such a tile, the original client hides the planes above the current one, which is how a roof comes off indoors. [Structures](../conversion/structures.md#the-roof-flag) finds rooms by it |
 | 8 | the tile counts as plane 0 for visibility, whatever plane it's on |
 
 For visibility, each tile counts as its plane, one lower under a bridge, or plane 0 with bit 8. When the original client hides the planes above you (indoors, say), a tile whose plane counts above the highest shown plane isn't drawn; that's how roofs disappear.
