@@ -32,6 +32,8 @@
 //! - [`texture`]: the texture atlas and texture materials.
 //! - [`sprite`]: media and title sprites, and fonts.
 //! - [`floor`]: floor materials and their names.
+//! - [`morph`]: which child a morph table shows for a variable's value,
+//!   as the original client picks it.
 //! - [`object`]: location definitions to models, objects, wall kits and
 //!   strings.
 //! - [`item`]: item definitions to items records, their inventory and
@@ -68,6 +70,7 @@ pub mod floor;
 pub mod infer;
 pub mod item;
 pub mod model;
+pub mod morph;
 pub mod object;
 pub mod palette;
 pub mod pipeline;

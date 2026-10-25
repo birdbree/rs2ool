@@ -60,7 +60,7 @@ A varbit's value is the run of bits `lsb` through `msb` of its varp's 32-bit val
 
 ## Use in the tools
 
-The tools decode, dump and inspect both types, but nothing evaluates them. In the explorer's inspector, a varbit's `varp` field links to that varp. A [morph table](../cache/config.md) names a varbit or a varp (65535 meaning none in either slot), and object conversion turns every child of a loc's morph table into a state rather than choosing one; see [Loc](loc.md) and [Object conversion](../conversion/objects.md).
+The tools decode, dump and inspect both types. In the explorer's inspector, a varbit's `varp` field links to that varp. A [morph table](../cache/config.md#morph-tables) names a varbit or a varp (65535 meaning none in either slot). Object conversion turns every child of a loc's morph table into a state rather than choosing one; see [Loc](loc.md) and [Object conversion](../conversion/objects.md). The explorer evaluates them: set a varp's contents beside a morph table and it shows the child the original client would pick ([Object states](../tools/explorer.md#object-states)).
 
 ## See also
 

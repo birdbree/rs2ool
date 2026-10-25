@@ -15,6 +15,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use contentpack::records::anim::NO_LOOP;
 use rs2convert::infer::{Candidate, Role};
+use rs2convert::morph::Variable;
 
 use crate::explorer::classic::ClassicView;
 use crate::explorer::renderable::Renderable;
@@ -357,47 +358,154 @@ fn apply(
     });
 }
 
-/// The state picker for an object with states, and the shown state's
-/// options. Returns the newly chosen state.
-pub fn states_ui(ui: &mut egui::Ui, main: &Loaded) -> Option<usize> {
+/// What the state picker changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateChoice {
+    /// A state picked from the list.
+    State(usize),
+    /// New contents for a morph table's varp.
+    Varp(i32),
+}
+
+/// What a morph table's variable is, for the picker: `varbit 42 (bits
+/// 3–5 of varp 17)` or `varp 17`.
+fn variable_label(v: &Variable) -> String {
+    match *v {
+        Variable::Varbit { id, varp, lsb, msb } => {
+            format!("varbit {id} (bits {lsb}–{msb} of varp {varp})")
+        }
+        Variable::Varp(p) => format!("varp {p}"),
+    }
+}
+
+/// The state picker for an object with states, the shown state's options,
+/// and for a morph table its variable, which can be set to show the state
+/// the original client would pick. Returns what changed.
+pub fn states_ui(ui: &mut egui::Ui, main: &Loaded) -> Option<StateChoice> {
     let states = main.states.as_ref()?;
-    let mut chosen = main.state;
+    let mut choice = None;
+    // Driven by a varp value that picks nothing: the client draws nothing.
+    let picked = states
+        .morph
+        .as_ref()
+        .zip(main.morph_varp)
+        .map(|(m, c)| m.state_for(c));
+    let nothing = picked == Some(None);
     ui.horizontal_wrapped(|ui| {
+        let shown = if nothing {
+            "nothing".to_owned()
+        } else {
+            states.labels.get(main.state).cloned().unwrap_or_default()
+        };
         egui::ComboBox::from_id_salt("object_state")
-            .selected_text(states.labels.get(main.state).cloned().unwrap_or_default())
+            .selected_text(shown)
             .show_ui(ui, |ui| {
                 for (i, l) in states.labels.iter().enumerate() {
-                    ui.selectable_value(&mut chosen, i, l);
+                    // A click picks it, even the one shown, which stops
+                    // following the varp.
+                    if ui
+                        .selectable_label(i == main.state && !nothing, l)
+                        .clicked()
+                    {
+                        choice = Some(StateChoice::State(i));
+                    }
                 }
             });
         let options = states
             .options
             .get(main.state)
+            .filter(|_| !nothing)
             .map_or(&[][..], Vec::as_slice);
         if options.is_empty() {
             ui.weak("no options");
         } else {
             ui.label(format!("Options: {}", options.join(", ")));
         }
-        if states
-            .renderables
-            .get(main.state)
-            .is_some_and(Option::is_none)
+        if !nothing
+            && states
+                .renderables
+                .get(main.state)
+                .is_some_and(Option::is_none)
         {
             ui.weak("(this state draws nothing)");
         }
     });
-    (chosen != main.state).then_some(chosen)
+    if let Some(m) = &states.morph {
+        ui.horizontal_wrapped(|ui| {
+            let Some(var) = m.variable else {
+                ui.weak("morph table: its varbit won't decode");
+                return;
+            };
+            ui.label(format!("Picked by {}:", variable_label(&var)));
+            let before = main.morph_varp.unwrap_or(0);
+            let mut contents = before;
+            ui.label(format!("varp {} =", var.varp()));
+            ui.add(egui::DragValue::new(&mut contents));
+            if let Variable::Varbit { .. } = var {
+                let mut value = var.read(contents);
+                ui.label("value");
+                if ui
+                    .add(egui::DragValue::new(&mut value).range(0..=var.max()))
+                    .changed()
+                {
+                    contents = var.write(contents, value);
+                }
+            }
+            match picked {
+                Some(Some(i)) => {
+                    ui.label(format!("→ {}", states.labels[i]));
+                }
+                Some(None) => {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "→ no child: the original client draws nothing",
+                    );
+                }
+                None => {
+                    ui.weak("set a value to show the child the original client picks");
+                }
+            }
+            if ui
+                .button("Pick")
+                .on_hover_text("Show the child the original client picks for this value.")
+                .clicked()
+                || contents != before
+            {
+                choice = Some(StateChoice::Varp(contents));
+            }
+        });
+    }
+    choice
 }
 
-/// Shows state `i` of a loaded object, if it has that state.
+/// Shows state `i` of a loaded object, if it has that state, and stops
+/// following a morph value.
 pub fn apply_state<S>(l: &mut Loaded<S>, i: usize) {
     if let Some(s) = l.states.clone()
         && i < s.renderables.len()
     {
         l.state = i;
         l.renderable = s.renderables[i].clone();
+        l.morph_varp = None;
     }
+}
+
+/// Sets a loaded morph table's varp to `contents` and shows the state the
+/// original client picks, or nothing. Returns that state, or `None` for
+/// nothing; does nothing to an object without a morph table.
+pub fn apply_varp<S>(l: &mut Loaded<S>, contents: i32) -> Option<usize> {
+    let s = l.states.clone()?;
+    let m = s.morph.as_ref()?;
+    let state = m.state_for(contents);
+    l.morph_varp = Some(contents);
+    match state {
+        Some(i) => {
+            l.state = i;
+            l.renderable = s.renderables[i].clone();
+        }
+        None => l.renderable = None,
+    }
+    state
 }
 
 /// Sequence `seq`'s inference, if a cache creature plays it as an inferred

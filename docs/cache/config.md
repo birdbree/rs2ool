@@ -118,6 +118,17 @@ children     (count + 1) × u16, each 65535 = none
 
 Note the `count + 1`: the stored count is one less than the number of children. The value of the varbit (or, if there is no varbit, the varp) indexes `children`. See [varp and varbit](../records/varp-varbit.md) for what those variables are.
 
+The original client picks the child like this:
+
+```text
+varbit   value = (varp[varbit.varp] >> lsb) & mask(msb - lsb)
+varp     value = varp[varp]                  (neither set: value = -1)
+mask(n)  = 2^(n + 1) - 1, wrapping like a 32-bit int
+child    = children[value], or nothing when value < 0, value ≥ len(children), or that child is 65535
+```
+
+The shift is arithmetic, as on a Java `int`. A definition with a morph table never draws itself: the client draws the child it picks, or nothing. [`rs2convert::morph`](../../crates/rs2convert/src/morph.rs) implements this, and the explorer uses it ([Object states](../tools/explorer.md#object-states)).
+
 ### Action strings and "hidden"
 
 Option strings for `loc` and `npc` (opcodes 30–34) and the ground options of `obj` (opcodes 30–34) are [strings](primitives.md#strings) filling five slots, indexed by `opcode − 30`. A string equal to `hidden`, in any case, means the slot is empty: it decodes as none, the same as a slot that was never set.

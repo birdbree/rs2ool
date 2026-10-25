@@ -82,3 +82,110 @@ fn morphing_locations_switch_states_in_cache_and_pack() {
         );
     }
 }
+
+#[test]
+fn varp_values_pick_states_as_the_client_does() {
+    use std::sync::Arc;
+
+    use rs2convert::morph::{Variable, pick};
+    use rs2ool::explorer::playback::{apply_state, apply_varp};
+    use rs2ool::explorer::selection::Loaded;
+
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    // The first location whose morph table reads a varbit and has two
+    // children that load.
+    let (record, states) = records
+        .ids(RecordType::Loc)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| {
+            let r = records.decode(RecordType::Loc, id).ok()?;
+            let Record::Loc(d) = &r else { return None };
+            d.morph.as_ref()?.varbit?;
+            let s = load_states(&cache, &Sel::Record(RecordType::Loc, id), Some(&r))?;
+            let m = s.morph.as_ref()?;
+            (m.variable.is_some() && m.slots.iter().flatten().count() >= 2).then_some((r, s))
+        })
+        .expect("a location with a varbit morph table");
+    let Record::Loc(d) = &record else {
+        unreachable!()
+    };
+    let table = d.morph.as_ref().unwrap();
+    let states = Arc::new(states);
+    let m = states.morph.clone().unwrap();
+    // The variable is the varbit the table names, with its bit range.
+    let Some(Variable::Varbit { id, varp, lsb, msb }) = m.variable else {
+        panic!("a varbit")
+    };
+    let Record::Varbit(vb) = records.decode(RecordType::Varbit, id.into()).unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(
+        (Some(id), varp, lsb, msb),
+        (table.varbit, vb.varp, vb.lsb, vb.msb)
+    );
+    let var = m.variable.unwrap();
+
+    let mut loaded = Loaded::<rs2ool::explorer::selection::Selected>::default();
+    loaded.states = Some(states.clone());
+    // Every value the varbit can hold, with the varp's other bits set: the
+    // state shown is the child the table names, or nothing.
+    for value in 0..=var.max().min(64) {
+        let contents = var.write(-1, value);
+        let shown = apply_varp(&mut loaded, contents);
+        assert_eq!(loaded.morph_varp, Some(contents));
+        match table.children.get(value as usize).copied().flatten() {
+            Some(child) if m.slots[value as usize].is_some() => {
+                let i = shown.expect("a state");
+                assert_eq!(states.labels[i], format!("loc {child}"));
+                assert_eq!(pick(table, value), Some(value as usize));
+            }
+            _ => {
+                assert_eq!(shown, None);
+                assert!(loaded.renderable.is_none(), "value {value} draws nothing");
+            }
+        }
+    }
+    // Picking a state from the list stops following the varp.
+    apply_state(&mut loaded, 0);
+    assert_eq!(loaded.morph_varp, None);
+}
+
+#[test]
+fn morphing_npcs_list_their_children_as_creatures() {
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    let (id, states) = records
+        .ids(RecordType::Npc)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| {
+            let r = records.decode(RecordType::Npc, id).ok()?;
+            let Record::Npc(d) = &r else { return None };
+            d.morph.as_ref()?;
+            let s = load_states(&cache, &Sel::Record(RecordType::Npc, id), Some(&r))?;
+            s.renderables
+                .iter()
+                .any(|r| matches!(r.as_deref(), Some(Renderable::Creature { .. })))
+                .then_some((id, s))
+        })
+        .expect("an NPC whose morph children animate");
+    assert_eq!(states.labels[0], format!("default (npc {id})"));
+    assert!(states.labels[1..].iter().all(|l| l.starts_with("npc ")));
+    // The NPC's own state is left for the selection to fill in.
+    assert!(states.renderables[0].is_none());
+    assert!(states.morph.is_some());
+}

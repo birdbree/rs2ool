@@ -16,7 +16,9 @@ use crate::explorer::classic::{ClassicView, RenderMode};
 use crate::explorer::inspector;
 use crate::explorer::jobs::Jobs;
 use crate::explorer::kit::{Kit, kit_ui};
-use crate::explorer::playback::{Playback, apply_state, playback_ui, states_ui};
+use crate::explorer::playback::{
+    Playback, StateChoice, apply_state, apply_varp, playback_ui, states_ui,
+};
 use crate::explorer::selection::{CompareSelected, Loaded, Sel, Selected};
 use crate::explorer::sources::{Kind, Source, Sources};
 use crate::explorer::tree::{self, ListKey, Lists};
@@ -524,11 +526,25 @@ fn layout(
         .show(&mut root, |ui| {
             // Only write the loaded selections when a state is chosen, so
             // the viewports are not rebuilt every frame.
-            if let Some(i) = states_ui(ui, &st.loaded) {
-                apply_state(&mut st.loaded, i);
-                if st.compare.enabled {
-                    apply_state(&mut st.compare_loaded, i);
+            match states_ui(ui, &st.loaded) {
+                Some(StateChoice::State(i)) => {
+                    apply_state(&mut st.loaded, i);
+                    if st.compare.enabled {
+                        apply_state(&mut st.compare_loaded, i);
+                    }
                 }
+                // The other side follows the state the varp picks, and
+                // draws nothing when it picks none.
+                Some(StateChoice::Varp(contents)) => {
+                    let picked = apply_varp(&mut st.loaded, contents);
+                    if st.compare.enabled {
+                        match picked {
+                            Some(i) => apply_state(&mut st.compare_loaded, i),
+                            None => st.compare_loaded.renderable = None,
+                        }
+                    }
+                }
+                None => {}
             }
             let right = st
                 .compare_loaded
