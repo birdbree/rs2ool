@@ -171,7 +171,10 @@ impl KitBase {
 /// runs it as a task.
 pub fn load_base(records: Arc<Records<'static>>) -> Result<KitBase, String> {
     let index = records.cache().frame_index().map_err(|e| e.to_string())?;
-    let (parts, creature) = pipeline::player_kit(&records, &index).map_err(|e| e.to_string())?;
+    let kit = pipeline::player_kit(&records, &index).map_err(|e| e.to_string())?;
+    // Every dressed model reuses the default body's sequences, so either
+    // body would do.
+    let (parts, creature) = (kit.parts, kit.male);
     let guesses = rs2convert::slot::guesses(&records).map_err(|e| e.to_string())?;
     Ok(KitBase {
         records,

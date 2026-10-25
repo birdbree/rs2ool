@@ -46,7 +46,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [x] [#37](https://github.com/birdbree/rs2ool/issues/37) Bone overlay in the explorer
 - [ ] [#38](https://github.com/birdbree/rs2ool/issues/38) Evaluate morph tables in the explorer
 - [ ] [#39](https://github.com/birdbree/rs2ool/issues/39) Search every record type at once
-- [ ] [#40](https://github.com/birdbree/rs2ool/issues/40) Female default body and real hide masks for the player kit
+- [x] [#40](https://github.com/birdbree/rs2ool/issues/40) Female default body for the player kit
 - [ ] [#41](https://github.com/birdbree/rs2ool/issues/41) Compare two caches
 - [ ] [#55](https://github.com/birdbree/rs2ool/issues/55) Fly the camera across the whole map
 - [x] [#59](https://github.com/birdbree/rs2ool/issues/59) Infer which sequences belong to which NPCs and objects

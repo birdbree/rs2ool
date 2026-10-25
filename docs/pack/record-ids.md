@@ -15,7 +15,8 @@ Ids only need to be unique within one pack. Several namespaces share a kind, so 
 | `m` (below `0x10000000`) | Cache model `m` (index 1 file id), converted on its own |
 | `0x10000000 \| n` | NPC `n`'s merged model |
 | `0x20000000 \| k` | Identity-kit part `k`'s merged model |
-| `0x30000000` | The default player body's merged model |
+| `0x30000000` | The default male player body's merged model |
+| `0x30000001` | The default female player body's merged model |
 | `0x40000000 \| loc << 4 \| i` | Model `i` (0–15) of location definition `loc` |
 
 A location definition can list at most 16 models after untyped ones are merged; the conversion fails on one with more. See [Models](models.md) for the layout.
@@ -25,7 +26,8 @@ A location definition can list at most 16 models after untyped ones are merged; 
 | Kind | Id | Record |
 | --- | --- | --- |
 | `rigs` | `n` | NPC `n`'s rig: the rig id is the NPC id |
-| `rigs` | `0xFFFF` | The player rig |
+| `rigs` | `0xFFFF` | The male player rig |
+| `rigs` | `0xFFFE` | The female player rig |
 | `anims` | `rig << 16 \| seq` | Sequence `seq` converted for rig `rig` |
 
 The clip id packs the rig id into the top 16 bits, so it's only unique while rig ids stay below `0x10000`. A clip also names its rig in its own `rig` field. See [Rigs](rigs.md) and [Anims](anims.md).
@@ -97,7 +99,7 @@ Every floor gets a name entry, an empty string when the definition has no name, 
 "kit_parts": { "<model record id>": { "idk": <kit id>, "slot": <0–6>, "body_type": <n>, "hide_mask": 0, "selectable": <bool> } }
 ```
 
-The key is the model record id (`0x20000000 | idk`, written in decimal). `slot` is the kit's body part modulo 7 and `body_type` is the body part divided by 7. `hide_mask` is always 0. `selectable` is copied from the kit definition ([Identity kit](../records/idk.md)).
+The key is the model record id (`0x20000000 | idk`, written in decimal). `slot` is the kit's body part modulo 7 and `body_type` is the body part divided by 7. `hide_mask` is always 0, by design. In the original client a kit part never hides another: for each of its 12 slots the server sends empty, a kit part or an item, and the client draws what it's sent, so worn items hide body parts only because the server leaves those slots empty. Hide masks belong on items, inferred from their wear models ([equipment slots](../conversion/inference.md#equipment-slots)), not on kit parts. `selectable` is copied from the kit definition ([Identity kit](../records/idk.md)).
 
 ## See also
 

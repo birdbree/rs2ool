@@ -261,11 +261,23 @@ fn player_kit_parts_and_stance() {
     let Some(cache) = common::cache() else { return };
     let records = Records::new(&cache);
     let index = cache.frame_index().unwrap();
-    let (parts, body) = pipeline::player_kit(&records, &index).unwrap();
+    let kit = pipeline::player_kit(&records, &index).unwrap();
     let idk = records.ids(RecordType::Idk).unwrap();
-    assert_eq!(parts.len(), idk.len(), "one kit part per idk entry");
-    assert!(parts.iter().all(|(p, _)| p.slot < 7 && p.body_type < 2));
-    let out = pipeline::convert(body, &palette(), pipeline::ids::PLAYER_RIG, true, None).unwrap();
-    assert_eq!(out.clips.len(), pipeline::PLAYER_SEQUENCES.len());
-    assert!(!out.flagged(), "stance max {}", out.max_error());
+    assert_eq!(kit.parts.len(), idk.len(), "one kit part per idk entry");
+    assert!(kit.parts.iter().all(|(p, _)| p.slot < 7 && p.body_type < 2));
+    assert!(
+        kit.parts.iter().all(|(p, _)| p.hide_mask == 0),
+        "kit parts hide nothing"
+    );
+    // Both default bodies rig, convert every stance sequence and validate.
+    let female = kit.female.expect("the kit has female parts");
+    for (body, rig) in [
+        (kit.male, pipeline::ids::PLAYER_RIG),
+        (female, pipeline::ids::PLAYER_FEMALE_RIG),
+    ] {
+        let name = body.name.clone();
+        let out = pipeline::convert(body, &palette(), rig, true, None).unwrap();
+        assert_eq!(out.clips.len(), pipeline::PLAYER_SEQUENCES.len(), "{name}");
+        assert!(!out.flagged(), "{name} stance max {}", out.max_error());
+    }
 }

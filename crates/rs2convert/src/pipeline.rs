@@ -31,8 +31,12 @@ pub mod ids {
     pub const KIT_MODEL: u32 = 0x2000_0000;
     /// The default player body's merged model.
     pub const PLAYER_MODEL: u32 = 0x3000_0000;
+    /// The default female body's merged model.
+    pub const PLAYER_FEMALE_MODEL: u32 = 0x3000_0001;
     /// The player rig's id; NPC rigs use the NPC id.
     pub const PLAYER_RIG: u32 = 0xFFFF;
+    /// The female body's rig.
+    pub const PLAYER_FEMALE_RIG: u32 = 0xFFFE;
     /// Clip id for sequence `seq` on rig `rig`: the rig in the high 16 bits,
     /// the sequence in the low 16.
     pub fn clip(rig: u32, seq: u32) -> u32 {
@@ -188,22 +192,33 @@ pub struct KitPart {
     pub slot: u8,
     /// 0 for the male set, 1 for the female set (body part / 7).
     pub body_type: u8,
-    /// Always 0 for now.
+    /// The body slots this part hides when worn: always 0, because a kit
+    /// part never hides another. In the original client only worn items
+    /// do, and only because the server leaves those slots empty.
     pub hide_mask: u16,
     /// Whether the definition marks the part as selectable.
     pub selectable: bool,
 }
 
+/// The identity kit, converted: every part, and the two default bodies.
+pub struct PlayerKit {
+    /// Each identity-kit part with a body part, as a merged model.
+    pub parts: Vec<(KitPart, rs2cache::types::model::Model)>,
+    /// The default male body: the first selectable part of each body part
+    /// 0–6, merged, with the player stance sequences.
+    pub male: Creature,
+    /// The default female body, the same from body parts 7–13; `None` if
+    /// the kit has no selectable female parts.
+    pub female: Option<Creature>,
+}
+
 /// The identity-kit parts, each as a merged model, plus the default male
-/// body (the first selectable part of each slot 0–6) assembled as a
-/// creature with the player stance sequences. Parts with no body part are
-/// skipped.
-pub fn player_kit(
-    records: &Records,
-    index: &FrameIndex,
-) -> Result<(Vec<(KitPart, rs2cache::types::model::Model)>, Creature), ConvertError> {
+/// and female bodies (the first selectable part of each body part, 0–6
+/// and 7–13) assembled as creatures with the player stance sequences.
+/// Parts with no body part are skipped.
+pub fn player_kit(records: &Records, index: &FrameIndex) -> Result<PlayerKit, ConvertError> {
     let mut parts = Vec::new();
-    // Default body: first selectable part per male slot (body part 0–6).
+    // Default bodies: the first selectable part per body part, 0–13.
     let mut default: BTreeMap<u8, rs2cache::types::model::Model> = BTreeMap::new();
     for id in records.ids(RecordType::Idk)? {
         let Record::Idk(d) = records.decode(RecordType::Idk, id)? else {
@@ -220,7 +235,7 @@ pub fn player_kit(
             .collect::<Result<Vec<_>, ConvertError>>()?;
         let mut merged = creature::merge(&models);
         creature::recolour(&mut merged, &d.recolours);
-        if part < 7 && d.selectable {
+        if part < 14 && d.selectable {
             default.entry(part).or_insert_with(|| merged.clone());
         }
         parts.push((
@@ -234,11 +249,26 @@ pub fn player_kit(
             merged,
         ));
     }
-    let body: Vec<_> = default.into_values().collect();
-    let merged = creature::merge(&body);
     let (sequences, packs) = creature::sequences(records, index, &PLAYER_SEQUENCES)?;
-    Ok((
+    // Each body's parts in body-part order, merged.
+    let body = |name: &str, range: std::ops::Range<u8>| {
+        let models: Vec<_> = default.range(range).map(|(_, m)| m.clone()).collect();
+        (!models.is_empty()).then(|| {
+            Creature::new(
+                name.into(),
+                creature::merge(&models),
+                [128; 3],
+                sequences.clone(),
+                packs.clone(),
+            )
+        })
+    };
+    let male = body("player", 0..7)
+        .ok_or_else(|| ConvertError::Invalid("the kit has no selectable male parts".into()))?;
+    let female = body("player_female", 7..14);
+    Ok(PlayerKit {
         parts,
-        Creature::new("player".into(), merged, [128; 3], sequences, packs),
-    ))
+        male,
+        female,
+    })
 }
