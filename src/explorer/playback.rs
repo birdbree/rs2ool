@@ -18,6 +18,7 @@
 
 use std::sync::Arc;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use contentpack::records::anim::NO_LOOP;
@@ -27,7 +28,10 @@ use rs2convert::morph::Variable;
 use crate::explorer::classic::ClassicView;
 use crate::explorer::renderable::Renderable;
 use crate::explorer::selection::{CompareSelected, Loaded};
-use crate::explorer::viewport3d::{Overlays, Pose, Shown, ShownModel, VertexColours, posed_parts};
+use crate::explorer::viewport3d::{
+    LightingMode, Overlays, Pose, Shown, ShownModel, TextureMaterials, VertexColours, handles,
+    posed_parts,
+};
 
 /// Milliseconds per cycle of the original client.
 pub const CYCLE_MS: f32 = 20.0;
@@ -171,20 +175,23 @@ pub fn timing(r: &Renderable, seq: u32) -> Option<(Vec<u16>, Option<u16>)> {
     }
 }
 
-/// A renderable's vertices at one frame, from [`posed`].
+/// A renderable's vertices at one frame, from [`posed`], with its faces'
+/// alpha when the frame fades them.
 pub enum Posed {
-    /// A cache creature's vertices, in cache space, scaled.
-    Cache(Vec<[i32; 3]>),
-    /// A converted creature's skinned vertices, in pack space.
-    Pack(Vec<[f32; 3]>),
+    /// A cache creature's vertices, in cache space, scaled, and its face
+    /// transparency (0 opaque).
+    Cache(Vec<[i32; 3]>, Option<Vec<u8>>),
+    /// A converted creature's skinned vertices, in pack space, and its
+    /// face opacity (255 opaque).
+    Pack(Vec<[f32; 3]>, Option<Vec<u8>>),
 }
 
 impl Posed {
     /// Borrows it as the mesh builders' [`Pose`].
     pub fn pose(&self) -> Pose<'_> {
         match self {
-            Posed::Cache(v) => Pose::Cache(v),
-            Posed::Pack(v) => Pose::Pack(v),
+            Posed::Cache(v, a) => Pose::Cache(v, a.as_deref()),
+            Posed::Pack(v, a) => Pose::Pack(v, a.as_deref()),
         }
     }
 }
@@ -215,10 +222,16 @@ pub fn posed_moving(
             let (s, last) = at(seq)?;
             let frame = frame.min(last);
             match moving.and_then(|(m, j)| Some((at(m)?, j))) {
-                Some(((m, last_m), j)) => creature.posed_moving(s, frame, m, j.min(last_m)),
-                None => creature.posed(s, frame),
+                Some(((m, last_m), j)) => {
+                    let j = j.min(last_m);
+                    let v = creature.posed_moving(s, frame, m, j)?;
+                    Some(Posed::Cache(v, creature.faded_moving(s, frame, m, j)))
+                }
+                None => {
+                    let v = creature.posed(s, frame)?;
+                    Some(Posed::Cache(v, creature.faded(s, frame)))
+                }
             }
-            .map(Posed::Cache)
         }
         Renderable::PackCreature {
             model, rig, clips, ..
@@ -232,10 +245,12 @@ pub fn posed_moving(
             let mixed = moving
                 .filter(|_| !c.moving.is_empty())
                 .and_then(|(m, j)| at(m, j));
-            Some(Posed::Pack(match mixed {
+            let v = match mixed {
                 Some((mc, tm)) => rs2convert::validate::skinned_moving(model, rig, c, t, mc, tm),
                 None => rs2convert::validate::skinned(model, rig, c, t),
-            }))
+            };
+            // A mix takes the clip's fades.
+            Some(Posed::Pack(v, rs2convert::validate::opacities(model, c, t)))
         }
         _ => None,
     }
@@ -392,14 +407,26 @@ fn tick(time: Res<Time>, mut pb: ResMut<Playback>) {
     }
 }
 
+/// What [`apply`] draws with besides the meshes: the shown parts, and
+/// what picks their materials when a frame fades them.
+#[derive(SystemParam)]
+struct Drawn<'w, 's> {
+    shown: ResMut<'w, Shown>,
+    mode: Res<'w, LightingMode>,
+    textures: Res<'w, TextureMaterials>,
+    materials: Query<'w, 's, &'static mut MeshMaterial3d<StandardMaterial>>,
+}
+
 /// Poses the shown models at the clock's frame when it moves: both panes
 /// from the one clock. The classic renderer gets the main pose, relit as
-/// the original client relights an animated model.
+/// the original client relights an animated model. A frame that fades a
+/// model, or stops fading it, switches its parts between the opaque and
+/// blended materials.
 fn apply(
     loaded: Res<Loaded>,
     right: Res<Loaded<CompareSelected>>,
     overlays: Res<Overlays>,
-    shown: Res<Shown>,
+    mut drawn: Drawn,
     mut pb: ResMut<Playback>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut classic: ResMut<ClassicView>,
@@ -417,8 +444,8 @@ fn apply(
         frame: pb.clock.frame,
         moving: pb.moving_at(),
         colours: overlays.colours,
-        main_parts: shown.main.parts.len(),
-        compare_parts: shown.compare.parts.len(),
+        main_parts: drawn.shown.main.parts.len(),
+        compare_parts: drawn.shown.compare.parts.len(),
     };
     if pb.shown == Some(key) {
         return;
@@ -426,12 +453,13 @@ fn apply(
     pb.shown = Some(key);
     let (frame, moving) = (pb.clock.frame, pb.moving_at());
     // Poses one pane: rebuilds both lighting variants of each part's mesh
-    // in place. Returns the renderable and its pose for the classic view.
+    // in place. Returns the renderable, its pose for the classic view, and
+    // whether the pose needs blending.
     let mut pose_side = |r: Option<&Arc<Renderable>>, side: &ShownModel| {
         let r = r?;
         let p = posed_moving(r, seq, frame, moving)?;
         // `client` is the 317-lit variant, `real` the engine-lit one.
-        let (client, real, _) = posed_parts(r, overlays.colours, p.pose());
+        let (client, real, blend) = posed_parts(r, overlays.colours, p.pose());
         for ((part, c), rl) in side.parts.iter().zip(client).zip(real) {
             if let Some(mut m) = meshes.get_mut(&part.client) {
                 *m = c.mesh;
@@ -440,16 +468,45 @@ fn apply(
                 *m = rl.mesh;
             }
         }
-        Some((r.clone(), p))
+        Some((r.clone(), p, blend))
     };
-    let main = pose_side(loaded.renderable.as_ref(), &shown.main);
-    pose_side(right.renderable.as_ref(), &shown.compare);
+    let main = pose_side(loaded.renderable.as_ref(), &drawn.shown.main);
+    let compare = pose_side(right.renderable.as_ref(), &drawn.shown.compare);
+    // Switch materials where the need for blending changed.
+    let blends = [main.as_ref().map(|m| m.2), compare.as_ref().map(|c| c.2)];
+    for (side, blend) in [0, 1].into_iter().zip(blends) {
+        let Some(blend) = blend else { continue };
+        let parts = if side == 0 {
+            &mut drawn.shown.main.parts
+        } else {
+            &mut drawn.shown.compare.parts
+        };
+        let changed: Vec<usize> = (0..parts.len())
+            .filter(|&i| parts[i].blend != blend)
+            .collect();
+        for &i in &changed {
+            parts[i].blend = blend;
+        }
+        for i in changed {
+            let side = if side == 0 {
+                &drawn.shown.main
+            } else {
+                &drawn.shown.compare
+            };
+            let part = &side.parts[i];
+            let (_, material) = handles(&drawn.shown, part, *drawn.mode, &drawn.textures);
+            if let Ok(mut m) = drawn.materials.get_mut(part.entity) {
+                m.0 = material;
+            }
+        }
+    }
     // Only cache creatures have a classic form; the classic renderer needs
     // the model relit with the posed vertices.
-    classic.pose = main.and_then(|(r, p)| match (r.model(), p) {
-        (Some(m), Posed::Cache(v)) => {
+    classic.pose = main.and_then(|(r, p, _)| match (r.model(), p) {
+        (Some(m), Posed::Cache(v, alphas)) => {
             let model = rs2cache::types::model::Model {
                 vertices: v.clone(),
+                face_alphas: alphas.or_else(|| m.face_alphas.clone()),
                 ..m.clone()
             };
             Some((

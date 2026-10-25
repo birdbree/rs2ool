@@ -10,7 +10,7 @@ Implemented in [`contentpack::records::anim`](../../crates/contentpack/src/recor
 
 ```text
 magic        4 bytes   "RANM"
-version      u8        4
+version      u8        5
 rig          u32       id of the rigs record this clip drives
 frameCount   u8
 frameStart   frameCount × u16   start of each frame, in 20 ms cycles
@@ -30,6 +30,14 @@ keys         keyCount × {
              }
 mixKeyCount  u32
 mixKeys      mixKeyCount × key  the same 17 bytes as a key
+fadeCount    u32
+fades        fadeCount × {
+               t      u8        frame index
+               group  u8        fade group
+               add    i16       added to opacity
+               lo     u8        least opacity
+               hi     u8        most opacity
+             }
 ```
 
 Each key is 17 bytes. A key's bytes put `bone` before `t`, but keys are sorted by `t` first. Don't let the byte order fool you into sorting the other way.
@@ -67,9 +75,21 @@ and world transforms and skinning follow as usual, each child under its parent's
 
 The tools fill these in for sequences with interleave labels ([Clips](../conversion/clips.md#moving-bones-and-mix-keys)), and check the mix against the original client's ([Validation](../conversion/validation.md#mixes)). Which clips are a creature's movement clips isn't in the record: for NPCs it's their walk and turn sequences, and for the player 819–824.
 
-## Versions 2 and 3
+## Fades
 
-Version 3 is the record without `movingCount`, `moving`, `mixKeyCount` and `mixKeys`, and version 2 is version 3 without `scale`, so each key is 11 bytes. Decoders still read both, with no moving bones and, for version 2, every key at scale 1.0 (256). The encoder always writes version 4. Version 3 added scale for sequences that grow or shrink a model (most spot animations, and some NPC vanishes and deaths), and version 4 the moving bones and mix keys.
+A fade sets the opacity of the model's faces in one fade group (the model's [face groups](models.md#fields)) at one frame:
+
+```text
+opacity = clamp(base + add, lo, hi)
+```
+
+where `base` is the face's own opacity in the model, or 255 if it has none. A face whose group has no fade at a frame keeps its own opacity; nothing carries over from the frame before. Fades are sorted by `(t, group)`, at most one per pair, with `lo ≤ hi`. While the clip plays over a movement clip, its fades still apply and the movement clip's don't.
+
+The form reproduces the original client's fading exactly ([Clips](../conversion/clips.md#fades)), whatever opacity each face starts at, so a clip carries what the original client draws face for face.
+
+## Versions 2 to 4
+
+Version 4 is the record without `fadeCount` and `fades`, version 3 is version 4 without `movingCount`, `moving`, `mixKeyCount` and `mixKeys`, and version 2 is version 3 without `scale`, so each key is 11 bytes. Decoders still read all three, with no fades, no moving bones for versions 2 and 3, and every key at scale 1.0 (256) for version 2. The encoder always writes version 5. Version 3 added scale for sequences that grow or shrink a model (most spot animations, and some NPC vanishes and deaths), version 4 the moving bones and mix keys, and version 5 fades.
 
 ## Rotation
 
@@ -101,8 +121,9 @@ The encoder checks these before writing and the decoder after reading; a failure
 - The same two rules for `mixKeys`.
 - `moving` is ascending with no repeats.
 - No mix key is for a bone in `moving`, and there are no mix keys without moving bones.
+- Fades are sorted by `(t, group)`, strictly, every `t` is below `frameCount`, and every fade has `lo ≤ hi`.
 
-The decoder also rejects a bad magic, a version other than 2, 3 or 4, a record that ends early, and trailing bytes. A clip doesn't carry its rig's bone count, so nothing checks `bone` against the rig, and nothing checks that `frameStart` is increasing or that `loopOffset` is in range.
+The decoder also rejects a bad magic, a version other than 2 to 5, a record that ends early, and trailing bytes. A clip doesn't carry its rig's bone count, so nothing checks `bone` against the rig, and nothing checks that `frameStart` is increasing or that `loopOffset` is in range.
 
 ## Ids
 

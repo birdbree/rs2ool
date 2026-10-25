@@ -22,8 +22,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::infer::{Motion, ROLE_ORDER, Role};
 
-/// The measures the tree splits on, in [`features`] order.
-pub const FEATURES: [&str; 11] = [
+/// How many measures the tree splits on.
+pub const FEATURE_COUNT: usize = 14;
+
+/// The measures the tree splits on, in [`features`] order. New ones go at
+/// the end, so a saved tree's feature numbers keep their meaning.
+pub const FEATURES: [&str; FEATURE_COUNT] = [
     "end_height",
     "drop",
     "returns",
@@ -35,10 +39,13 @@ pub const FEATURES: [&str; 11] = [
     "spread",
     "hold",
     "stretch",
+    "end_visible",
+    "min_visible",
+    "start_visible",
 ];
 
 /// A motion as the tree sees it, in [`FEATURES`] order.
-pub fn features(m: &Motion) -> [f64; 11] {
+pub fn features(m: &Motion) -> [f64; FEATURE_COUNT] {
     [
         m.end_height,
         m.drop,
@@ -51,6 +58,9 @@ pub fn features(m: &Motion) -> [f64; 11] {
         m.spread,
         f64::from(m.hold),
         m.stretch,
+        m.end_visible,
+        m.min_visible,
+        m.start_visible,
     ]
 }
 
@@ -58,7 +68,7 @@ pub fn features(m: &Motion) -> [f64; 11] {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     /// Its motion, from [`features`].
-    pub x: [f64; 11],
+    pub x: [f64; FEATURE_COUNT],
     /// The role it really has.
     pub role: Role,
     /// How much it counts; 1 for a label checked by eye.
@@ -197,7 +207,7 @@ impl Tree {
     }
 
     /// The role it gives a motion's features.
-    pub fn predict(&self, x: &[f64; 11]) -> Role {
+    pub fn predict(&self, x: &[f64; FEATURE_COUNT]) -> Role {
         match self {
             Tree::Leaf { role } => *role,
             Tree::Split {
@@ -295,7 +305,7 @@ mod tests {
     use super::*;
 
     fn sample(drop: f64, hold: f64, role: Role) -> Sample {
-        let mut x = [0.0; 11];
+        let mut x = [0.0; FEATURE_COUNT];
         x[1] = drop;
         x[9] = hold;
         Sample {

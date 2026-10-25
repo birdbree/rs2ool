@@ -141,7 +141,7 @@ impl Role {
 
 /// How a sequence moves a model, each distance as a share of the model's
 /// height in the sequence's first frame.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Motion {
     /// The last frame's height.
     pub end_height: f64,
@@ -174,6 +174,16 @@ pub struct Motion {
     /// made for another labelling of the model stretches many. See
     /// [`TEARS`].
     pub stretch: f64,
+    /// How much of the model shows in the last frame, against its rest:
+    /// each face's rest area weighted by its opacity under the frame's
+    /// fades, over the same at rest. 1 when nothing fades, 0 when it has
+    /// faded away.
+    pub end_visible: f64,
+    /// The least of the model that shows in any frame, the same way.
+    pub min_visible: f64,
+    /// How much shows in the first frame: under 1 for a sequence that
+    /// starts faded (appearing, say).
+    pub start_visible: f64,
 }
 
 /// A stretch from which a sequence counts as tearing its model: it was
@@ -186,6 +196,8 @@ pub const TEARS: f64 = 1.5;
 const LOWERED: f64 = 0.3;
 /// An end height below which the model has gone.
 const VANISHED: f64 = 0.05;
+/// A share of the model showing at the end below which it has faded away.
+const FADED: f64 = 0.1;
 /// A last frame held at least this long (cycles, 1 s) stays down. The
 /// sequences that go down without staying hold their last frame for well
 /// under half a second.
@@ -235,6 +247,62 @@ fn stretch(c: &Creature, frames: &[Vec<[i32; 3]>], height: f64) -> f64 {
         .fold(1.0, f64::max)
 }
 
+impl Default for Motion {
+    /// No motion, the model fully showing throughout.
+    fn default() -> Self {
+        Self {
+            end_height: 0.0,
+            drop: 0.0,
+            returns: 0.0,
+            peak: 0.0,
+            duration: 0,
+            lift: 0.0,
+            rise: 0.0,
+            base_drop: 0.0,
+            spread: 0.0,
+            hold: 0,
+            stretch: 0.0,
+            end_visible: 1.0,
+            min_visible: 1.0,
+            start_visible: 1.0,
+        }
+    }
+}
+
+/// How much of `c`'s model shows at each of sequence `s`'s `n` frames,
+/// against its rest (see [`Motion::end_visible`]). Every frame shows all
+/// of it when the sequence fades nothing.
+fn visibility(c: &Creature, s: usize, n: usize) -> Vec<f64> {
+    let area = |f: &[u16; 3]| {
+        let [a, b, d] = f.map(|i| c.rest.get(usize::from(i)).copied().unwrap_or_default());
+        let (u, v) = (
+            [0, 1, 2].map(|k| f64::from(b[k] - a[k])),
+            [0, 1, 2].map(|k| f64::from(d[k] - a[k])),
+        );
+        let x = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt() / 2.0
+    };
+    let areas: Vec<f64> = c.model.faces.iter().map(area).collect();
+    let shown = |alphas: &[u8]| -> f64 {
+        areas
+            .iter()
+            .zip(alphas)
+            .map(|(a, &t)| a * (1.0 - f64::from(t) / 255.0))
+            .sum()
+    };
+    let rest = shown(&c.base_alphas());
+    if rest <= 0.0 {
+        return vec![1.0; n];
+    }
+    (0..n)
+        .map(|i| c.faded(s, i).map_or(1.0, |a| shown(&a) / rest))
+        .collect()
+}
+
 impl Motion {
     /// Whether it stretches its model past [`TEARS`].
     pub fn tears(&self) -> bool {
@@ -274,6 +342,7 @@ impl Motion {
         };
         let (end_top, end_bottom) = span(last);
         let delays = c.delays(s);
+        let visible = visibility(c, s, n);
         // The widest horizontal extent, x or z.
         let extent = |v: &[[i32; 3]]| {
             let along = |a: usize| {
@@ -308,6 +377,9 @@ impl Motion {
                 .fold(0.0, f64::max)
                 / height,
             stretch: stretch(c, &frames, height),
+            end_visible: visible.last().copied().unwrap_or(1.0),
+            min_visible: visible.iter().copied().fold(1.0, f64::min),
+            start_visible: visible.first().copied().unwrap_or(1.0),
         })
     }
 
@@ -318,7 +390,7 @@ impl Motion {
             Role::Vanish
         } else if self.base_drop >= LOWERED {
             Role::Drop
-        } else if lowered && self.hold >= HELD {
+        } else if lowered && (self.hold >= HELD || self.end_visible < FADED) {
             Role::Death
         } else if lowered {
             Role::Down
@@ -716,6 +788,15 @@ mod tests {
         assert_eq!(falls.role(), Role::Drop);
         // Nothing left at the end: vanish, whatever else happened.
         assert_eq!(held(m(0.0, 0.7, 0.4, 0.4)).role(), Role::Vanish);
+        // Going down and fading away is a death even without the hold;
+        // fading away in place says nothing on its own.
+        let fades = |m: Motion| Motion {
+            end_visible: 0.02,
+            min_visible: 0.02,
+            ..m
+        };
+        assert_eq!(fades(m(0.5, 0.56, 0.3, 0.42)).role(), Role::Death);
+        assert_eq!(fades(m(1.0, 0.0, 0.0, 0.1)).role(), Role::Action);
         assert_eq!(m(1.0, 0.0, 0.01, 0.02).role(), Role::Idle);
         assert_eq!(m(1.0, 0.0, 0.05, 0.15).role(), Role::Action);
         assert_eq!(m(0.97, 0.03, 0.3, 0.3).role(), Role::Other);

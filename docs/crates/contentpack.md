@@ -53,9 +53,9 @@ Each module under `records` has a Rust type and a pair of functions. `encode` re
 
 | Module | Types and helpers | Pack kind |
 | --- | --- | --- |
-| `records::model` | `PackModel`, `AttachPoint`, `flags` (`UV`, `ALPHA`, `PRIORITY`, `LABELS`) | models |
+| `records::model` | `PackModel`, `AttachPoint`, `flags` (`UV`, `ALPHA`, `PRIORITY`, `LABELS`, `FACE_GROUPS`) | models |
 | `records::rig` | `Rig`, `Bone`, `NO_PARENT`, `UNBOUND` | rigs |
-| `records::anim` | `Clip`, `Key`, `NO_LOOP` | anims |
+| `records::anim` | `Clip`, `Key`, `Fade` (with `Fade::apply`), `NO_LOOP` | anims |
 | `records::material` | `Material`, `mode`, `flags`, `PALETTE_ID`, `encode_palette`, `decode_palette` | materials |
 | `records::texture` | `TextureRect`, `Atlas`, `ATLAS_BASE` | textures |
 | `records::sprite` | `SpriteRecord`, `FontMetrics` | sprites |

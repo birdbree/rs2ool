@@ -112,6 +112,8 @@ pub fn convert(m: &Model, palette: &Palette) -> Result<PackModel, ConvertError> 
         alphas,
         priorities,
         labels: m.vertex_labels.clone(),
+        // The cache's face labels are what fades pick faces by.
+        face_groups: m.face_labels.clone(),
         attach_points: Vec::new(),
     })
 }

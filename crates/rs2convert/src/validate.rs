@@ -20,7 +20,7 @@
 //! skinned = world_b · (v − pivot_b)       b = labelBone[label], 0 if unbound
 //! ```
 
-use contentpack::records::anim::{Clip, Key};
+use contentpack::records::anim::{Clip, Fade, Key};
 use contentpack::records::model::PackModel;
 use contentpack::records::rig::{NO_PARENT, Rig, UNBOUND};
 use glam::{DAffine3, DVec3};
@@ -81,6 +81,14 @@ pub struct ClipReport {
     /// creature's movement clips.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub moving: Vec<MovingReport>,
+    /// Faces, over every frame, whose transparency under the clip's fades
+    /// isn't the original client's. Fades are exact, so any is a flag.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub fade_mismatches: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// The error of a clip mixed with one movement clip, over every pair of
@@ -93,8 +101,12 @@ pub struct MovingReport {
     pub max: f64,
     /// Mean over every pair of the pair's mean error.
     pub mean: f64,
-    /// Whether `max` is over [`MIX_THRESHOLD`].
+    /// Whether `max` is over [`MIX_THRESHOLD`], or any fade mismatches.
     pub flagged: bool,
+    /// Faces, over every pair of frames, whose transparency under the
+    /// clip's fades isn't the original client's.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub fade_mismatches: usize,
 }
 
 /// World transforms of every bone at frame `t`, from the records alone.
@@ -143,6 +155,56 @@ fn pose_by<'a>(rig: &Rig, key: impl Fn(usize) -> Option<&'a Key>) -> Vec<DAffine
         world.push(parent * local);
     }
     world
+}
+
+/// A pack model's face opacity (255 opaque) at frame `t` of a clip: each
+/// face's own, or 255 where the model has none, under the clip's fade for
+/// its face group, if there is one. `None` when the clip doesn't fade
+/// anything at `t`.
+pub fn opacities(model: &PackModel, clip: &Clip, t: u8) -> Option<Vec<u8>> {
+    let groups = model.face_groups.as_deref()?;
+    let fades: Vec<&Fade> = clip.fades.iter().filter(|f| f.t == t).collect();
+    if fades.is_empty() {
+        return None;
+    }
+    Some(
+        (0..model.faces.len())
+            .map(|f| {
+                let own = model.alphas.as_ref().map_or(255, |a| a[f]);
+                fades
+                    .iter()
+                    .find(|x| x.group == groups[f])
+                    .map_or(own, |x| x.apply(own))
+            })
+            .collect(),
+    )
+}
+
+/// The creature's face transparency (0 opaque) under a clip's fades at
+/// frame `t`, from its own: what a pack model converted from it and the
+/// clip show, back in the cache's terms. To draw beside
+/// [`Creature::faded`].
+pub fn converted_alphas(creature: &Creature, clip: &Clip, t: u8) -> Vec<u8> {
+    let base = creature.base_alphas();
+    let Some(labels) = creature.model.face_labels.as_deref() else {
+        return base;
+    };
+    base.iter()
+        .zip(labels)
+        .map(|(&a, &g)| {
+            clip.fades
+                .iter()
+                .find(|x| x.t == t && x.group == g)
+                .map_or(a, |x| 255 - x.apply(255 - a))
+        })
+        .collect()
+}
+
+/// Faces whose transparency differs between `got` and `want`, or the
+/// model's own when `want` is `None`.
+fn mismatches(creature: &Creature, got: &[u8], want: Option<Vec<u8>>) -> usize {
+    let want = want.unwrap_or_else(|| creature.base_alphas());
+    got.iter().zip(&want).filter(|(a, b)| a != b).count()
 }
 
 /// A pack model's vertices (pack space) at frame `t` of a clip, skinned by
@@ -276,11 +338,18 @@ pub fn validate_moving(
     m: &Sequence,
 ) -> MovingReport {
     let (mut max, mut sum, mut pairs) = (0.0f64, 0.0f64, 0usize);
+    let mut fade_mismatches = 0;
     for i in 0..s.def.frames.len() {
         for j in 0..m.def.frames.len() {
             let Some(reference) = creature.reference_moving(s, i, m, j) else {
                 continue;
             };
+            // A mix takes the clip's fades.
+            fade_mismatches += mismatches(
+                creature,
+                &converted_alphas(creature, clip, i as u8),
+                creature.reference_alphas_moving(s, i, m, j),
+            );
             let world = pose_moving(rig, clip, i as u8, moving, j as u8);
             let (mut pair_max, mut pair_sum) = (0.0f64, 0.0f64);
             for (v, (p, _, _)) in skin_rest(creature, rig, world).enumerate() {
@@ -297,7 +366,8 @@ pub fn validate_moving(
         sequence: m.def.id,
         max,
         mean: sum / pairs.max(1) as f64,
-        flagged: max > MIX_THRESHOLD,
+        flagged: max > MIX_THRESHOLD || fade_mismatches > 0,
+        fade_mismatches,
     }
 }
 
@@ -307,10 +377,16 @@ pub fn validate_moving(
 /// what's stored. See the module docs for what's skinned and compared.
 pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> ClipReport {
     let mut frames = Vec::new();
+    let mut fade_mismatches = 0;
     for i in 0..s.def.frames.len() {
         let Some(reference) = creature.reference(s, i) else {
             continue;
         };
+        fade_mismatches += mismatches(
+            creature,
+            &converted_alphas(creature, clip, i as u8),
+            creature.reference_alphas(s, i),
+        );
         let mut errors: Vec<WorstVertex> = skin_rest(creature, rig, pose(rig, clip, i as u8))
             .enumerate()
             .map(|(v, (skinned, label, b))| WorstVertex {
@@ -338,8 +414,9 @@ pub fn validate(creature: &Creature, rig: &Rig, clip: &Clip, s: &Sequence) -> Cl
         sequence: s.def.id,
         max,
         mean,
-        flagged: max > THRESHOLD,
+        flagged: max > THRESHOLD || fade_mismatches > 0,
         frames,
         moving: Vec::new(),
+        fade_mismatches,
     }
 }

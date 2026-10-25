@@ -67,6 +67,9 @@ On the test cache, anchored on each NPC's stand sequence alone, its walk sequenc
 | `hold` | how long the last frame is held, in cycles |
 | `duration` | how long one run lasts, in cycles |
 | `stretch` | how much the model's faces stretch: in the worst frame, the length 95% of face edges stay within, over their rest length (against the rest pose, unlike the others) |
+| `end_visible` | how much of the model shows in the last frame: each face's rest-pose area weighted by its opacity under the frame's [fades](../client/animation.md#alpha), over the same at rest (1 when nothing fades, 0 when it's faded away) |
+| `min_visible` | the least of the model that shows in any frame, the same way |
+| `start_visible` | how much shows in the first frame: under 1 for a sequence that starts faded |
 
 The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks the first rule that fits:
 
@@ -74,13 +77,13 @@ The first frame is the reference, not the rest pose, because some models are ani
 | --- | --- | --- |
 | vanish | `end_height < 0.05` | shrinks away, sinks out of sight, a teleport |
 | drop | `base_drop ≥ 0.3` | the whole body goes down: a fall, or a jump down into a gap |
-| death | `drop ≥ 0.3`, `end_height ≤ 0.75` and `hold ≥ 50` (1 s) | goes down and stays down |
+| death | `drop ≥ 0.3`, `end_height ≤ 0.75`, and `hold ≥ 50` (1 s) or `end_visible < 0.1` | goes down and stays down, or goes down and fades away |
 | down | `drop ≥ 0.3` and `end_height ≤ 0.75` | goes down without staying: falls over, kneels, sits, floats down |
 | idle | `peak < 0.06` | barely moves |
 | action | `returns ≤ 0.15` | moves and comes back: an attack, a block or a gait, which motion alone can't tell apart |
 | other | anything else | such as a sequence that ends somewhere new |
 
-The hold is the strongest death signal. Last frames are held either briefly (2–50 cycles) or for a very long time (10,000–20,000), with little in between, and a death holds. Vanish comes first because a model shrinking about its centre also lifts its lowest point and lowers its top, which would otherwise read as a jump or a death.
+The hold is the strongest death signal. Last frames are held either briefly (2–50 cycles) or for a very long time (10,000–20,000), with little in between, and a death holds. A death can also go down and fade away instead of holding; on the labels below, counting those gained three deaths (455 to 458 right) and lost nothing. Fading away without going down isn't a vanish rule: as many sequences labelled as actions or others fade out as vanishes do, so that rule made things worse (441). Vanish comes first because a model shrinking about its centre also lifts its lowest point and lowers its top, which would otherwise read as a jump or a death.
 
 **Checked against what is named.** Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles), other 8 and drop once. Their walk sequences come out action 201 times, idle 19, other 24 and down once. 120 of the 250 creatures have a death among their candidates, and 125 a death or a vanish (some creatures die by shrinking or sinking away). `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
 
@@ -117,7 +120,7 @@ The rules above were tuned by hand. `rs2ool cache classify` learns roles from se
 | `vanish` | vanish |
 | `land`, `other` | other: a landing starts in the air |
 
-Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the fourteen measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
 
 On 756 labelled sequences, the rules got 457 right (60%) and the tree 534 (71%). The labels were 46 reviewed captions, 16 from the labels file, and 694 imported from another labeller. The imported labels cover one NPC from each of 56 skeleton families plus 100 of the shared humanoid pool, and a second round of 125 sequences, drawn from every NPC, that the rules called downs, drops or vanishes. Where the imported labels and the reviews cover the same sequences, they agree on the role 12 times out of 15. Two cautions:
 

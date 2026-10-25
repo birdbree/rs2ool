@@ -28,8 +28,9 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 ## Fidelity gaps
 
 - [x] [#24](https://github.com/birdbree/rs2ool/issues/24) Mix secondary frames through interleave slots
-- [ ] [#25](https://github.com/birdbree/rs2ool/issues/25) Carry scale transforms into clips
-- [ ] [#26](https://github.com/birdbree/rs2ool/issues/26) Apply alpha transforms
+- [x] [#25](https://github.com/birdbree/rs2ool/issues/25) Carry scale transforms into clips
+- [x] [#26](https://github.com/birdbree/rs2ool/issues/26) Apply alpha transforms
+- [ ] [#91](https://github.com/birdbree/rs2ool/issues/91) Carry shear in clip keys
 - [x] [#27](https://github.com/birdbree/rs2ool/issues/27) Draw terrain the way the original client does
 - [x] [#28](https://github.com/birdbree/rs2ool/issues/28) Draw overlay shapes and rotations
 - [x] [#29](https://github.com/birdbree/rs2ool/issues/29) Stitch neighbouring regions

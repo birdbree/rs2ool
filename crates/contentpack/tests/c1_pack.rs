@@ -18,6 +18,7 @@ fn one_synthetic_model_round_trips() {
         alphas: Some(vec![255, 255, 128, 0]),
         priorities: None,
         labels: Some(vec![0, 1, 1, 2]),
+        face_groups: Some(vec![0, 0, 1, 1]),
         attach_points: vec![AttachPoint {
             name_hash: 7,
             position: [0, 240, 0],

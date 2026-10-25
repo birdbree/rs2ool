@@ -120,7 +120,7 @@ pub fn skeleton(
     {
         let posed = seq.and_then(|s| crate::explorer::playback::posed_moving(r, s, frame, moving));
         let vertices = match &posed {
-            Some(crate::explorer::playback::Posed::Cache(v)) => v.as_slice(),
+            Some(crate::explorer::playback::Posed::Cache(v, _)) => v.as_slice(),
             _ => creature.rest.as_slice(),
         };
         let labels = creature.model.vertex_labels.as_deref().unwrap_or_default();
@@ -261,6 +261,7 @@ mod tests {
                 scale: [contentpack::records::anim::SCALE_ONE; 3],
             }],
             mix_keys: Vec::new(),
+            fades: Vec::new(),
         };
         let rig = rig();
         assert_eq!(

@@ -17,6 +17,10 @@
 //! The origin starts at (0, 0, 0) for each frame and carries over from one
 //! op to the next until another origin op replaces it.
 //!
+//! Alpha transforms work on faces instead: [`apply_alpha`] adds
+//! `dx × 8` to the transparency of the faces whose face label the slot
+//! lists, clamped to 0–255 after each one.
+//!
 //! [`apply_interleaved`] is the mix the original client draws when a
 //! creature plays a sequence with an interleave list while it moves: the
 //! moving sequence's frame drives the listed slots, the action's frame the
@@ -120,6 +124,29 @@ pub fn rotate(v: [i32; 3], rx: i32, ry: i32, rz: i32) -> [i32; 3] {
         x = nx;
     }
     [x, y, z]
+}
+
+/// The original client's step for one alpha transform: `dx × 8` added to
+/// a face's transparency (0 opaque, 255 invisible), clamped.
+pub fn alpha_step(alpha: u8, dx: i32) -> u8 {
+    (i32::from(alpha) + dx * 8).clamp(0, 255) as u8
+}
+
+/// Apply one frame's alpha transforms to per-face transparency `alphas`
+/// (0 opaque, 255 invisible) in place, exactly as the original client
+/// does: each face whose face label a slot lists takes an
+/// [`alpha_step`], in the frame's order. `faces` groups faces by face
+/// label, as [`Groups`] groups vertices. Other transforms are ignored.
+pub fn apply_alpha(alphas: &mut [u8], faces: &Groups, base: &[BaseTransform], frame: &Frame) {
+    for t in &frame.transforms {
+        if let Some(b) = base.get(usize::from(t.transform))
+            && b.kind == kind::ALPHA
+        {
+            for f in faces.of(&b.labels) {
+                alphas[f] = alpha_step(alphas[f], t.dx);
+            }
+        }
+    }
 }
 
 /// Mix two frames as the original client does for a creature playing an
@@ -412,5 +439,44 @@ mod tests {
         let mut v = vec![[0, 0, 0], [10, 0, 0]];
         apply_interleaved(&mut v, &groups, &base, &action, &moving, &[3]);
         assert!((v[1][0] + 10).abs() <= 1, "{v:?}");
+    }
+
+    #[test]
+    fn alpha_steps_add_eight_per_unit_and_clamp_each_time() {
+        assert_eq!(alpha_step(0, 4), 32);
+        assert_eq!(alpha_step(200, 32), 255);
+        assert_eq!(alpha_step(10, -2), 0);
+        let base = vec![
+            BaseTransform {
+                kind: kind::ALPHA,
+                labels: vec![1],
+            },
+            BaseTransform {
+                kind: kind::ALPHA,
+                labels: vec![1, 2],
+            },
+            BaseTransform {
+                kind: kind::TRANSLATE,
+                labels: vec![1],
+            },
+        ];
+        let t = |transform, dx| FrameTransform {
+            transform,
+            dx,
+            dy: 0,
+            dz: 0,
+        };
+        let frame = Frame {
+            id: 0,
+            delay: 1,
+            alpha: true,
+            transforms: vec![t(0, 32), t(1, -1), t(2, 50)],
+        };
+        // Faces labelled 0, 1, 2. The first step saturates face 1, so the
+        // second takes it down from 255, not from 250 + 256.
+        let faces = Groups::new(&[0, 1, 2]);
+        let mut alphas = vec![7, 250, 100];
+        apply_alpha(&mut alphas, &faces, &base, &frame);
+        assert_eq!(alphas, [7, 247, 92]);
     }
 }

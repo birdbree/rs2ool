@@ -143,10 +143,10 @@ When the selection can animate, the bottom panel shows a playback bar: a sequenc
 
 What plays:
 
-- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then its inferred sequences, grouped by role;
+- a cache NPC whose sequences resolve: its stand and walk sequences, posed through the reference deformation with its scale applied afterwards, then its inferred sequences, grouped by role. Faces fade as the original client fades them ([Animation](../client/animation.md#alpha)); a frame that fades a model switches it to the blended material, and back when it stops;
 - a cache spot animation with a sequence: its model recoloured, posed by the sequence, then scaled, as the original client draws it (without its turn), paired in compare mode with its converted model;
 - the player kit, with the player stance sequences;
-- a converted creature: a models-pack record whose rig is in the rigs pack beside it (`<dir>/rigs/`), with its clips from `<dir>/anims/`.
+- a converted creature: a models-pack record whose rig is in the rigs pack beside it (`<dir>/rigs/`), with its clips from `<dir>/anims/`, fading through its clips' [fades](../pack/anims.md#fades).
 
 The NPC definition only names its stand and walk sequences, so the explorer adds the likeliest others from [sequence inference](../conversion/inference.md). The picker lists them after the named ones in a group per role (deaths, actions, downs, drops, vanishes, idles, others; see [Roles](../conversion/inference.md#roles)), each with a count; deaths and actions start open. Within a group each shows its score, and the chosen one reads "seq N · inferred death 0.62". Hovering one shows its evidence: same skeleton, how much of the model it moves, how far its id is from a named sequence, and what its motion suggests. A humanoid's candidates are the whole shared humanoid pool, about 1200 sequences, classified on that NPC's model. Ranking by id means little there, so they're ordered by role instead (most collapsed deaths first, short energetic actions first) and marked "shared pool", without a score. In compare mode, if the right-hand model has no clip for the chosen sequence, the playback bar says so; converting the NPC again includes every inferred sequence. The sequence index behind it is built the first time an NPC is selected, which takes a moment, and then kept for the session.
 
