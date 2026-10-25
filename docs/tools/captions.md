@@ -32,6 +32,8 @@ rs2ool cache caption --check --enable --backend openai --endpoint http://127.0.0
 
 `--check` asks the server which models it has and marks the chosen one. It doesn't need a cache.
 
+Choose a model that answers straight away rather than one that thinks first. Requests to Ollama ask for no thinking, but some thinking models reason anyway, for a minute or more per image, and can leave no answer at all; an empty reply counts as a failure and isn't stored. On an 8 GB machine, a 2B instruct model answers in about 7 seconds per image.
+
 ## Settings
 
 The settings live in `settings.json` in your platform's config directory, under `caption`. The explorer keeps its output folder in the same file. Every key is optional.
@@ -97,7 +99,7 @@ The built-in question explains the grid and asks for two lines: what the charact
 | `work` | mines, chops, fishes, cooks or uses a tool |
 | `other` | none of these |
 
-Requests ask for temperature 0 and no streaming. Small models don't always follow the format, so the reply is read leniently:
+Requests ask for temperature 0, no streaming and, from Ollama, no thinking. Small models don't always follow the format, so the reply is read leniently:
 
 - The description is the first line, with list markers, `Line 1:` prefixes, quotes and emphasis stripped.
 - The class is taken from the last line that names one: the whole line if it's a class name, or else the longest class name it contains as whole words.
