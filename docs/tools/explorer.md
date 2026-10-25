@@ -86,7 +86,13 @@ The pitch is limited to 85° above or below the horizon. Around a model, the tar
 | 317 lighting (default) | the original client's flat directional term (ambient 64, contrast 850, light from (−30, −50, −30)) baked into each face's colour and drawn unlit, so the model looks the way the original client lights it |
 | Engine lighting | the raw face colours under a directional light and ambient light, for judging shape |
 
-Every face is flat-shaded in both. For pack models, 317 lighting takes each face normal back to cache space and applies the same term to the colour's lightness. See [Lighting](../client/lighting.md).
+Every face is flat-shaded in both. For pack models, 317 lighting takes each face normal back to cache space and applies the same term to the colour's lightness. Face colours are sRGB, as the original client's are, and are converted to the engine's linear vertex colours, so they come out as dark as the classic renderer draws them. See [Lighting](../client/lighting.md).
+
+### Drawing order
+
+The original client paints rather than testing depth. Within a model it draws higher face priorities over lower ones, and in a scene it draws plane by plane from the lowest, each tile's ground before its ground decoration and that before the rest. Faces lying in the same plane then come out in that order: a crate's frame over its planks, the floor of an upper storey over the tops of the walls below it. A depth buffer would make them fight.
+
+The modern renderer splits each model into parts by priority as well as texture, and settles such faces in the same order. Each place further on in the order is drawn a hundred-thousandth of its distance nearer the camera, by scaling the part about the eye, which leaves every pixel where it was. At most a part comes about 0.14% of its distance nearer (plane 3, priority 11), ten units seen from across a whole region. Pack models carry their priorities and are split the same way.
 
 ### Vertex colours and bones
 
@@ -207,7 +213,7 @@ An item id wins over the slot's kit part: the slot then shows the item's equipme
 
 Selecting a `map` record builds the region: each plane's ground and every placed location that has a model. The ground is blended, lit, shadowed, shaped and textured as the original client draws it, the same in the modern and classic views; [Terrain](../client/terrain.md#what-the-region-viewer-draws) lists what the viewer leaves out. An overlay in the corner of the viewport shows "region X_Y", **N**, **W**, **E** and **S** buttons that step to the neighbouring region (north is +y), and a checkbox for each of the four planes.
 
-The camera starts above the middle of the region and is bounded to it: the target stays within the region's footprint, between plane 0's lowest ground and 3000 units above it, the zoom stays between 300 and 14000 units, and the pitch stays at least 0.08 radians above the horizon, so the eye never goes underground.
+Ground, ground decorations and objects take their place in the [drawing order](#drawing-order) by plane. The camera starts above the middle of the region and is bounded to it: the target stays within the region's footprint, between plane 0's lowest ground and 3000 units above it, the zoom stays between 300 and 14000 units, and the pitch stays at least 0.08 radians above the horizon, so the eye never goes underground.
 
 **View › World map** opens a window with plane 0 of every region at one pixel per tile, north up. The first time, it decodes every region, which takes a moment. The region on screen is outlined in yellow, and clicking a region opens it.
 
@@ -241,13 +247,18 @@ Every action except baking needs the current selection to be in a cache source, 
 | `--select kit` | select the player kit |
 | `--compare` | turn compare mode on (needs `--select`) |
 | `--classic` | start in the classic renderer |
+| `--camera YAW,PITCH,DISTANCE[,X,Y,Z]` | once everything has loaded, point the camera: yaw and pitch in degrees, the distance, and optionally the point it looks at, in world units (x east, y up, z south: tile `(x, y)` is at `x·128, −y·128`) |
+| `--screenshot FILE` | once everything has loaded (and the camera has moved), save the window as a PNG and close |
 | `--pack FILE` | also open a pack; repeatable (`cache explorer` only; `pack explorer` takes packs as arguments) |
 
 ```text
 rs2ool cache explorer --select npc:1 --compare --pack packs/models/<hash>.pack
 rs2ool pack explorer packs/models/<hash>.pack --select model:0 --compare
 rs2ool cache explorer --select map:12336 --classic
+rs2ool cache explorer --select map:12850 --camera 34,50,2600,1024,400,-2560 --screenshot castle.png
 ```
+
+"Everything has loaded" means the startup sources, the selection and any region, and then 60 frames with no job running, so meshes and textures have reached the screen.
 
 `--select` always selects in the cache, so with `pack explorer` it needs `--cache` or `RS2_CACHE`. A map id is `x << 8 | y` (12336 is region `48_48`).
 

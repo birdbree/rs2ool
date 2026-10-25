@@ -120,6 +120,8 @@ fn region_with_upper_floors_builds_every_plane() {
     );
     assert!(placed(0) > 0, "the ground has objects");
     assert!(placed(1) > 0 && placed(2) > 0, "upper floors have objects");
+    // Both renderers draw every model from its one lit form.
+    assert!(built.models.keys().eq(built.lit.keys()));
 
     // The world image covers every region in the map index, and on
     // average each paints at least a quarter of its 64 × 64 tiles.

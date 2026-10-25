@@ -32,7 +32,7 @@ mod explorer {
     use std::path::PathBuf;
     use std::process::ExitCode;
 
-    use rs2ool::explorer::app::{self, Startup, parse_select};
+    use rs2ool::explorer::app::{self, CameraView, Startup, parse_camera, parse_select};
     use rs2ool::explorer::selection::Sel;
 
     /// How the explorer opens.
@@ -52,6 +52,15 @@ mod explorer {
         /// Start in the classic renderer.
         #[arg(long)]
         classic: bool,
+        /// Once everything has loaded, point the camera: `YAW,PITCH,DISTANCE`
+        /// (degrees, degrees, world units), optionally followed by `,X,Y,Z`,
+        /// the point it looks at in world units.
+        #[arg(long, value_parser = parse_camera, allow_hyphen_values = true)]
+        camera: Option<CameraView>,
+        /// Once everything has loaded (and the camera has moved), save a
+        /// screenshot of the window to this PNG and close.
+        #[arg(long, value_name = "FILE")]
+        screenshot: Option<PathBuf>,
     }
 
     impl ExplorerArgs {
@@ -64,6 +73,8 @@ mod explorer {
                 select: self.select,
                 compare: self.compare,
                 classic: self.classic,
+                camera: self.camera,
+                screenshot: self.screenshot,
             });
             ExitCode::SUCCESS
         }
