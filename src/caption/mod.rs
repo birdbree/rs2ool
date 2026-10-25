@@ -18,6 +18,8 @@ pub mod store;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use rs2cache::Records;
@@ -29,24 +31,61 @@ use crate::cache::Outcome;
 use crate::cache::select::usage;
 use crate::settings::Caption;
 use client::Client;
-use store::{Entry, Store};
+use store::{Entry, Store, lock};
 
 /// The classes a caption picks from, each with the gloss the question
-/// gives it.
+/// gives it. Each gloss names the cue that sets its class apart, in terms
+/// of what the frames show, and none uses another class's name.
 pub const CLASSES: [(&str, &str); 14] = [
-    ("idle", "stands, sits or hovers in place"),
-    ("walk", "walks, runs, flies or swims along"),
-    ("attack", "strikes, bites, kicks, casts or shoots"),
-    ("block", "blocks, flinches or recoils from a hit"),
-    ("death", "collapses and lies still"),
-    ("fall over", "topples or drops to the ground"),
-    ("fall away", "drops down out of sight, such as into a gap"),
-    ("descend", "floats or lowers itself down gently"),
-    ("jump", "leaps up, over or across"),
-    ("land", "lands from a fall or a jump"),
-    ("vanish", "shrinks, sinks or fades away, as in a teleport"),
-    ("gesture", "waves, bows, dances or makes another gesture"),
-    ("work", "mines, chops, fishes, cooks or uses a tool"),
+    ("idle", "stays where it is and barely moves"),
+    (
+        "walk",
+        "steps, runs, flies or swims in a repeating cycle, as if travelling",
+    ),
+    (
+        "attack",
+        "strikes, bites, kicks, casts or shoots at something ahead, then returns to its starting pose",
+    ),
+    (
+        "block",
+        "braces, flinches or recoils as if hit, then returns to its starting pose",
+    ),
+    (
+        "gesture",
+        "waves, bows, dances, cheers or makes another expressive movement aimed at no one",
+    ),
+    (
+        "work",
+        "repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking",
+    ),
+    (
+        "death",
+        "collapses, then squashes flat into the ground and stays there",
+    ),
+    (
+        "fall over",
+        "topples backwards, forwards or onto its knees, without squashing flat",
+    ),
+    (
+        "fall away",
+        "moves down below the ground band at full size, out of sight, as into a gap",
+    ),
+    (
+        "descend",
+        "comes down slowly from above, floating or lowering itself, and settles on the ground",
+    ),
+    (
+        "jump",
+        "pushes off and leaves the ground, leaping up, over or across",
+    ),
+    (
+        "land",
+        "arrives from the air and takes the impact, ending crouched or standing on its feet",
+    ),
+    (
+        "vanish",
+        "gets smaller or fades in place until nothing is left, as in a teleport",
+    ),
     ("other", "none of these"),
 ];
 
@@ -156,6 +195,10 @@ pub struct Options {
     pub limit: Option<usize>,
     /// Also write each image here, as `npc<N>-seq<S>.png`.
     pub images: Option<PathBuf>,
+    /// Only these sequences, if given.
+    pub seqs: Option<BTreeSet<u32>>,
+    /// Set from another thread to stop after the image in hand.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 /// What a run reports as it goes.
@@ -235,10 +278,13 @@ fn plan(records: &Records, target: Target) -> Result<Vec<(u32, Vec<u32>)>> {
 /// captioning is off (unless it's a dry run) or the client can't be set up;
 /// a sequence that fails is reported and the run goes on, ending
 /// [`Outcome::Partial`].
+///
+/// The store is only locked to look up and add captions, never while
+/// waiting on the server, so others can read and review it meanwhile.
 pub fn run(
     records: &Records,
     c: &Caption,
-    store: &mut Store,
+    store: &Mutex<Store>,
     target: Target,
     opts: &Options,
     mut report: impl FnMut(Event),
@@ -255,16 +301,19 @@ pub fn run(
         Err(e) => return Err(e),
     };
     let model = c.model.trim().to_owned();
-    let done = |npc: u32, seq: u32| match target {
-        Target::Npc(_) => store.has(npc, seq, &model),
-        Target::All => store.has_seq(seq, &model),
-    };
     let mut todo: Vec<(u32, Vec<u32>)> = plan(records, target)?
         .into_iter()
         .map(|(npc, seqs)| {
+            let st = lock(store);
+            let done = |seq: u32| match target {
+                Target::Npc(_) => st.has(npc, seq, &model),
+                Target::All => st.has_seq(seq, &model),
+            };
+            let wanted = |seq: &u32| opts.seqs.as_ref().is_none_or(|w| w.contains(seq));
             let left: Vec<u32> = seqs
                 .into_iter()
-                .filter(|&s| opts.redo || !done(npc, s))
+                .filter(wanted)
+                .filter(|&s| opts.redo || !done(s))
                 .collect();
             (npc, left)
         })
@@ -293,7 +342,15 @@ pub fn run(
         opts,
     };
     let mut failed = false;
+    let stopped = || {
+        opts.cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+    };
     for (npc, seqs) in todo {
+        if stopped() {
+            break;
+        }
         let extra: Vec<u16> = seqs.iter().filter_map(|&s| u16::try_from(s).ok()).collect();
         let creature = match creature::npc(records, &frames_index, npc, &extra) {
             Ok(cr) => cr,
@@ -307,10 +364,16 @@ pub fn run(
             }
         };
         for seq in seqs {
+            if stopped() {
+                break;
+            }
             match ask.one(&creature, npc, seq, &mut report) {
                 Ok(Some(entry)) => {
-                    store.insert(entry.clone());
-                    store.save()?;
+                    {
+                        let mut st = lock(store);
+                        st.insert(entry.clone());
+                        st.save()?;
+                    }
                     report(Event::Captioned(&entry));
                 }
                 Ok(None) => {}
@@ -384,6 +447,7 @@ impl Ask<'_> {
             text,
             class,
             reply,
+            review: None,
         }))
     }
 }
@@ -412,10 +476,39 @@ mod tests {
     }
 
     #[test]
+    fn classes_are_distinct() {
+        let words = |s: &str| {
+            let w: Vec<String> = s
+                .to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned)
+                .collect();
+            format!(" {} ", w.join(" "))
+        };
+        for (i, (name, _)) in CLASSES.iter().enumerate() {
+            for (j, (other, gloss)) in CLASSES.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                assert_ne!(name, other);
+                // Neither a reply naming one class nor a gloss can be read
+                // as naming another.
+                let needle = words(name);
+                assert!(!words(other).contains(&needle), "{name} is inside {other}");
+                assert!(
+                    !words(gloss).contains(&needle),
+                    "{other}'s gloss says {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_prompt_fills_its_placeholders() {
         let p = prompt(&Caption::default(), 6);
         assert!(p.contains("shows 6 frames"));
-        assert!(p.contains("- fall away: drops down out of sight"));
+        assert!(p.contains("- fall away: moves down below the ground band"));
         assert!(!p.contains('{'));
         let own = Caption {
             prompt: Some("{frames}: {classes}".into()),

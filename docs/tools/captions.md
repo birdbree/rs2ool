@@ -54,7 +54,7 @@ Command-line flags override them for one run without saving anything: `--enable`
 ## The command
 
 ```text
-rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--images DIR] [--redo] [SERVER FLAGS]
+rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER FLAGS]
 rs2ool cache caption --all   [the same]
 rs2ool cache caption --check [SERVER FLAGS]
 ```
@@ -64,6 +64,7 @@ rs2ool cache caption --check [SERVER FLAGS]
 - `--dry-run` draws each image and prints its size, the URL and the question, without sending anything. Captioning doesn't have to be on, and no model has to be set.
 - `--images DIR` also writes each image as `npc<N>-seq<S>.png`, so you can see what the model is shown.
 - `--limit N` stops after `N` images.
+- `--seq A,B,…` takes only those candidates.
 - `--redo` captions again what's already captioned. Without it, a rerun only does what's missing: with `--npc`, a sequence already captioned on that NPC by the same model, and with `--all`, one already captioned on any NPC.
 
 Each caption prints as it comes back, as `npc 1 seq 2820: [death] Collapses forward and lies flat`. If a sequence fails, the error is printed and the run carries on, then exits 3. Captioning while it's off, or with no model set, is a usage error (exit 1).
@@ -84,20 +85,22 @@ The built-in question explains the grid and asks for two lines: what the charact
 
 | Class | Gloss given |
 | --- | --- |
-| `idle` | stands, sits or hovers in place |
-| `walk` | walks, runs, flies or swims along |
-| `attack` | strikes, bites, kicks, casts or shoots |
-| `block` | blocks, flinches or recoils from a hit |
-| `death` | collapses and lies still |
-| `fall over` | topples or drops to the ground |
-| `fall away` | drops down out of sight, such as into a gap |
-| `descend` | floats or lowers itself down gently |
-| `jump` | leaps up, over or across |
-| `land` | lands from a fall or a jump |
-| `vanish` | shrinks, sinks or fades away, as in a teleport |
-| `gesture` | waves, bows, dances or makes another gesture |
-| `work` | mines, chops, fishes, cooks or uses a tool |
+| `idle` | stays where it is and barely moves |
+| `walk` | steps, runs, flies or swims in a repeating cycle, as if travelling |
+| `attack` | strikes, bites, kicks, casts or shoots at something ahead, then returns to its starting pose |
+| `block` | braces, flinches or recoils as if hit, then returns to its starting pose |
+| `gesture` | waves, bows, dances, cheers or makes another expressive movement aimed at no one |
+| `work` | repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking |
+| `death` | collapses, then squashes flat into the ground and stays there |
+| `fall over` | topples backwards, forwards or onto its knees, without squashing flat |
+| `fall away` | moves down below the ground band at full size, out of sight, as into a gap |
+| `descend` | comes down slowly from above, floating or lowering itself, and settles on the ground |
+| `jump` | pushes off and leaves the ground, leaping up, over or across |
+| `land` | arrives from the air and takes the impact, ending crouched or standing on its feet |
+| `vanish` | gets smaller or fades in place until nothing is left, as in a teleport |
 | `other` | none of these |
+
+Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat and a `fall over` doesn't; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
 
 Requests ask for temperature 0, no streaming and, from Ollama, no thinking. Small models don't always follow the format, so the reply is read leniently:
 
@@ -122,12 +125,17 @@ The data directory is the platform's, for example `~/Library/Application Support
 | `text` | the description |
 | `class` | the class it picked, or `null` |
 | `reply` | the whole reply, as it came |
+| `review` | once it's checked by eye: `{"right": true}`, or `{"right": false, "class": "death"}` with the right class if the reviewer gave one; absent until then |
 
-Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption, so stopping a run part way keeps everything captioned so far.
+Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption and every review, so stopping a run part way keeps everything captioned so far. Captioning a sequence again with `--redo` replaces its caption, review and all.
+
+## In the explorer
+
+The explorer's **Captions** window holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
 
 ## What's next
 
-Reviewing captions in the explorer, marking them right or wrong and correcting their class, comes next. After that, the reviewed captions train a small role classifier to measure against the motion rules ([#72](https://github.com/birdbree/rs2ool/issues/72)).
+The reviewed captions are to train a small role classifier, measured against the motion rules ([#72](https://github.com/birdbree/rs2ool/issues/72)).
 
 ## See also
 

@@ -14,7 +14,7 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
-                         caption   (--npc N | --all | --check) [--dry-run] [--limit N] [--images DIR] [--redo] [SERVER]
+                         caption   (--npc N | --all | --check) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…
 
 rs2ool [--cache DIR] pack  materials   -o DIR

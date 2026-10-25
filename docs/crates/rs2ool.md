@@ -77,7 +77,7 @@ The module has three parts:
 - `caption::client` talks to the server, in Ollama's API or the OpenAI-compatible one.
 - `caption::store` keeps the captions, one JSON file per cache in the data directory.
 
-`caption::run` puts them together for the command line. It reports progress through a callback, so the explorer can drive it as a job.
+`caption::run` puts them together. It reports progress through a callback and takes the store behind a mutex, locked only to look up and add captions, so the explorer can run it as a job while the window reads and reviews the same store.
 
 `settings` is compiled with either feature. It's the one `Settings` struct both read and write, with the explorer's output folder and the caption settings, so a change made in one applies to the other. With the `explorer` feature it's also a Bevy resource.
 
@@ -89,6 +89,7 @@ Every cache read and conversion runs on Bevy's `AsyncComputeTaskPool` through `j
 | --- | --- |
 | [`actions`](../../src/explorer/actions.rs) | Export, dump, convert and bake through the same library calls the CLI makes, as jobs; remembers the output folder in `settings.json` (see `settings`). |
 | [`app`](../../src/explorer/app.rs) | The window, and the startup options the command line sets (`--select`, `--compare`, `--classic`). |
+| [`captions`](../../src/explorer/captions.rs) | With the `caption` feature: the Captions window (settings, connection test, the caption job for the selected NPC), caption tags in the sequence picker, and reviewing the chosen sequence's caption. The job and the window share one caption store. |
 | [`classic`](../../src/explorer/classic.rs) | The classic renderer view: the selected model drawn by `rs2classic` into a pixel buffer, shown nearest-neighbour over the viewport. |
 | [`inspector`](../../src/explorer/inspector.rs) | What the inspector shows (sidecar rows, decoded fields, hex dump), kept apart from egui so it can be tested. |
 | [`jobs`](../../src/explorer/jobs.rs) | Background jobs on the `AsyncComputeTaskPool` (`Jobs::spawn_job`), with progress reported through atomics the bottom bar reads. |
