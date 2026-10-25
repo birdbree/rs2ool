@@ -158,6 +158,9 @@ pub struct CaptionArgs {
     /// Stop after this many images.
     #[arg(long, value_name = "N")]
     limit: Option<usize>,
+    /// Only these candidate sequences, comma-separated.
+    #[arg(long, value_delimiter = ',', value_name = "A,B,…")]
+    seq: Option<Vec<u32>>,
     /// Also write each image to this directory.
     #[arg(long, value_name = "DIR")]
     images: Option<PathBuf>,
@@ -361,13 +364,14 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
 #[cfg(feature = "caption")]
 mod caption {
     use std::process::ExitCode;
+    use std::sync::Mutex;
 
     use anyhow::Result;
     use indicatif::{ProgressBar, ProgressStyle};
     use rs2cache::{Cache, Records};
     use rs2ool::cache::Outcome;
     use rs2ool::caption::client::{Client, is_local};
-    use rs2ool::caption::store::Store;
+    use rs2ool::caption::store::{Store, lock};
     use rs2ool::caption::{self, Event, Options, Target};
     use rs2ool::settings::{self, Caption, Settings};
 
@@ -461,10 +465,12 @@ mod caption {
             redo: a.redo,
             limit: a.limit,
             images: a.images.clone(),
+            seqs: a.seq.as_ref().map(|s| s.iter().copied().collect()),
+            cancel: None,
         };
         let dir = settings::data_dir()
             .ok_or_else(|| anyhow::anyhow!("this platform has no data directory for captions"))?;
-        let mut store = Store::open(&dir, rs2convert::source_cache_crc(cache)?)?;
+        let store = Mutex::new(Store::open(&dir, rs2convert::source_cache_crc(cache)?)?);
         if a.dry_run {
             match Client::new(&c) {
                 Ok(cl) => println!("would ask {} at {}", cl.model(), cl.chat_url()),
@@ -478,7 +484,7 @@ mod caption {
             warn_if_remote(&c);
         }
         let bar = ProgressBar::hidden();
-        let outcome = caption::run(records, &c, &mut store, target, &opts, |e| match e {
+        let outcome = caption::run(records, &c, &store, target, &opts, |e| match e {
             Event::Planned(n) => {
                 bar.set_length(n as u64);
                 bar.set_style(
@@ -517,7 +523,7 @@ mod caption {
         })?;
         bar.finish_and_clear();
         if !a.dry_run {
-            println!("captions are in {}", store.path().display());
+            println!("captions are in {}", lock(&store).path().display());
         }
         Ok(outcome)
     }

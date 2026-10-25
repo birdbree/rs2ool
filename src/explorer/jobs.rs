@@ -11,18 +11,27 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 /// Handed to a job so it can report progress. Cheap to clone into worker
-/// threads.
-#[derive(Clone)]
-pub struct ProgressHandle(Arc<AtomicU32>);
+/// threads. The default one isn't attached to any job, for calling a job's
+/// function directly.
+#[derive(Clone, Default)]
+pub struct ProgressHandle {
+    done: Arc<AtomicU32>,
+    total: Arc<AtomicU32>,
+}
 
 impl ProgressHandle {
     /// One more item done.
     pub fn inc(&self) {
-        self.0.fetch_add(1, Ordering::Relaxed);
+        self.done.fetch_add(1, Ordering::Relaxed);
     }
     /// Sets the count of items done outright.
     pub fn set(&self, n: u32) {
-        self.0.store(n, Ordering::Relaxed);
+        self.done.store(n, Ordering::Relaxed);
+    }
+    /// Sets the number of items in all, for a job that only finds out once
+    /// it's running.
+    pub fn set_total(&self, n: u32) {
+        self.total.store(n, Ordering::Relaxed);
     }
 }
 
@@ -75,8 +84,9 @@ pub struct Job {
     pub name: String,
     /// Items done so far; the job's [`ProgressHandle`] writes it.
     pub progress: Arc<AtomicU32>,
-    /// Items in all; 0 when the job can't tell up front.
-    pub total: u32,
+    /// Items in all; 0 while the job can't tell. The job's
+    /// [`ProgressHandle`] can set it.
+    pub total: Arc<AtomicU32>,
     /// The result, once it's finished.
     pub done: Option<JobResult>,
     // The running task; `None` once it's finished.
@@ -87,10 +97,11 @@ impl Job {
     /// How far along it is, 0.0 to 1.0. With no known total it jumps
     /// straight from 0 to 1 when the job finishes.
     pub fn fraction(&self) -> f32 {
-        if self.total == 0 {
+        let total = self.total.load(Ordering::Relaxed);
+        if total == 0 {
             return if self.done.is_some() { 1.0 } else { 0.0 };
         }
-        (self.progress.load(Ordering::Relaxed) as f32 / self.total as f32).min(1.0)
+        (self.progress.load(Ordering::Relaxed) as f32 / total as f32).min(1.0)
     }
 }
 
@@ -111,7 +122,11 @@ impl Jobs {
         f: impl FnOnce(ProgressHandle) -> anyhow::Result<Done> + Send + 'static,
     ) {
         let progress = Arc::new(AtomicU32::new(0));
-        let handle = ProgressHandle(progress.clone());
+        let total = Arc::new(AtomicU32::new(total));
+        let handle = ProgressHandle {
+            done: progress.clone(),
+            total: total.clone(),
+        };
         let task = AsyncComputeTaskPool::get()
             .spawn(async move { f(handle).map_err(|e| format!("{e:#}")) });
         self.list.push(Job {

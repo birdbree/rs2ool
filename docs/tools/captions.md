@@ -54,7 +54,7 @@ Command-line flags override them for one run without saving anything: `--enable`
 ## The command
 
 ```text
-rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--images DIR] [--redo] [SERVER FLAGS]
+rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER FLAGS]
 rs2ool cache caption --all   [the same]
 rs2ool cache caption --check [SERVER FLAGS]
 ```
@@ -64,6 +64,7 @@ rs2ool cache caption --check [SERVER FLAGS]
 - `--dry-run` draws each image and prints its size, the URL and the question, without sending anything. Captioning doesn't have to be on, and no model has to be set.
 - `--images DIR` also writes each image as `npc<N>-seq<S>.png`, so you can see what the model is shown.
 - `--limit N` stops after `N` images.
+- `--seq A,B,…` takes only those candidates.
 - `--redo` captions again what's already captioned. Without it, a rerun only does what's missing: with `--npc`, a sequence already captioned on that NPC by the same model, and with `--all`, one already captioned on any NPC.
 
 Each caption prints as it comes back, as `npc 1 seq 2820: [death] Collapses forward and lies flat`. If a sequence fails, the error is printed and the run carries on, then exits 3. Captioning while it's off, or with no model set, is a usage error (exit 1).
@@ -122,12 +123,17 @@ The data directory is the platform's, for example `~/Library/Application Support
 | `text` | the description |
 | `class` | the class it picked, or `null` |
 | `reply` | the whole reply, as it came |
+| `review` | once it's checked by eye: `{"right": true}`, or `{"right": false, "class": "death"}` with the right class if the reviewer gave one; absent until then |
 
-Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption, so stopping a run part way keeps everything captioned so far.
+Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption and every review, so stopping a run part way keeps everything captioned so far. Captioning a sequence again with `--redo` replaces its caption, review and all.
+
+## In the explorer
+
+The explorer's **Captions** menu holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
 
 ## What's next
 
-Reviewing captions in the explorer, marking them right or wrong and correcting their class, comes next. After that, the reviewed captions train a small role classifier to measure against the motion rules ([#72](https://github.com/birdbree/rs2ool/issues/72)).
+The reviewed captions are to train a small role classifier, measured against the motion rules ([#72](https://github.com/birdbree/rs2ool/issues/72)).
 
 ## See also
 

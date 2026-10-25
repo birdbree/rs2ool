@@ -469,12 +469,14 @@ fn evidence(c: &Candidate) -> String {
 /// Draws nothing unless the main selection can play something.
 ///
 /// `right` is compare mode's right-hand renderable, when compare mode is
-/// on: if it can't play the chosen sequence, the bar says so.
+/// on: if it can't play the chosen sequence, the bar says so. `tag` gives a
+/// sequence's caption tag, if it has a caption, to show beside it.
 pub fn playback_ui(
     ui: &mut egui::Ui,
     pb: &mut Playback,
     main: Option<&Renderable>,
     right: Option<&Renderable>,
+    tag: &dyn Fn(u32) -> Option<String>,
 ) {
     let Some(r) = main.filter(|_| !pb.seqs.is_empty()) else {
         return;
@@ -505,11 +507,14 @@ pub fn playback_ui(
                             for i in members {
                                 let s = pb.seqs[i];
                                 let Some(c) = inferred(r, s) else { continue };
-                                let text = if c.shared() {
+                                let mut text = if c.shared() {
                                     format!("seq {s}")
                                 } else {
                                     format!("seq {s} · {:.2}", c.score)
                                 };
+                                if let Some(t) = tag(s) {
+                                    text.push_str(&format!(" · {t}"));
+                                }
                                 ui.selectable_value(&mut chosen, i, text)
                                     .on_hover_text(evidence(c));
                             }
