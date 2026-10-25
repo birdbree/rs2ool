@@ -76,7 +76,7 @@ The module has three parts:
 - `caption::frames` draws a sequence as a grid of frames with `rs2classic`.
 - `caption::client` talks to the server, in Ollama's API or the OpenAI-compatible one.
 - `caption::store` keeps the captions, one JSON file per cache in the data directory.
-- `caption::classify` turns reviewed captions into labels, measures them, and grows and scores a role tree for `cache classify`.
+- `caption::classify` turns reviewed captions (and trusted imports) into labels, measures them, and grows and scores the role trees, global and per family, for `cache classify`.
 
 `caption::run` puts them together. It reports progress through a callback and takes the store behind a mutex, locked only to look up and add captions, so the explorer can run it as a job while the window reads and reviews the same store.
 

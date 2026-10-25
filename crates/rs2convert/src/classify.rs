@@ -248,6 +248,32 @@ impl Tree {
     }
 }
 
+/// A global tree, and trees for the skeleton families with enough labels
+/// of their own, as `rs2ool cache classify --save` keeps them. Family
+/// numbers are [`crate::infer::SequenceIndex`] families, which depend on
+/// the cache, so the cache's CRC comes along.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoleTrees {
+    /// The cache the trees were learned on
+    /// ([`crate::source_cache_crc`]).
+    pub cache_crc: u32,
+    /// Grown on every label.
+    pub global: Tree,
+    /// Grown on one family's labels, by family.
+    #[serde(default)]
+    pub families: BTreeMap<usize, Tree>,
+}
+
+impl RoleTrees {
+    /// The tree for an NPC on skeleton family `family`: its own if it has
+    /// one, else the global one.
+    pub fn for_family(&self, family: Option<usize>) -> &Tree {
+        family
+            .and_then(|f| self.families.get(&f))
+            .unwrap_or(&self.global)
+    }
+}
+
 /// Each sample's role from a tree grown on all the others: an honest
 /// estimate of how the tree does on sequences it hasn't seen.
 pub fn leave_one_out(samples: &[Sample], p: Params) -> Vec<Role> {
@@ -306,6 +332,21 @@ mod tests {
         // It round-trips through JSON.
         let json = serde_json::to_string(&t).unwrap();
         assert_eq!(serde_json::from_str::<Tree>(&json).unwrap(), t);
+    }
+
+    #[test]
+    fn family_trees_fall_back_to_the_global_one() {
+        let leaf = |role| Tree::Leaf { role };
+        let trees = RoleTrees {
+            cache_crc: 7,
+            global: leaf(Role::Action),
+            families: [(3, leaf(Role::Death))].into(),
+        };
+        assert_eq!(trees.for_family(Some(3)), &leaf(Role::Death));
+        assert_eq!(trees.for_family(Some(4)), &leaf(Role::Action));
+        assert_eq!(trees.for_family(None), &leaf(Role::Action));
+        let json = serde_json::to_string(&trees).unwrap();
+        assert_eq!(serde_json::from_str::<RoleTrees>(&json).unwrap(), trees);
     }
 
     #[test]

@@ -155,7 +155,7 @@ A candidate that tears the model, because it was made for another model on the s
 
 ### Captions
 
-If you've saved a role tree with `rs2ool cache classify --save`, the picker groups inferred sequences by the tree's roles instead of the hand-tuned rules, and says "learned" in each group's heading ([Learning roles from labels](../conversion/inference.md#learning-roles-from-labels)). It's read each time an NPC loads, so a newly saved tree shows on the next one. Conversion doesn't use it.
+If you've saved role trees with `rs2ool cache classify --save` on the open cache, the picker groups inferred sequences by the roles the NPC's family tree gives, or the global tree's where its family has none, instead of the hand-tuned rules, and says "learned" in each group's heading ([Learning roles from labels](../conversion/inference.md#learning-roles-from-labels)). It's read each time an NPC loads, so a newly saved tree shows on the next one. Conversion doesn't use it.
 
 With the `caption` feature (on by default), an inferred sequence that has a [caption](captions.md) shows its class after its name in the picker, as `seq 2820 · 💬 death`. Once it's reviewed, the mark changes: ✔ for marked right, ✎ with the class it was corrected to, and ✘ for wrong with no class given. A caption drawn on this NPC is shown first, by the model in the settings if there's one; otherwise it's one drawn on another NPC, which is what `--all` makes.
 

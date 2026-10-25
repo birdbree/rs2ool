@@ -92,8 +92,9 @@ The built-in question explains the grid and asks for two lines: what the charact
 | `block` | braces, flinches or recoils as if hit, then returns to its starting pose |
 | `gesture` | waves, bows, dances, cheers or makes another expressive movement aimed at no one |
 | `work` | repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking |
-| `death` | collapses, then squashes flat into the ground and stays there |
-| `fall over` | topples backwards, forwards or onto its knees, without squashing flat |
+| `death` | goes down, then squashes flat into the ground and stays there |
+| `collapse` | crumples into a heap and stays down, without squashing flat |
+| `fall over` | topples backwards, forwards or onto its knees, then gets up or keeps moving |
 | `fall away` | moves down below the ground band at full size, out of sight, as into a gap |
 | `descend` | comes down slowly from above, floating or lowering itself, and settles on the ground |
 | `jump` | pushes off and leaves the ground, leaping up, over or across |
@@ -101,7 +102,7 @@ The built-in question explains the grid and asks for two lines: what the charact
 | `vanish` | gets smaller or fades in place until nothing is left, as in a teleport |
 | `other` | none of these |
 
-Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat and a `fall over` doesn't; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
+Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat, a `collapse` crumples and stays down, and a `fall over` gets up or keeps moving; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
 
 Requests ask for temperature 0, no streaming and, from Ollama, no thinking. Small models don't always follow the format, so the reply is read leniently:
 
@@ -152,7 +153,7 @@ Reviewed captions are labels. `rs2ool cache classify` learns a small role tree f
 rs2ool cache classify [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
 ```
 
-It prints how many labelled sequences each gets right, a confusion table for each (labelled role against what it said), and the tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--trust <model>` (repeatable) counts that model's unreviewed captions as checked labels, scored like reviews; meant for imported labels you've spot-checked and found good. `--weak W` also learns from any other unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the tree, and the explorer's sequence picker then uses it for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
+It prints how many labelled sequences each gets right, the families with enough labels to try a tree of their own and how those do, a confusion table for each (labelled role against what it said), and the global tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--trust <model>` (repeatable) counts that model's unreviewed captions as checked labels, scored like reviews; meant for imported labels you've spot-checked and found good. `--weak W` also learns from any other unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the trees, and the explorer's sequence picker then uses them for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
 
 ## See also
 

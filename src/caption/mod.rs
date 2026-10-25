@@ -37,7 +37,7 @@ use store::{Entry, Store, lock};
 /// The classes a caption picks from, each with the gloss the question
 /// gives it. Each gloss names the cue that sets its class apart, in terms
 /// of what the frames show, and none uses another class's name.
-pub const CLASSES: [(&str, &str); 14] = [
+pub const CLASSES: [(&str, &str); 15] = [
     ("idle", "stays where it is and barely moves"),
     (
         "walk",
@@ -61,11 +61,15 @@ pub const CLASSES: [(&str, &str); 14] = [
     ),
     (
         "death",
-        "collapses, then squashes flat into the ground and stays there",
+        "goes down, then squashes flat into the ground and stays there",
+    ),
+    (
+        "collapse",
+        "crumples into a heap and stays down, without squashing flat",
     ),
     (
         "fall over",
-        "topples backwards, forwards or onto its knees, without squashing flat",
+        "topples backwards, forwards or onto its knees, then gets up or keeps moving",
     ),
     (
         "fall away",

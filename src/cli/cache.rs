@@ -659,6 +659,33 @@ mod caption {
             "tree, leave-one-out   {tree:>3}/{n} right ({:.0}%)",
             pct(tree)
         );
+        let combined = report.combined();
+        println!(
+            "family trees where there are, else the tree   {combined:>3}/{n} right ({:.0}%)",
+            pct(combined)
+        );
+        let families = report.family_scores();
+        if !families.is_empty() {
+            println!();
+            println!(
+                "families with enough labels to try a tree of their own, scored within the family; kept where it beats the tree:"
+            );
+            println!(
+                "  {:<24} {:>5} {:>7} {:>7} {:>7}",
+                "family", "n", "rules", "tree", "own"
+            );
+            for f in &families {
+                println!(
+                    "  {:<24} {:>5} {:>7} {:>7} {:>7}{}",
+                    format!("{} ({})", f.name, f.family),
+                    f.n,
+                    f.rules,
+                    f.global,
+                    f.own,
+                    if f.kept { "  kept" } else { "" }
+                );
+            }
+        }
         // One confusion table per judge: rows the true role, columns what
         // the judge said.
         let table = |name: &str, said: fn(&learn::Judged) -> Role| {
@@ -708,13 +735,17 @@ mod caption {
         }
         println!();
         println!("the tree, grown on every label:");
-        print!("{}", report.tree.describe());
+        print!("{}", report.trees.global.describe());
         if a.save {
             let path = settings::role_tree_path()
                 .ok_or_else(|| anyhow::anyhow!("this platform has no data directory"))?;
             std::fs::create_dir_all(&dir)?;
-            std::fs::write(&path, serde_json::to_vec_pretty(&report.tree)?)?;
-            println!("saved to {}", path.display());
+            std::fs::write(&path, serde_json::to_vec_pretty(&report.trees)?)?;
+            println!(
+                "saved the tree and {} family trees to {}",
+                report.trees.families.len(),
+                path.display()
+            );
         }
         Ok(Outcome::Ok)
     }

@@ -562,6 +562,15 @@ impl SequenceIndex {
         Ok(Self { seqs, compatible })
     }
 
+    /// The skeleton family of an NPC naming `named`: the lowest family of
+    /// the first of them the index has. `None` when it has none of them.
+    pub fn family_of(&self, named: &[u32]) -> Option<usize> {
+        named
+            .iter()
+            .find_map(|s| self.seqs.get(s))
+            .and_then(|i| i.families.first().copied())
+    }
+
     /// Candidate sequences for a model with vertex labels `labels` that's
     /// known to play `named`, best first. The named sequences themselves
     /// aren't listed. Empty when none of `named` is in the index.

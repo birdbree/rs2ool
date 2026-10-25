@@ -13,9 +13,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rs2cache::Records;
-use rs2convert::classify::{Params, Sample, Tree, features, leave_one_out};
+use rs2cache::types::record::{Record, RecordType};
+use rs2convert::classify::{Params, RoleTrees, Sample, Tree, features, leave_one_out};
 use rs2convert::creature;
-use rs2convert::infer::{Motion, Role};
+use rs2convert::infer::{Motion, Role, SequenceIndex};
 
 use super::store::Store;
 
@@ -23,13 +24,14 @@ use super::store::Store;
 /// for a class it doesn't know.
 ///
 /// Gaits, attacks, blocks, gestures, work and jumps all move and come
-/// back, so they're actions; falling over and floating down are downs;
+/// back, so they're actions; a death or a collapse stays down, so both
+/// are deaths; falling over and floating down are downs;
 /// landing is other, since it starts in the air.
 pub fn role_of(class: &str) -> Option<Role> {
     Some(match class {
         "idle" => Role::Idle,
         "walk" | "attack" | "block" | "gesture" | "work" | "jump" | "action" => Role::Action,
-        "death" => Role::Death,
+        "death" | "collapse" => Role::Death,
         "fall over" | "descend" => Role::Down,
         "fall away" => Role::Drop,
         "vanish" => Role::Vanish,
@@ -154,6 +156,38 @@ pub struct Judged {
     pub rules: Role,
     /// The tree's role, from a tree grown without this sequence.
     pub tree: Role,
+    /// The NPC's skeleton family, if it has one.
+    pub family: Option<usize>,
+    /// Its family tree's role, from a family tree grown without this
+    /// sequence, when the family has enough labels to try one.
+    pub tried: Option<Role>,
+    /// The same, but only when the family's tree is kept.
+    pub own: Option<Role>,
+}
+
+/// How many checked labels a family needs, over at least two roles, for a
+/// tree of its own to be tried. It's kept only if it beats the global
+/// tree on the family's sequences, leave-one-out: with a few dozen labels
+/// a family tree often does worse.
+pub const FAMILY_MIN: usize = 20;
+
+/// How the rules and the trees do on one family's checked sequences.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FamilyScore {
+    /// The family.
+    pub family: usize,
+    /// The first labelled NPC's name, to recognise it by.
+    pub name: String,
+    /// Checked sequences.
+    pub n: usize,
+    /// Right by the rules.
+    pub rules: usize,
+    /// Right by the global tree.
+    pub global: usize,
+    /// Right by the family's own tree.
+    pub own: usize,
+    /// Whether the family's tree is kept: it beat the global tree here.
+    pub kept: bool,
 }
 
 /// What [`run`] found.
@@ -164,8 +198,11 @@ pub struct Report {
     /// Labels left out, and why: an unknown class, or a sequence that
     /// won't load or pose.
     pub skipped: Vec<(Label, String)>,
-    /// The tree grown on every measured label.
-    pub tree: Tree,
+    /// The trees grown on every measured label: the global one and one
+    /// per family with enough labels.
+    pub trees: RoleTrees,
+    /// Each family's first labelled NPC's name.
+    pub names: BTreeMap<usize, String>,
 }
 
 impl Report {
@@ -175,6 +212,39 @@ impl Report {
         self.judged
             .iter()
             .filter(|j| j.label.from != Origin::Caption)
+    }
+
+    /// How the rules and both trees do on each family with a tree of its
+    /// own.
+    pub fn family_scores(&self) -> Vec<FamilyScore> {
+        let mut out: BTreeMap<usize, FamilyScore> = BTreeMap::new();
+        for j in self.checked() {
+            let (Some(f), Some(own)) = (j.family, j.tried) else {
+                continue;
+            };
+            let s = out.entry(f).or_insert_with(|| FamilyScore {
+                family: f,
+                name: self.names.get(&f).cloned().unwrap_or_default(),
+                n: 0,
+                rules: 0,
+                global: 0,
+                own: 0,
+                kept: self.trees.families.contains_key(&f),
+            });
+            s.n += 1;
+            s.rules += usize::from(j.rules == j.truth);
+            s.global += usize::from(j.tree == j.truth);
+            s.own += usize::from(own == j.truth);
+        }
+        out.into_values().collect()
+    }
+
+    /// How many checked sequences the family trees get right where there
+    /// is one, and the global tree elsewhere.
+    pub fn combined(&self) -> usize {
+        self.checked()
+            .filter(|j| j.own.unwrap_or(j.tree) == j.truth)
+            .count()
     }
 
     /// How many checked sequences the rules and the tree get right.
@@ -189,10 +259,12 @@ impl Report {
     }
 }
 
-/// Measures every label's sequence on its NPC and grows a tree. Weak
-/// labels count `weak` each; checked ones count 1.
+/// Measures every label's sequence on its NPC and grows the global tree,
+/// and a tree for each skeleton family with [`FAMILY_MIN`] checked labels.
+/// Weak labels count `weak` each; checked ones count 1.
 pub fn run(records: &Records, labels: Vec<Label>, weak: f64, p: Params) -> Result<Report> {
     let frames = records.cache().frame_index()?;
+    let index = SequenceIndex::build(records.cache(), records, &frames)?;
     let mut by_npc: BTreeMap<u32, Vec<Label>> = BTreeMap::new();
     let mut skipped = Vec::new();
     for l in labels {
@@ -203,7 +275,8 @@ pub fn run(records: &Records, labels: Vec<Label>, weak: f64, p: Params) -> Resul
             by_npc.entry(l.npc).or_default().push(l);
         }
     }
-    let mut measured: Vec<(Label, Motion)> = Vec::new();
+    let mut measured: Vec<(Label, Motion, Option<usize>)> = Vec::new();
+    let mut names: BTreeMap<usize, String> = BTreeMap::new();
     // Measures `label` on creature `c`, or says why it can't.
     let measure = |c: &creature::Creature, l: &Label| {
         c.sequences
@@ -213,6 +286,22 @@ pub fn run(records: &Records, labels: Vec<Label>, weak: f64, p: Params) -> Resul
             .ok_or_else(|| "won't pose".to_owned())
     };
     for (npc, ls) in by_npc {
+        // The NPC's family, from the sequences its definition names.
+        let family = match records.decode(RecordType::Npc, npc) {
+            Ok(Record::Npc(d)) => {
+                let named: Vec<u32> = [d.stand_anim, d.walk_anim]
+                    .into_iter()
+                    .flatten()
+                    .map(u32::from)
+                    .collect();
+                let f = index.family_of(&named);
+                if let (Some(f), Some(name)) = (f, d.name) {
+                    names.entry(f).or_insert(name);
+                }
+                f
+            }
+            _ => None,
+        };
         let seqs: Vec<u16> = ls
             .iter()
             .filter_map(|l| u16::try_from(l.seq).ok())
@@ -232,34 +321,86 @@ pub fn run(records: &Records, labels: Vec<Label>, weak: f64, p: Params) -> Resul
                     .and_then(|c| measure(&c, &l)),
             };
             match m {
-                Ok(m) => measured.push((l, m)),
+                Ok(m) => measured.push((l, m, family)),
                 Err(why) => skipped.push((l, why)),
             }
         }
     }
     let samples: Vec<Sample> = measured
         .iter()
-        .map(|(l, m)| Sample {
+        .map(|(l, m, _)| Sample {
             x: features(m),
             role: role_of(&l.class).expect("checked above"),
             weight: if l.from == Origin::Caption { weak } else { 1.0 },
         })
         .collect();
     let loo = leave_one_out(&samples, p);
-    let judged = measured
+    // Each family with enough checked labels over two roles or more gets
+    // its own tree, scored leave-one-out within the family.
+    let mut by_family: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (i, (_, _, f)) in measured.iter().enumerate() {
+        if let Some(f) = f {
+            by_family.entry(*f).or_default().push(i);
+        }
+    }
+    let mut own: Vec<Option<Role>> = vec![None; samples.len()];
+    let mut families = BTreeMap::new();
+    for (f, members) in by_family {
+        let checked: Vec<usize> = members
+            .iter()
+            .copied()
+            .filter(|&i| measured[i].0.from != Origin::Caption)
+            .collect();
+        let roles: std::collections::BTreeSet<Role> =
+            checked.iter().map(|&i| samples[i].role).collect();
+        if checked.len() < FAMILY_MIN || roles.len() < 2 {
+            continue;
+        }
+        let mine: Vec<Sample> = members.iter().map(|&i| samples[i]).collect();
+        for (&i, r) in members.iter().zip(leave_one_out(&mine, p)) {
+            own[i] = Some(r);
+        }
+        families.insert(f, Tree::train(&mine, p));
+    }
+    let mut judged: Vec<Judged> = measured
         .into_iter()
-        .zip(samples.iter().zip(loo))
-        .map(|((label, m), (s, tree))| Judged {
+        .zip(samples.iter().zip(loo).zip(own))
+        .map(|((label, m, family), ((s, tree), own))| Judged {
             label,
             truth: s.role,
             rules: m.role(),
             tree,
+            family,
+            tried: own,
+            own,
         })
         .collect();
+    // Keep a family's tree only where it beats the global tree.
+    families.retain(|f, _| {
+        let (mut mine, mut global) = (0, 0);
+        for j in judged
+            .iter()
+            .filter(|j| j.family == Some(*f) && j.label.from != Origin::Caption)
+        {
+            mine += usize::from(j.tried == Some(j.truth));
+            global += usize::from(j.tree == j.truth);
+        }
+        mine > global
+    });
+    for j in &mut judged {
+        if !j.family.is_some_and(|f| families.contains_key(&f)) {
+            j.own = None;
+        }
+    }
     Ok(Report {
         judged,
         skipped,
-        tree: Tree::train(&samples, p),
+        trees: RoleTrees {
+            cache_crc: rs2convert::source_cache_crc(records.cache())?,
+            global: Tree::train(&samples, p),
+            families,
+        },
+        names,
     })
 }
 
