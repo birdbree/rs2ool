@@ -1,6 +1,6 @@
 //! Structures found in the map: in region 50_50, a church, a smithy and a
-//! castle come out with their rooms, doors and furnishings, and the whole
-//! map gives the same structures every time.
+//! castle come out with their rooms, doors and furnishings; the whole map
+//! gives the same structures every time, and its yards.
 
 mod common;
 
@@ -130,6 +130,32 @@ fn the_whole_map_gives_the_same_structures_every_time() {
                 .sum::<usize>()
         })
         .sum();
-    let in_rooms: usize = a.iter().flat_map(|s| &s.rooms).map(|r| r.tiles.len()).sum();
+    let in_rooms: usize = a
+        .iter()
+        .flat_map(|s| &s.rooms)
+        .filter(|r| r.roofed)
+        .map(|r| r.tiles.len())
+        .sum();
     assert_eq!(in_rooms, roofed);
+    // Yards: walled gardens, courtyards and terraces on buildings, and
+    // pens and unflagged rooms on their own.
+    let with_yards = a
+        .iter()
+        .filter(|s| s.rooms.iter().any(|r| r.roofed) && s.rooms.iter().any(|r| !r.roofed))
+        .count();
+    let yards_alone = a
+        .iter()
+        .filter(|s| s.rooms.iter().all(|r| !r.roofed))
+        .count();
+    eprintln!("{with_yards} buildings with yards, {yards_alone} yards alone");
+    assert!(with_yards > 100 && yards_alone > 50);
+    for s in &a {
+        for r in &s.rooms {
+            if !r.roofed {
+                assert!(
+                    r.tiles.len() >= structure::YARD_MIN && r.tiles.len() <= structure::YARD_MAX
+                );
+            }
+        }
+    }
 }

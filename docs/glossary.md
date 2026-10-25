@@ -82,7 +82,9 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Room.** Roofed tiles on one plane that reach each other without crossing a wall; the roof flag is tile flag 4. See [Structures](conversion/structures.md#finding-rooms).
 
-**Opening.** An edge where a room meets the outside with no wall: an open doorway, an archway, a stall's open front.
+**Yard.** A room open to the sky: unroofed tiles walled in all round, such as a courtyard, a walled garden, a pen or a roof terrace. See [Structures](conversion/structures.md#yards).
+
+**Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
 
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).
 
