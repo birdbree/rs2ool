@@ -134,7 +134,7 @@ rs2ool cache structures --region 50_50
 rs2ool cache structures --all -o out/
 ```
 
-Each line gives a structure's origin, size, planes, rooms, doors and openings, and its commonest named objects; the files hold the rooms, doors, walls, roofs and contents, placed relative to each structure's corner. See [Cache commands](cache-commands.md#structures) and [Structures](../conversion/structures.md).
+Each line gives what a structure is likely to be, its origin, size, planes, rooms, doors and openings, and its commonest named objects; the files hold the rooms, doors, walls, roofs and contents, placed relative to each structure's corner, and the guesses with their evidence. See [Cache commands](cache-commands.md#structures), [Structures](../conversion/structures.md) and [Structure purposes](../conversion/structure-purposes.md).
 
 ### `classify`
 

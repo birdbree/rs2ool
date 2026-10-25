@@ -20,6 +20,7 @@ All conversion code lives in [`rs2convert`](../crates/rs2convert.md) ([`crates/r
 - [Determinism](determinism.md): why two runs produce byte-identical packs.
 - [Inference](inference.md): links the cache doesn't store (which sequences animate an NPC, an item's equipment slot) and how they can be inferred.
 - [Structures](structures.md): whole buildings found in the map, with their rooms, doors, walls, roofs and contents, as blueprints.
+- [Structure purposes](structure-purposes.md): what each structure and room is likely for, from furnishing categories, minimap icons and shape.
 
 ## Source to record mapping
 

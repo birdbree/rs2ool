@@ -1,6 +1,7 @@
 //! Structures found in the map: in region 50_50, a church, a smithy and a
-//! castle come out with their rooms, doors and furnishings; the whole map
-//! gives the same structures every time, and its yards.
+//! castle come out with their rooms, doors and furnishings, and read as
+//! what they are; the whole map gives the same structures every time, and
+//! its yards.
 
 mod common;
 
@@ -10,6 +11,7 @@ use rs2cache::Records;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
+use rs2convert::purpose::{self, Class};
 use rs2convert::structure::{self, Structure};
 
 /// The regions `keep` picks, and the definition of every location placed
@@ -158,4 +160,36 @@ fn the_whole_map_gives_the_same_structures_every_time() {
             }
         }
     }
+}
+
+#[test]
+fn a_regions_buildings_read_as_what_they_are() {
+    let Some(cache) = common::cache() else { return };
+    let (regions, defs) = load(&cache, |x, y| {
+        (49..=51).contains(&x) && (49..=51).contains(&y)
+    });
+    let found = structure::find(&regions, &defs);
+    let classes: Vec<(Class, Option<String>)> = found
+        .iter()
+        .filter(|s| (s.origin.0 / 64, s.origin.1 / 64) == (50, 50))
+        .map(|s| {
+            let p = purpose::of(s);
+            eprintln!(
+                "{:?} {:?}: {:?} {:?}",
+                s.origin, p.class.what, p.class.detail, p.class.evidence
+            );
+            (p.class.what, p.class.detail)
+        })
+        .collect();
+    let has = |c: Class, d: Option<&str>| {
+        classes
+            .iter()
+            .any(|(cc, dd)| *cc == c && dd.as_deref() == d)
+    };
+    assert!(has(Class::Castle, None));
+    assert!(has(Class::Church, None));
+    assert!(has(Class::Smithy, None));
+    assert!(has(Class::House, None));
+    assert!(has(Class::Shop, Some("general")));
+    assert!(has(Class::Shop, Some("axes")));
 }

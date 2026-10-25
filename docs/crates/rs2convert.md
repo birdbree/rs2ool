@@ -30,6 +30,8 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`object`](../../crates/rs2convert/src/object.rs) | `loc.dat` definitions into models, `objects` records, `kits` entries and a string table. |
 | [`item`](../../crates/rs2convert/src/item.rs) | `obj.dat` definitions into `items` records, their inventory and wear models, and a string table, with inferred slots. See [Items](../pack/items.md). |
 | [`structure`](../../crates/rs2convert/src/structure.rs) | Whole structures found in the map: rooms flood-filled over roofed tiles and bounded by wall edges, yards walled in under the sky, joined by doors, stacked planes, open sides and shared walls, with their doors, openings, walls, roofs and contents placed relative to their origin. `structure::find(regions, defs)`. See [Structures](../conversion/structures.md). |
+| [`furnish`](../../crates/rs2convert/src/furnish.rs) | What a placed object is in general terms: `category(name)` gives its furnishing category from keywords in its name, and `icon(index)` what a minimap icon shows and suggests (`ICONS`). See [Structure purposes](../conversion/structure-purposes.md). |
+| [`purpose`](../../crates/rs2convert/src/purpose.rs) | `purpose::of(structure)`: what a structure (`Class`) and each of its rooms (`Use`) are likely for, from furnishing categories, icons and shape, each guess with its score, its evidence and the runners-up. See [Structure purposes](../conversion/structure-purposes.md). |
 | [`preview`](../../crates/rs2convert/src/preview.rs) | The model a record describes, assembled as the original client draws it, for viewers, and ready to pose with sequences. |
 
 ## `run`: the entry points

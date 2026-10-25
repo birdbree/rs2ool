@@ -4,13 +4,13 @@
 
 The map stores ground tiles and placed objects, but it never says where a building is, what it's for, or which room is the kitchen. This page covers how whole structures are found in the map, with their rooms, doors, walls, roofs and everything inside, and how they're written out as blueprints. Read it before using structure data, to know what's found from cache facts and where the method stops.
 
-**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. Saying what each structure and room is for, and a pack record for blueprints, are the next stages ([Next](#next)).
+**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules, on [Structure purposes](structure-purposes.md). Learning those rules, grouping structures into complexes and a pack record for blueprints are the next stages ([Next](#next)).
 
 ## What a blueprint is for
 
 A blueprint is meant to be used in several ways: placed whole, used to lay out new towns, remixed with other materials and furnishings while keeping its structure, or reduced to rules per class of structure so new ones can be generated. That shapes what's kept:
 
-- **Structure apart from dressing.** Walls, doors and roofs are kept as tile edges and tiles, so the shape survives a change of materials. Each placed object keeps the id it was found with; the categories that make swapping possible (a bed, a stone wall) come with the [next stage](#next).
+- **Structure apart from dressing.** Walls, doors and roofs are kept as tile edges and tiles, so the shape survives a change of materials. Each placed object keeps the id it was found with and its [furnishing category](structure-purposes.md#furnishing-categories) (a bed, a counter, storage), so one can be swapped for another; categories for wall and floor materials are still to come.
 - **Rooms and how they connect.** Each room is a set of tiles, and each door says which rooms it joins, so the room graph is there for both remixing and generating.
 - **Relative positions.** Everything is placed relative to the structure's south-west corner.
 
@@ -107,7 +107,7 @@ A cut-off corner is a diagonal wall with a corner post beside it, and the roofed
 | `objects` | furnishings, floor decorations and wall decorations, each with its room (none for an outside wall decoration) |
 | `clipped` | whether a room reaches the edge of the regions searched, so the structure may go on past them |
 
-Each placement has the definition id, its name where it has one, the placement type, the rotation, the plane, its position (negative just outside the origin: a roof's overhang, a post at an outside corner) and its room.
+Each placement has the definition id, its name where it has one, its [furnishing category](structure-purposes.md#furnishing-categories), its [minimap icon](structure-purposes.md#minimap-icons) if its definition draws one, the placement type, the rotation, the plane, its position (negative just outside the origin: a roof's overhang, a post at an outside corner) and its room. The command adds each structure's `purpose` beside these fields; see [Structure purposes](structure-purposes.md#in-the-output).
 
 ## What it finds
 
@@ -141,7 +141,7 @@ Region `50_50` shows what the structures look like. Its eight structures, with t
 | 3238, 3204 | 10 × 12 | 0 | 1 | 3 | 0 | church pews, candles, an altar, an organ |
 | 3243, 3244 | 6 × 5 | 0 | 1 | 1 | 0 | standing torches, a spit roast, boxes |
 
-The contents already say a lot: a castle block, a general shop, a smithy, a house, a shop with living quarters behind it, a castle tower, a church and a cookhouse. Saying so is the next stage. The two castle blocks each have a walled roof terrace on plane 2, and the main block a walled yard on plane 1.
+The contents already say a lot: a castle block, a general shop, a smithy, a house, a shop with living quarters behind it, a castle tower, a church and a cookhouse. [Structure purposes](structure-purposes.md) says so. The two castle blocks each have a walled roof terrace on plane 2, and the main block a walled yard on plane 1.
 
 ## Limits
 
@@ -155,7 +155,7 @@ The contents already say a lot: a castle block, a general shop, a smithy, a hous
 
 ## Next
 
-1. **Features and rules.** Grouping neighbouring structures into complexes; categories for furnishings and wall materials from definition names, options and minimap icons (the icon a definition draws on the minimap is likely to name many shop types and services outright); shape features such as footprint, floors, rooms and roundness; then rules that say what a structure is (house, tavern, smithy, shop and its type, bank, town hall, castle, wizard tower, church, ruin, shack, …) and what each room is for, each with its evidence.
+1. **Complexes and materials.** Grouping neighbouring structures into complexes (a castle's blocks, a farm's barns), and categories for wall and floor materials. Furnishing categories, minimap icons and rules for what a structure and its rooms are for are done: see [Structure purposes](structure-purposes.md).
 2. **Labels and learned trees.** Cutaway plans and object lists labelled the same way as [sequence roles](inference.md#learning-roles-from-labels), trees learned on the labels, and a profile per class: rooms, floors, room purposes, how rooms connect and which furnishings go where.
 3. **A pack record** for blueprints and class profiles.
 
