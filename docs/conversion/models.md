@@ -60,7 +60,7 @@ If the model has face alphas, each one is stored as `255 − alpha`. In the cach
 
 ## Labels and attach points
 
-Vertex labels are copied into the record's label section, which [rigs](rig-inference.md) bind to bones. Face labels, which alpha transforms address, are dropped. No attach points are written, so `attachCount` is always 0.
+Vertex labels are copied into the record's label section, which [rigs](rig-inference.md) bind to bones. Face labels, which alpha transforms address, become the record's face groups, which clips' [fades](../pack/anims.md#fades) address. No attach points are written, so `attachCount` is always 0.
 
 ## See also
 

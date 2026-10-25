@@ -89,7 +89,7 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
     // In step: frame by frame, the two poses agree.
     let mut worst: f32 = 0.0;
     for f in 0..delays.len() {
-        let (Some(Posed::Cache(c)), Some(Posed::Pack(p))) =
+        let (Some(Posed::Cache(c, _)), Some(Posed::Pack(p, _))) =
             (posed(&left, walk, f), posed(&right, walk, f))
         else {
             panic!("frame {f} poses on both sides")
@@ -121,7 +121,7 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
     for f in 0..delays.len() {
         let s = skeleton(&right, Some(walk), f, None).unwrap();
         moved |= s != rest;
-        let Some(Posed::Pack(p)) = posed(&right, walk, f) else {
+        let Some(Posed::Pack(p, _)) = posed(&right, walk, f) else {
             unreachable!()
         };
         for ((v, q), &b) in model.vertices.iter().zip(&p).zip(&bones) {
@@ -174,7 +174,7 @@ fn npc_plays_its_inferred_sequences() {
         assert!(rs2ool::explorer::playback::inferred(&r, c.seq).is_some());
         let (delays, _) = timing(&r, c.seq).unwrap();
         assert!(!delays.is_empty());
-        assert!(matches!(posed(&r, c.seq, 0), Some(Posed::Cache(_))));
+        assert!(matches!(posed(&r, c.seq, 0), Some(Posed::Cache(_, _))));
         assert!(c.role.is_some(), "seq {} has a role", c.seq);
     }
     assert!(rs2ool::explorer::playback::inferred(&r, seqs[0]).is_none());
@@ -244,7 +244,7 @@ fn cache_npcs_show_their_inferred_bones() {
     assert_eq!(rest.pivots.len(), rig.bones.len());
     let mut moved = false;
     for f in 0..timing(&r, walk).unwrap().0.len() {
-        let Some(Posed::Cache(v)) = posed(&r, walk, f) else {
+        let Some(Posed::Cache(v, _)) = posed(&r, walk, f) else {
             panic!("frame {f} poses")
         };
         let s = skeleton(&r, Some(walk), f, None).unwrap();
@@ -332,13 +332,13 @@ fn an_action_plays_over_the_walk_in_step_with_its_conversion() {
     let (mut worst, mut changed): (f32, bool) = (0.0, false);
     for i in 0..n {
         for j in [0, m / 2] {
-            let (Some(Posed::Cache(c)), Some(Posed::Pack(p))) = (
+            let (Some(Posed::Cache(c, _)), Some(Posed::Pack(p, _))) = (
                 posed_moving(&left, action, i, Some((walk, j))),
                 posed_moving(&right, action, i, Some((walk, j))),
             ) else {
                 panic!("frame {i} over walk frame {j} poses on both sides")
             };
-            let Some(Posed::Cache(alone)) = posed(&left, action, i) else {
+            let Some(Posed::Cache(alone, _)) = posed(&left, action, i) else {
                 unreachable!()
             };
             changed |= alone != c;
@@ -368,4 +368,72 @@ fn an_action_plays_over_the_walk_in_step_with_its_conversion() {
     assert_eq!(pb.moving_at(), Some((walk, 0)));
     pb.choose(w, &left);
     assert_eq!(pb.moving, None);
+}
+
+/// A spot animation that fades its faces fades on both sides: the cache
+/// side as the original client fades it, the converted side through its
+/// clip's fades, face for face.
+#[test]
+fn a_fading_spot_animation_fades_on_both_sides() {
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    // The first spot animation whose sequence fades its model.
+    let (id, seq) = records
+        .ids(RecordType::SpotAnim)
+        .unwrap()
+        .into_iter()
+        .find_map(|id| {
+            let (_, r) = load(&cache, &Sel::Record(RecordType::SpotAnim, id)).ok()?;
+            let Renderable::Creature { creature, .. } = r? else {
+                return None;
+            };
+            let s = creature.sequences.first()?;
+            (0..s.def.frames.len())
+                .any(|i| creature.faded(0, i).is_some())
+                .then_some((id, s.def.id))
+        })
+        .expect("a spot animation that fades");
+    let (_, left) = load(&cache, &Sel::Record(RecordType::SpotAnim, id)).unwrap();
+    let left = left.unwrap();
+
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d6_playback_fades");
+    let _ = std::fs::remove_dir_all(&out);
+    let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());
+    let conv = rs2convert::run::spotanims(records, 0, Some(id)).unwrap();
+    let written = rs2convert::run::write(&conv, &out, png).unwrap();
+    let (_, _, models) = written.iter().find(|(k, ..)| *k == Kind::Models).unwrap();
+    let pack = open_pack(models).unwrap();
+    let (_, right) = load(
+        &pack,
+        &Sel::PackRecord(rs2convert::pipeline::ids::SPOTANIM_MODEL | id),
+    )
+    .unwrap();
+    let right = right.unwrap();
+
+    let (delays, _) = timing(&left, seq).unwrap();
+    let mut faded = 0;
+    for f in 0..delays.len() {
+        let (Some(Posed::Cache(_, a)), Some(Posed::Pack(_, o))) =
+            (posed(&left, seq, f), posed(&right, seq, f))
+        else {
+            panic!("frame {f} poses on both sides")
+        };
+        assert_eq!(
+            a.is_some(),
+            o.is_some(),
+            "frame {f}: both sides fade or neither"
+        );
+        if let (Some(a), Some(o)) = (a, o) {
+            faded += 1;
+            let opacity: Vec<u8> = a.iter().map(|t| 255 - t).collect();
+            assert_eq!(opacity, o, "frame {f}");
+        }
+    }
+    assert!(faded > 0, "spot animation {id} fades");
 }

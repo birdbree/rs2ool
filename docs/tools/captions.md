@@ -72,7 +72,7 @@ Each caption prints as it comes back, as `npc 1 seq 2820: [death] Collapses forw
 
 ## What the model is shown
 
-Each sequence becomes one PNG drawn with the [classic renderer](../crates/rs2classic.md): a grid of up to `frames` frames, left to right and top to bottom, evenly spaced in time from the first frame to the last. A frame held for a long time is shown once.
+Each sequence becomes one PNG drawn with the [classic renderer](../crates/rs2classic.md): a grid of up to `frames` frames, left to right and top to bottom, evenly spaced in time from the first frame to the last. A frame held for a long time is shown once. Faces fade as the original client fades them ([Animation](../client/animation.md#alpha)), so a model fading away is seen to.
 
 - All the tiles share one camera, fitted to every frame shown, so a model that falls, shrinks or moves away does so on screen.
 - The camera is three-quarters on and tilted slightly down.

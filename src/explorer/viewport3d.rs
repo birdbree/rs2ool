@@ -690,10 +690,12 @@ pub fn renderable_parts(
 pub enum Pose<'a> {
     /// The model's own vertices.
     Rest,
-    /// Cache-space vertices of a cache model (an animation frame).
-    Cache(&'a [[i32; 3]]),
-    /// Pack-space vertices of a pack model (a skinned clip frame).
-    Pack(&'a [[f32; 3]]),
+    /// Cache-space vertices of a cache model (an animation frame), and its
+    /// face transparency (0 opaque) when the frame fades it.
+    Cache(&'a [[i32; 3]], Option<&'a [u8]>),
+    /// Pack-space vertices of a pack model (a skinned clip frame), and its
+    /// face opacity (255 opaque) when the clip fades it.
+    Pack(&'a [[f32; 3]], Option<&'a [u8]>),
 }
 
 /// A renderable's parts with 317 and raw shading (both shadings group
@@ -713,10 +715,16 @@ pub fn posed_parts(
         Renderable::CacheModel(m)
         | Renderable::DumpedModel(m)
         | Renderable::Creature { model: m, .. } => {
-            let verts = match pose {
-                Pose::Cache(v) if v.len() == m.vertices.len() => v,
-                _ => &m.vertices,
+            let (verts, alphas) = match pose {
+                Pose::Cache(v, a) if v.len() == m.vertices.len() => (v, a),
+                _ => (&m.vertices[..], None),
             };
+            // A faded frame draws a copy with the frame's transparency.
+            let faded = alphas.filter(|a| a.len() == m.faces.len()).map(|a| Model {
+                face_alphas: Some(a.to_vec()),
+                ..m.clone()
+            });
+            let m = faded.as_ref().unwrap_or(m);
             // Coloured by bone, a cache creature is drawn as a copy whose
             // labels are its vertices' bones, so the label colouring paints
             // each bone in the bone overlay's colour.
@@ -762,11 +770,16 @@ pub fn posed_parts(
         | Renderable::PackCreature { model, palette, .. } => {
             let posed;
             let model = match pose {
-                Pose::Pack(v) if v.len() == model.vertices.len() => {
+                Pose::Pack(v, a) if v.len() == model.vertices.len() => {
                     // A copy with the skinned vertices, rounded back to the
-                    // pack's integer grid.
+                    // pack's integer grid, and the frame's opacity if it
+                    // fades.
                     posed = PackModel {
                         vertices: v.iter().map(|p| p.map(|c| c.round() as i16)).collect(),
+                        alphas: a
+                            .filter(|a| a.len() == model.faces.len())
+                            .map(<[u8]>::to_vec)
+                            .or_else(|| model.alphas.clone()),
                         ..model.clone()
                     };
                     &posed

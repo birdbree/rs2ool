@@ -147,6 +147,18 @@ impl Subject {
             .map(|v| self.finish(v))
     }
 
+    /// The face transparency at frame `i` of sequence `s`, when it fades.
+    /// See [`Creature::faded`].
+    pub fn faded(&self, s: usize, i: usize) -> Option<Vec<u8>> {
+        self.creature.faded(s, i)
+    }
+
+    /// [`Subject::faded`] while the creature moves. See
+    /// [`Creature::faded_moving`].
+    pub fn faded_moving(&self, s: usize, i: usize, m: usize, j: usize) -> Option<Vec<u8>> {
+        self.creature.faded_moving(s, i, m, j)
+    }
+
     /// The index of sequence `id` among the creature's sequences.
     pub fn sequence(&self, id: u16) -> Option<usize> {
         self.creature

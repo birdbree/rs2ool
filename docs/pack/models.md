@@ -10,7 +10,7 @@ Implemented in [`contentpack::records::model`](../../crates/contentpack/src/reco
 
 ```text
 magic          4 bytes   "RMDL"
-version        u8        2
+version        u8        3
 vertexCount    u16
 faceCount      u16
 flags          u8        which optional sections follow (see below)
@@ -23,6 +23,7 @@ paletteIndex   faceCount × u16               palette entry per face
 [ALPHA]        faceCount × u8                255 = opaque
 [PRIORITY]     faceCount × u8
 [LABELS]       vertexCount × u8              vertex label per vertex
+[FACE_GROUPS]  faceCount × u8                fade group per face
 attachPoints   attachCount × { nameHash u32, x i16, y i16, z i16, yaw u8 }
 ```
 
@@ -38,8 +39,9 @@ Face indices use one byte each when the model has fewer than 256 vertices and tw
 | 1 | 2 | `ALPHA`: per-face alpha |
 | 2 | 4 | `PRIORITY`: per-face priority |
 | 3 | 8 | `LABELS`: per-vertex labels |
+| 4 | 16 | `FACE_GROUPS`: per-face fade groups |
 
-Bits 4–7 are unused. The encoder derives the flags from which sections are present, so it never writes them.
+Bits 5–7 are unused. The encoder derives the flags from which sections are present, so it never writes them.
 
 ## Fields
 
@@ -51,6 +53,7 @@ Bits 4–7 are unused. The encoder derives the flags from which sections are pre
 - **Alpha** is per-face opacity; 255 is opaque. The tools write 255 minus the cache model's face alpha.
 - **Priority** is the face's draw-order priority value, copied from the cache model.
 - **Labels** give each vertex's label. A rig binds labels to bones through its `labelBone` table ([Rigs](rigs.md)).
+- **Face groups** give each face's fade group, which a clip's fades change the opacity of ([Anims](anims.md#fades)). The tools write the cache model's face labels. A model without the section has no faces a clip can fade.
 - **Attach points** are named points with a position in pack space and a `u8` yaw. The tools never write any, so `attachCount` is 0 in their output.
 
 ## Invariants
@@ -59,11 +62,15 @@ The encoder checks these before writing, and the decoder checks them again after
 
 - `vertexCount` and `faceCount` are at most 65535, and there are at most 255 attach points.
 - `materialSlot` and `paletteIndex` have exactly one entry per face.
-- `UV`, `ALPHA` and `PRIORITY`, when present, have exactly one entry per face.
+- `UV`, `ALPHA`, `PRIORITY` and `FACE_GROUPS`, when present, have exactly one entry per face.
 - `LABELS`, when present, has exactly one entry per vertex.
 - Every face index is below `vertexCount`.
 
-The decoder also rejects a bad magic, a version other than 2, a record that ends early, and trailing bytes. It doesn't check that material slots name materials that exist, or that palette indices are within the palette.
+The decoder also rejects a bad magic, a version other than 2 or 3, a record that ends early, and trailing bytes. It doesn't check that material slots name materials that exist, or that palette indices are within the palette.
+
+## Version 2
+
+Version 2 is the same record without the `FACE_GROUPS` section. Decoders still read it, and the encoder always writes version 3. Version 3 added face groups so that clips can carry fades.
 
 ## Ids
 

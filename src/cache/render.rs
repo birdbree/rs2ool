@@ -173,6 +173,14 @@ pub fn run(records: &Records, a: &RenderArgs, report: &mut impl Write) -> Result
         })
         .collect::<Option<_>>()
         .with_context(|| format!("sequence {seq} won't pose {}", c.name))?;
+    // Face transparency where a frame fades the model.
+    let fades: Vec<Option<Vec<u8>>> = steps
+        .iter()
+        .map(|st| match (m, st.moving) {
+            (Some(m), Some(j)) => subject.faded_moving(s, st.frame, m, j),
+            _ => subject.faded(s, st.frame),
+        })
+        .collect();
     let converted = if a.compare {
         let (rig, clips, reports) = convert(&subject, s, m)?;
         let poses: Vec<Vec<[i32; 3]>> = steps
@@ -189,30 +197,54 @@ pub fn run(records: &Records, a: &RenderArgs, report: &mut impl Write) -> Result
                 })
             })
             .collect();
-        Some((poses, reports))
+        // A mix takes the clip's fades.
+        let alphas: Vec<Vec<u8>> = steps
+            .iter()
+            .map(|st| validate::converted_alphas(c, &clips[0], st.frame as u8))
+            .collect();
+        Some((poses, alphas, reports))
     } else {
         None
     };
 
     let mut all = reference.clone();
-    if let Some((poses, _)) = &converted {
+    if let Some((poses, ..)) = &converted {
         all.extend(poses.iter().cloned());
     }
     let framing = render::frame(&a.view, &all, reference.first().map(Vec::as_slice))
         .ok_or_else(|| usage("the model has no vertices"))?;
     let lit = light(&subject.model(), &light::NPC);
     let sheet = matches!(a.frames, Frames::Sheet(_));
-    let panel = |pose: &[[i32; 3]]| {
-        let mut fb = render::draw(&a.view, &framing, &lit, pose, &textures);
+    let panel = |pose: &[[i32; 3]], alphas: Option<&Vec<u8>>| {
+        let faded;
+        let lit = match alphas {
+            Some(f) => {
+                faded = rs2classic::LitModel {
+                    alphas: f.clone(),
+                    ..lit.clone()
+                };
+                &faded
+            }
+            None => &lit,
+        };
+        let mut fb = render::draw(&a.view, &framing, lit, pose, &textures);
         if sheet || a.compare {
             render::outline(&mut fb, BORDER);
         }
         render::image(&fb)
     };
-    let images: Vec<RgbaImage> = reference.iter().map(|p| panel(p)).collect();
-    let converted_images: Option<Vec<RgbaImage>> = converted
-        .as_ref()
-        .map(|(poses, _)| poses.iter().map(|p| panel(p)).collect());
+    let images: Vec<RgbaImage> = reference
+        .iter()
+        .zip(&fades)
+        .map(|(p, f)| panel(p, f.as_ref()))
+        .collect();
+    let converted_images: Option<Vec<RgbaImage>> = converted.as_ref().map(|(poses, alphas, _)| {
+        poses
+            .iter()
+            .zip(alphas)
+            .map(|(p, f)| panel(p, Some(f)))
+            .collect()
+    });
     if sheet {
         // Square, or with compare a strip of the original over a strip of
         // the converted.
@@ -233,7 +265,7 @@ pub fn run(records: &Records, a: &RenderArgs, report: &mut impl Write) -> Result
         let delays: Vec<u32> = steps.iter().map(|st| st.delay).collect();
         save(a, gif, &frames, &delays, report)?;
     }
-    let Some((_, reports)) = converted else {
+    let Some((_, _, reports)) = converted else {
         return Ok(Outcome::Ok);
     };
     let mut flagged = false;

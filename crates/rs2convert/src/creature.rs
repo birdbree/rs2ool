@@ -259,6 +259,83 @@ impl Creature {
         Some(v)
     }
 
+    /// The face transparency (0 opaque, 255 invisible) at frame `i` of
+    /// sequence `s`, as the original client fades it: the model's own,
+    /// or 0 where it has none, then every alpha transform the frame (and
+    /// its secondary frame) applies. `None` when nothing fades: the
+    /// sequence or frame isn't there, the frame has no alpha transforms, or
+    /// the model has no face labels, which the original client needs to
+    /// fade anything.
+    pub fn faded(&self, s: usize, i: usize) -> Option<Vec<u8>> {
+        self.reference_alphas(self.sequences.get(s)?, i)
+    }
+
+    /// [`Creature::faded`] for a sequence given by itself.
+    pub fn reference_alphas(&self, s: &Sequence, i: usize) -> Option<Vec<u8>> {
+        let frames = self.frames(s, i)?;
+        let faces = self.face_groups()?;
+        if !frames.iter().any(|(p, f)| fades(p, f)) {
+            return None;
+        }
+        let mut alphas = self.base_alphas();
+        for (pack, frame) in frames {
+            crate::deform::apply_alpha(&mut alphas, &faces, &pack.base, frame);
+        }
+        Some(alphas)
+    }
+
+    /// [`Creature::faded`] while the creature moves, mixed as
+    /// [`Creature::posed_moving`] mixes the vertices: the action's alpha
+    /// transforms outside the interleave list, then the movement's inside
+    /// it.
+    pub fn faded_moving(&self, s: usize, i: usize, m: usize, j: usize) -> Option<Vec<u8>> {
+        self.reference_alphas_moving(self.sequences.get(s)?, i, self.sequences.get(m)?, j)
+    }
+
+    /// [`Creature::faded_moving`] for sequences given by themselves.
+    pub fn reference_alphas_moving(
+        &self,
+        s: &Sequence,
+        i: usize,
+        m: &Sequence,
+        j: usize,
+    ) -> Option<Vec<u8>> {
+        let Some(slots) = s.interleave() else {
+            return self.reference_alphas(s, i);
+        };
+        let (pack, action) = self.frame(s, i)?;
+        let (_, moving) = self.frame(m, j)?;
+        let faces = self.face_groups()?;
+        let parts = [
+            crate::deform::interleave_part(&pack.base, action, slots, false),
+            crate::deform::interleave_part(&pack.base, moving, slots, true),
+        ];
+        if !parts.iter().any(|f| fades(pack, f)) {
+            return None;
+        }
+        let mut alphas = self.base_alphas();
+        for part in &parts {
+            crate::deform::apply_alpha(&mut alphas, &faces, &pack.base, part);
+        }
+        Some(alphas)
+    }
+
+    /// Faces grouped by face label, if the model has face labels.
+    pub fn face_groups(&self) -> Option<crate::deform::Groups> {
+        self.model
+            .face_labels
+            .as_deref()
+            .map(crate::deform::Groups::new)
+    }
+
+    /// The model's face transparency, 0 where it has none.
+    pub fn base_alphas(&self) -> Vec<u8> {
+        self.model
+            .face_alphas
+            .clone()
+            .unwrap_or_else(|| vec![0; self.model.faces.len()])
+    }
+
     /// The mesh's vertices grouped by label.
     pub fn groups(&self) -> crate::deform::Groups {
         crate::deform::Groups::new(self.model.vertex_labels.as_deref().unwrap_or_default())
@@ -293,6 +370,17 @@ impl Creature {
             .flat_map(|p| p.base.iter().flat_map(|b| b.labels.iter().copied()))
             .collect()
     }
+}
+
+/// Whether `frame` has an alpha transform that changes anything.
+fn fades(pack: &FramePack, frame: &Frame) -> bool {
+    frame.transforms.iter().any(|t| {
+        t.dx != 0
+            && pack
+                .base
+                .get(usize::from(t.transform))
+                .is_some_and(|b| b.kind == rs2cache::types::anim::kind::ALPHA)
+    })
 }
 
 fn model(records: &Records, id: u16) -> Result<Model, ConvertError> {

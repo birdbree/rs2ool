@@ -128,6 +128,12 @@ Each sequence runs on its own clock, so the movement keeps its own pace under th
 
 [`deform::apply_interleaved`](../../crates/rs2convert/src/deform.rs) does exactly this, and `Creature::posed_moving` gives the mixed, scaled vertices. The explorer and `rs2ool cache render --moving` play actions over a movement sequence this way. Converted clips carry the mix as moving bones and mix keys ([Anims](../pack/anims.md#moving-bones-and-mix-keys)).
 
+## Alpha
+
+Alpha transforms (slot kind 5) fade faces rather than move vertices. Whenever the original client draws a frame, it starts from a fresh copy of the model's face transparency (0 opaque, 255 invisible; all 0 if the model has none), so nothing carries over from the frame before. Each alpha transform then adds `dx × 8` to every face whose *face* label the slot lists, and clamps the result to 0–255 straight away, before the next transform. It only works on models with face labels; on others alpha transforms do nothing.
+
+[`deform::apply_alpha`](../../crates/rs2convert/src/deform.rs) does exactly this, and `Creature::faded` gives a frame's face transparency, through secondary frames and (`faded_moving`) both interleave passes as well. 848 sequences fade something: 276 of the 364 spot-animation sequences, 94 of the 724 sequences NPCs name as their stand or walk, and 481 others. Some fade a model away, some make it translucent throughout: the walk and stand of three ghost skeletons keep every face at transparency 240. The explorer, `rs2ool cache render` and caption frame grids draw fades, and clips carry them as [fades](../pack/anims.md#fades).
+
 ## See also
 
 - [Frame packs](../records/frame-pack.md): the byte layout of frames and bases.

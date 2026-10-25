@@ -45,9 +45,13 @@ A frame that can't be found in its pack is skipped. For the clip, `max` is the l
 
 ## The threshold
 
-A clip is **flagged** when its `max` exceeds `validate::THRESHOLD`, which is 4.0 units. A creature is flagged when any of its clips is, alone or mixed.
+A clip is **flagged** when its `max` exceeds `validate::THRESHOLD`, which is 4.0 units, or when any face fades differently from the original client ([Fades](#fades)). A creature is flagged when any of its clips is, alone or mixed.
 
 Shear isn't carried into keys (see [Clips](clips.md#what-isnt-carried)), so a sequence that relies on it can end up flagged. When a clip goes over, the per-frame `worst` list tells you which vertex, label and bone to look at first.
+
+## Fades
+
+A clip's [fades](clips.md#fades) are exact, so they're checked face for face rather than against a threshold: at every frame, each face's transparency under the clip's fades (from the model's own) has to equal the original client's (`Creature::reference_alphas`). `fade_mismatches` counts the faces that don't, over every frame, and any at all flag the clip. All 592 spot animation clips, 436 of which fade, have none.
 
 ## Mixes
 
@@ -58,7 +62,7 @@ local_b = movement key of b at its frame   if b is a moving bone
         = mix key of b at the clip's frame  otherwise
 ```
 
-and skins the rest mesh against the original client's mix of the two sequences (`Creature::reference_moving`). A mix is flagged over `validate::MIX_THRESHOLD`, 8.0 units: twice the clip threshold, since it carries both clips' error. On the player, the worst of the 135 actions that share the walk's base is 2.8 mixed with the walk, the walk back or the turn, 4.6 and 6.4 mixed with walking to either side, and 5.3 mixed with the run.
+and skins the rest mesh against the original client's mix of the two sequences (`Creature::reference_moving`). It checks the mix's fades the same way, the clip's own against the original client's (`reference_alphas_moving`), and counts mismatches in the mix's `fade_mismatches`. A mix is flagged over `validate::MIX_THRESHOLD`, 8.0 units: twice the clip threshold, since it carries both clips' error. On the player, the worst of the 135 actions that share the walk's base is 2.8 mixed with the walk, the walk back or the turn, 4.6 and 6.4 mixed with walking to either side, and 5.3 mixed with the run.
 
 ## `validation.json`
 
@@ -87,13 +91,14 @@ Each creature gets `<dir>/<key>/validation.json`, where the key is `npc_<id>` or
           "worst": [{ "vertex": 0, "label": 0, "bone": 0, "error": 0.0 }]
         }
       ],
-      "moving": [{ "sequence": 819, "max": 0.0, "mean": 0.0, "flagged": false }]
+      "moving": [{ "sequence": 819, "max": 0.0, "mean": 0.0, "flagged": false }],
+      "fade_mismatches": 0
     }
   ]
 }
 ```
 
-`bones` comes from the inferred rig: names, parent indices (`null` for the root) and sorted label sets. The top-level `max` is the largest clip `max`. Without `--with-anims`, `clips` is empty. `moving` is only there for a clip with moving bones: one entry per movement clip it was checked against, with the worst and mean error over every pair of frames ([Mixes](#mixes)).
+`bones` comes from the inferred rig: names, parent indices (`null` for the root) and sorted label sets. The top-level `max` is the largest clip `max`. Without `--with-anims`, `clips` is empty. `fade_mismatches` is only there when it isn't 0 ([Fades](#fades)), on a clip and on each of its mixes. `moving` is only there for a clip with moving bones: one entry per movement clip it was checked against, with the worst and mean error over every pair of frames ([Mixes](#mixes)).
 
 ## `validation_summary.json`
 

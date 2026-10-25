@@ -1,7 +1,7 @@
 //! `anims` record: one clip.
 //!
 //! ```text
-//! magic "RANM", version u8 = 4
+//! magic "RANM", version u8 = 5
 //! rig u32                       (rigs record the clip drives)
 //! frameCount u8
 //! frameStart frameCount × u16   (start of each frame, in 20 ms cycles)
@@ -14,6 +14,8 @@
 //! keys keyCount × {bone u8, t u8 (frame index), rot u8×3, pos i16×3, scale u16×3}
 //! mixKeyCount u32
 //! mixKeys mixKeyCount × key     (the same 17 bytes as a key)
+//! fadeCount u32
+//! fades fadeCount × {t u8, group u8, add i16, lo u8, hi u8}
 //! ```
 //!
 //! Each key is 17 bytes. Its bytes put `bone` before `t`, but keys are
@@ -30,10 +32,18 @@
 //! its share, which isn't the same as the pose it plays alone. With no
 //! moving bones there are no mix keys, and the clip always plays alone.
 //!
-//! Version 3 is version 4 without the moving bones and mix keys, and version 2
+//! A fade sets the opacity of the model's faces in fade group `group` at
+//! frame `t` to `clamp(base + add, lo, hi)`, where `base` is the face's
+//! opacity in the model (255 when it has none). Faces in a group with no
+//! fade at a frame keep their own opacity. Fades are sorted by
+//! `(t, group)`, strictly. A mix takes this clip's fades, not the movement
+//! clip's.
+//!
+//! Version 4 is version 5 without the fades, version 3 is version 4
+//! without the moving bones and mix keys, and version 2
 //! is version 3 without `scale` (11-byte keys). Both still decode, with no
-//! moving bones and, for version 2, every key at scale 1.0; the encoder
-//! always writes version 4.
+//! moving bones and, for version 2, every key at scale 1.0. None of them
+//! has fades. The encoder always writes version 5.
 //!
 //! Frame `i` runs from `frameStart[i]` to `frameStart[i + 1]`, or to
 //! `duration` for the last frame. A bone with no key at a frame sits at its
@@ -45,9 +55,10 @@ use super::{RecordError, finish, header};
 
 /// Magic at the start of an anim record.
 pub const MAGIC: &[u8; 4] = b"RANM";
-/// The version the encoder writes. Versions 2 (without scale or moving
-/// bones) and 3 (without moving bones) still decode.
-pub const VERSION: u8 = 4;
+/// The version the encoder writes. Versions 2 (without scale, moving
+/// bones or fades), 3 (without moving bones or fades) and 4 (without fades)
+/// still decode.
+pub const VERSION: u8 = 5;
 /// A key scale of 1.0.
 pub const SCALE_ONE: u16 = 256;
 /// [`Clip::loop_offset`] when the clip doesn't loop.
@@ -69,6 +80,34 @@ pub struct Key {
     pub pos: [i16; 3],
     /// Scale per pack-space axis, [`SCALE_ONE`] being 1.0.
     pub scale: [u16; 3],
+}
+
+/// The opacity of one fade group's faces at one frame:
+/// `clamp(base + add, lo, hi)` from each face's own opacity.
+///
+/// Field order matters: the derived `Ord` sorts by `t`, then `group`, which
+/// is the order a clip's fades have to be in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Fade {
+    /// Frame index, below the clip's frame count.
+    pub t: u8,
+    /// The fade group, as the model's face groups number them.
+    pub group: u8,
+    /// Added to each face's opacity, before clamping.
+    pub add: i16,
+    /// The least opacity the faces end up with.
+    pub lo: u8,
+    /// The most; at least `lo`.
+    pub hi: u8,
+}
+
+impl Fade {
+    /// A face's opacity under this fade, from its own opacity in the
+    /// model.
+    pub fn apply(&self, opacity: u8) -> u8 {
+        (i32::from(opacity) + i32::from(self.add)).clamp(i32::from(self.lo), i32::from(self.hi))
+            as u8
+    }
 }
 
 /// A decoded `anims` record: one clip for one rig.
@@ -98,6 +137,9 @@ pub struct Clip {
     /// the clip plays over a movement clip; sorted like `keys`. Empty when
     /// `moving` is.
     pub mix_keys: Vec<Key>,
+    /// Opacity per fade group at the frames that change it, sorted by
+    /// `(t, group)` with no repeats.
+    pub fades: Vec<Fade>,
 }
 
 impl Clip {
@@ -120,6 +162,19 @@ impl Clip {
             if keys.iter().any(|k| usize::from(k.t) >= frames) {
                 return Err(RecordError::Invalid("key frame index out of range".into()));
             }
+        }
+        if self
+            .fades
+            .windows(2)
+            .any(|w| (w[0].t, w[0].group) >= (w[1].t, w[1].group))
+            || self
+                .fades
+                .iter()
+                .any(|f| usize::from(f.t) >= frames || f.lo > f.hi)
+        {
+            return Err(RecordError::Invalid(
+                "fades must be sorted by (t, group) without repeats, in range, with lo ≤ hi".into(),
+            ));
         }
         if self.moving.len() > 255 || self.moving.windows(2).any(|w| w[0] >= w[1]) {
             return Err(RecordError::Invalid(
@@ -157,13 +212,17 @@ impl Clip {
         put_keys(&mut w, &self.keys);
         w.u32(self.mix_keys.len() as u32);
         put_keys(&mut w, &self.mix_keys);
+        w.u32(self.fades.len() as u32);
+        for f in &self.fades {
+            w.u8(f.t).u8(f.group).i16(f.add).u8(f.lo).u8(f.hi);
+        }
         Ok(w.0)
     }
 
     /// Decode a record and check its invariants.
     pub fn decode(data: &[u8]) -> Result<Self, RecordError> {
         let mut r = Reader::new(data);
-        let version = header(&mut r, MAGIC, &[2, 3, VERSION])?;
+        let version = header(&mut r, MAGIC, &[2, 3, 4, VERSION])?;
         let rig = r.u32()?;
         // Frame count.
         let n = r.u8()?;
@@ -184,6 +243,21 @@ impl Clip {
         } else {
             Vec::new()
         };
+        let mut fades = Vec::new();
+        if version >= 5 {
+            // Capped like the keys: a short record fails as Truncated.
+            let n = r.u32()? as usize;
+            fades.reserve(n.min(1 << 20));
+            for _ in 0..n {
+                fades.push(Fade {
+                    t: r.u8()?,
+                    group: r.u8()?,
+                    add: r.i16()?,
+                    lo: r.u8()?,
+                    hi: r.u8()?,
+                });
+            }
+        }
         finish(&r)?;
         let c = Self {
             rig,
@@ -195,6 +269,7 @@ impl Clip {
             moving,
             keys,
             mix_keys,
+            fades,
         };
         c.check()?;
         Ok(c)
@@ -283,6 +358,22 @@ mod tests {
                 pos: [1, -1, 2],
                 scale: [SCALE_ONE; 3],
             }],
+            fades: vec![
+                Fade {
+                    t: 0,
+                    group: 4,
+                    add: -96,
+                    lo: 0,
+                    hi: 255,
+                },
+                Fade {
+                    t: 2,
+                    group: 1,
+                    add: -255,
+                    lo: 0,
+                    hi: 40,
+                },
+            ],
         };
         assert_eq!(Clip::decode(&c.encode().unwrap()).unwrap(), c);
         let mut bad = c.clone();
@@ -297,6 +388,17 @@ mod tests {
         assert!(bad.encode().is_err());
         let mut bad = c.clone();
         bad.moving.clear();
+        assert!(bad.encode().is_err());
+        // Fades sorted, in range, and with lo ≤ hi.
+        let mut bad = c.clone();
+        bad.fades.swap(0, 1);
+        assert!(bad.encode().is_err());
+        let mut bad = c.clone();
+        bad.fades[1].t = 3;
+        assert!(bad.encode().is_err());
+        let mut bad = c.clone();
+        bad.fades[0].lo = 9;
+        bad.fades[0].hi = 8;
         assert!(bad.encode().is_err());
     }
 
@@ -321,11 +423,11 @@ mod tests {
         assert_eq!(c.keys[0].pos, [4, -5, 6]);
         assert_eq!(c.keys[0].scale, [SCALE_ONE; 3]);
         assert!(c.moving.is_empty());
-        assert!(c.mix_keys.is_empty());
-        // It re-encodes as version 4: six bytes of scale, an empty moving
-        // list and an empty mix key count longer.
-        let v4 = c.encode().unwrap();
-        assert_eq!((v4[4], v4.len()), (VERSION, v2.len() + 11));
+        assert!(c.mix_keys.is_empty() && c.fades.is_empty());
+        // It re-encodes as version 5: six bytes of scale, an empty moving
+        // list, and empty mix key and fade counts longer.
+        let v5 = c.encode().unwrap();
+        assert_eq!((v5[4], v5.len()), (VERSION, v2.len() + 15));
         // Any other version is refused.
         let mut v9 = v2.clone();
         v9[4] = 9;
@@ -333,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn version_3_decodes_with_no_moving_bones() {
+    fn versions_3_and_4_decode_without_what_came_later() {
         let c = Clip {
             rig: 3,
             frame_start: vec![0, 2],
@@ -350,10 +452,16 @@ mod tests {
                 scale: [300, 256, 200],
             }],
             mix_keys: Vec::new(),
+            fades: Vec::new(),
         };
+        // Version 4 is version 5 without the fade count at the end.
+        let mut v4 = c.encode().unwrap();
+        assert_eq!(v4.split_off(v4.len() - 4), [0; 4]);
+        v4[4] = 4;
+        assert_eq!(Clip::decode(&v4).unwrap(), c);
         // Version 3 is version 4 without the moving count, which sits just
         // before the key count, and without the mix key count at the end.
-        let mut v3 = c.encode().unwrap();
+        let mut v3 = v4;
         assert_eq!(v3.split_off(v3.len() - 4), [0; 4]);
         let count = v3.len() - 17 - 4 - 1;
         assert_eq!(v3.remove(count), 0);

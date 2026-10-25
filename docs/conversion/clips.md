@@ -19,7 +19,7 @@ For each frame, `bone_transforms` replays the frame's ops in order, as the origi
 | translate `d` | `T(d)` |
 | rotate `d` | `T(o) · R317(d) · T(−o)` |
 | scale `d` | `T(o) · S(d / 128) · T(−o)` |
-| alpha | none |
+| alpha | none (alpha goes into fades, below) |
 
 `R317(rx, ry, rz) = Ry · Rx · Rz`, which applies z first, then x, then y. Each angle is `(v & 0xff) × 8` into the original client's 2048-entry sine table, divided by 65536. The root, bone 0, always stays at identity.
 
@@ -107,11 +107,22 @@ Slots come from the base of the sequence's first frame. On the player skeleton t
 
 **Mix keys** are keys for every other bone, fitted to the sequence's frames with the listed slots removed ([`deform::interleave_part`](../../crates/rs2convert/src/deform.rs)): the part the original client applies when it mixes. They can't be the clip's own keys. A sequence that turns or leans the whole body does so through listed slots, which the mix drops, so its upper body has to be posed again without them. Mixed through its own keys, a spin attack (sequence 439) was up to 136 units out over the walk and run; through its mix keys it's under 2 over the walk.
 
+## Fades
+
+Alpha transforms become the clip's fades (`clip::fades`). For each frame, every face label that an alpha slot lists gets the original client's steps in order (frame, then secondary frame), each `dx × 8` added to transparency and clamped to 0–255. A chain of clamped adds always collapses into one, `clamp(x + add, lo, hi)`:
+
+```text
+clamp(clamp(x + a, l, h) + s, 0, 255) = clamp(x + a + s, clamp(l + s, 0, 255), clamp(h + s, 0, 255))
+```
+
+So one fade per face label and frame reproduces the original client exactly, whatever each face's own transparency, and [validation](validation.md#fades) expects no mismatches at all. `add` is held to ±255, past which it changes nothing for a value in 0–255. Fades are stored as opacity (255 − transparency), the pack's convention, which turns `(add, lo, hi)` into `(−add, 255 − hi, 255 − lo)`. A face label with no change at a frame gets no fade, and a model without face labels gets none, as the original client fades nothing then.
+
+A mix with movement takes the clip's own fades: the original client fades through the action frame's slots outside the interleave list, and alpha slots are never listed. Validation checks that too.
+
 ## What isn't carried
 
 - **Shear.** A key scales along the bone's own axes before turning it. A scale op followed by a rotation is exact. A non-uniform scale applied after a rotation shears the bone, which no key can hold, and that shows up as [validation](validation.md) error. Of the 592 spot animation clips, which scale a lot, 33 are flagged that way.
 - **The movement's own share of a mix.** A movement clip's keys are fitted to its whole frames, but a mix only takes its listed slots. Where the movement also moves unlisted slots that reach vertices its moving bones carry (walking sideways and running swing the arms harder), some of that leaks into the mix. That's why the [mix threshold](validation.md#mixes) is twice the clip threshold.
-- **Alpha.** Alpha ops change face transparency, not positions, and keys have nowhere to put them.
 
 ## See also
 

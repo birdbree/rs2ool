@@ -1,7 +1,7 @@
 //! `models` record: one triangle mesh in pack space.
 //!
 //! ```text
-//! magic "RMDL", version u8 = 2
+//! magic "RMDL", version u8 = 3
 //! vertexCount u16, faceCount u16, flags u8, attachCount u8
 //! vertices      vertexCount × {x, y, z i16}          (x = cache x, y = −cache y, z = −cache z)
 //! faces         faceCount × {a, b, c}                (u8 when vertexCount < 256, else u16)
@@ -11,21 +11,28 @@
 //! [ALPHA]       faceCount × u8                       (255 = opaque)
 //! [PRIORITY]    faceCount × u8                       (draw-order priority)
 //! [LABELS]      vertexCount × u8                     (vertex label per vertex)
+//! [FACE_GROUPS] faceCount × u8                       (fade group per face)
 //! attach points attachCount × {nameHash u32, x, y, z i16, yaw u8}
 //! ```
 //!
 //! Bracketed sections are there only when their [`flags`] bit is set, and
 //! always in this order. No flag says how wide face indices are: the vertex
 //! count does, so read it first.
+//!
+//! Version 2 is the same without the face groups section. It still
+//! decodes; the encoder always writes version 3.
 
 use crate::bytes::{Reader, Writer};
 
-use super::{RecordError, finish, magic};
+use super::{RecordError, finish, header};
 
 /// Magic at the start of a model record.
 pub const MAGIC: &[u8; 4] = b"RMDL";
+/// The version the encoder writes. Version 2, without face groups, still
+/// decodes.
+pub const VERSION: u8 = 3;
 
-/// Bits of the header's `flags` byte, one per optional section. Bits 4–7
+/// Bits of the header's `flags` byte, one per optional section. Bits 5–7
 /// are unused.
 pub mod flags {
     /// Per-face texture coordinates follow.
@@ -36,6 +43,8 @@ pub mod flags {
     pub const PRIORITY: u8 = 4;
     /// Per-vertex labels follow.
     pub const LABELS: u8 = 8;
+    /// Per-face fade groups follow (version 3).
+    pub const FACE_GROUPS: u8 = 16;
 }
 
 /// A named point on the model.
@@ -79,6 +88,9 @@ pub struct PackModel {
     /// Label per vertex, which a rig binds to a bone. `None` means every
     /// vertex has label 0.
     pub labels: Option<Vec<u8>>,
+    /// Fade group per face: an anims record's fade keys change the opacity
+    /// of the faces in a group. `None` means every face is in group 0.
+    pub face_groups: Option<Vec<u8>>,
     /// Named points; at most 255.
     pub attach_points: Vec<AttachPoint>,
 }
@@ -100,6 +112,9 @@ impl PackModel {
         if self.labels.is_some() {
             f |= flags::LABELS;
         }
+        if self.face_groups.is_some() {
+            f |= flags::FACE_GROUPS;
+        }
         f
     }
 
@@ -113,7 +128,7 @@ impl PackModel {
         if self.material_slots.len() != f || self.palette_indices.len() != f {
             return bad("per-face arrays must have one entry per face");
         }
-        let per_face = [&self.alphas, &self.priorities]
+        let per_face = [&self.alphas, &self.priorities, &self.face_groups]
             .into_iter()
             .flatten()
             .all(|a| a.len() == f);
@@ -136,7 +151,7 @@ impl PackModel {
         let small = self.vertices.len() < 256;
         let mut w = Writer::default();
         w.bytes(MAGIC)
-            .u8(super::VERSION)
+            .u8(VERSION)
             .u16(self.vertices.len() as u16)
             .u16(self.faces.len() as u16)
             .u8(self.flags())
@@ -167,6 +182,9 @@ impl PackModel {
         if let Some(l) = &self.labels {
             w.bytes(l);
         }
+        if let Some(g) = &self.face_groups {
+            w.bytes(g);
+        }
         for a in &self.attach_points {
             w.u32(a.name_hash)
                 .i16(a.position[0])
@@ -180,7 +198,7 @@ impl PackModel {
     /// Decode a record and check its invariants.
     pub fn decode(data: &[u8]) -> Result<Self, RecordError> {
         let mut r = Reader::new(data);
-        magic(&mut r, MAGIC)?;
+        let version = header(&mut r, MAGIC, &[2, VERSION])?;
         // Vertex and face counts.
         let (v, f) = (usize::from(r.u16()?), usize::from(r.u16()?));
         // Which optional sections follow.
@@ -216,6 +234,9 @@ impl PackModel {
         if fl & flags::LABELS != 0 {
             m.labels = Some(r.bytes(v)?.to_vec());
         }
+        if version >= 3 && fl & flags::FACE_GROUPS != 0 {
+            m.face_groups = Some(r.bytes(f)?.to_vec());
+        }
         for _ in 0..attach {
             m.attach_points.push(AttachPoint {
                 name_hash: r.u32()?,
@@ -247,6 +268,7 @@ mod tests {
             alphas: Some(vec![200; n]),
             priorities: None,
             labels: Some((0..vertices).map(|i| (i % 7) as u8).collect()),
+            face_groups: Some((0..n).map(|i| (i % 3) as u8).collect()),
             attach_points: vec![AttachPoint {
                 name_hash: 42,
                 position: [1, 2, 3],
@@ -281,5 +303,15 @@ mod tests {
             PackModel::decode(b"XXXX\x01"),
             Err(RecordError::Magic { .. })
         ));
+    }
+
+    #[test]
+    fn version_2_decodes_without_face_groups() {
+        let mut m = synthetic(4);
+        m.face_groups = None;
+        let mut v2 = m.encode().unwrap();
+        assert_eq!(v2[4], VERSION);
+        v2[4] = 2;
+        assert_eq!(PackModel::decode(&v2).unwrap(), m);
     }
 }

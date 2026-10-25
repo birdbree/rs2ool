@@ -22,7 +22,7 @@
 
 use std::f64::consts::TAU;
 
-use contentpack::records::anim::{Clip, Key, NO_LOOP, SCALE_ONE};
+use contentpack::records::anim::{Clip, Fade, Key, NO_LOOP, SCALE_ONE};
 use glam::{DAffine3, DMat3, DVec3};
 use rs2cache::types::anim::{Frame, FramePack, kind};
 
@@ -360,6 +360,88 @@ pub fn local_from_key(rest: DVec3, rot: [u8; 3], pos: [i16; 3], scale: [u16; 3])
         * DAffine3::from_mat3(key_rotation(rot) * DMat3::from_diagonal(scale_of(scale)))
 }
 
+/// What a run of the original client's alpha steps does to one face's
+/// transparency `x` (0–255): `clamp(x + add, lo, hi)`. Each step adds
+/// and clamps to 0–255, and a chain of them collapses into this one form,
+/// so a single fade per face group and frame reproduces it exactly
+/// whatever each face starts at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Ramp {
+    add: i32,
+    lo: i32,
+    hi: i32,
+}
+
+impl Ramp {
+    const IDENTITY: Self = Self {
+        add: 0,
+        lo: 0,
+        hi: 255,
+    };
+
+    /// This ramp followed by one step of `dx`:
+    /// `clamp(clamp(x + a, l, h) + s, 0, 255) = clamp(x + a + s, l', h')`
+    /// with `l'` and `h'` the bounds moved by `s` and clamped. An `add`
+    /// past ±255 does nothing more to a value in 0–255, so it's held there.
+    fn step(self, dx: i32) -> Self {
+        let s = dx * 8;
+        Self {
+            add: (self.add + s).clamp(-255, 255),
+            lo: (self.lo + s).clamp(0, 255),
+            hi: (self.hi + s).clamp(0, 255),
+        }
+    }
+
+    /// As a fade on opacity (255 − transparency) for `group` at frame `t`.
+    fn fade(self, t: u8, group: u8) -> Fade {
+        Fade {
+            t,
+            group,
+            add: -self.add as i16,
+            lo: (255 - self.hi) as u8,
+            hi: (255 - self.lo) as u8,
+        }
+    }
+}
+
+/// The fades of sequence `s`: per frame, one per face group its alpha
+/// transforms change (secondary frames included), on the model's face
+/// labels. None when the model has no face labels, as the original client
+/// fades nothing then.
+pub fn fades(creature: &Creature, s: &Sequence) -> Vec<Fade> {
+    let Some(labels) = creature.model.face_labels.as_deref() else {
+        return Vec::new();
+    };
+    let present: std::collections::BTreeSet<u8> = labels.iter().copied().collect();
+    let mut out = Vec::new();
+    for i in 0..s.def.frames.len() {
+        let mut ramps = std::collections::BTreeMap::<u8, Ramp>::new();
+        for (pack, frame) in creature.frames(s, i).unwrap_or_default() {
+            for t in &frame.transforms {
+                let Some(b) = pack.base.get(usize::from(t.transform)) else {
+                    continue;
+                };
+                if b.kind != kind::ALPHA {
+                    continue;
+                }
+                // A label listed twice steps its faces twice, as in the
+                // original client.
+                for l in b.labels.iter().filter(|l| present.contains(l)) {
+                    let r = ramps.entry(*l).or_insert(Ramp::IDENTITY);
+                    *r = r.step(t.dx);
+                }
+            }
+        }
+        out.extend(
+            ramps
+                .into_iter()
+                .filter(|(_, r)| *r != Ramp::IDENTITY)
+                .map(|(g, r)| r.fade(i as u8, g)),
+        );
+    }
+    out
+}
+
 /// Keys for the bones not in `moving`, for playing over a movement clip:
 /// each frame converted from only the transforms the original client keeps
 /// of it when it mixes (its [part](deform::interleave_part) without the
@@ -519,6 +601,7 @@ pub fn convert(
         at += u32::from(d);
     }
     Ok(Clip {
+        fades: fades(creature, s),
         moving,
         mix_keys,
         rig: rig_id,
@@ -566,6 +649,32 @@ mod tests {
                     (f64::from(i[a]) - f[a]).abs() < 3.0,
                     "{rx},{ry},{rz}: {i:?} vs {f:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn a_ramp_is_the_client_steps_composed() {
+        // Mixed signs, big and small, saturating both ways.
+        let runs: [&[i32]; 5] = [
+            &[32],
+            &[4, -1, 30, -12],
+            &[-40, 3],
+            &[255, -255, 2],
+            &[1; 40],
+        ];
+        for steps in runs {
+            let ramp = steps.iter().fold(Ramp::IDENTITY, |r, &dx| r.step(dx));
+            let fade = ramp.fade(0, 0);
+            for x in 0..=255u8 {
+                let stepped = steps.iter().fold(x, |a, &dx| deform::alpha_step(a, dx));
+                assert_eq!(
+                    (ramp.add + i32::from(x)).clamp(ramp.lo, ramp.hi),
+                    i32::from(stepped),
+                    "{steps:?} from {x}"
+                );
+                // As opacity, through the record's own arithmetic.
+                assert_eq!(255 - fade.apply(255 - x), stepped, "{steps:?} from {x}");
             }
         }
     }

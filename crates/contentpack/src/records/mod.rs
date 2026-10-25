@@ -64,8 +64,9 @@ pub enum RecordError {
     Trailing(usize),
 }
 
-/// Version byte of the model and rig record headers. Anims have their
-/// own, [`anim::VERSION`].
+/// Version byte of the rig record header, and the oldest model version
+/// still read. Models and anims have their own, [`model::VERSION`] and
+/// [`anim::VERSION`].
 ///
 /// Version 2 maps cache space to pack space by negating y and z. Version 1
 /// negated y only, which mirrored every asset, so the decoders turn it away.
