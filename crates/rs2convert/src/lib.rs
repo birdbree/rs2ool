@@ -44,6 +44,7 @@
 //!   category, and what its minimap icon shows.
 //! - [`purpose`]: what a structure and its rooms are likely for, with the
 //!   evidence.
+//! - [`material`]: what a structure's walls, roofs and floors are made of.
 //! - [`preview`]: the model a record describes, put together for viewing.
 //! - [`space`]: cache space to pack space (y and z negated).
 //!
@@ -76,6 +77,7 @@ pub mod floor;
 pub mod furnish;
 pub mod infer;
 pub mod item;
+pub mod material;
 pub mod model;
 pub mod morph;
 pub mod object;

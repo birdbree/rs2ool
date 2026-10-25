@@ -86,6 +86,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Furnishing category.** What a placed object is in general terms (a bed, a counter, storage), from its name; the evidence for what a room is for, and what lets one object stand in for another in a blueprint. See [Structure purposes](conversion/structure-purposes.md#furnishing-categories).
 
+**Material.** What a wall, roof piece or floor is made of (stone, wood, thatch, or plain with a colour), from its texture, its name or its colour. See [Materials](conversion/structures.md#materials).
+
 **Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
 
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).

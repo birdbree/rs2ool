@@ -13,10 +13,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use rs2cache::types::config::FloDef;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
+use rs2convert::material;
 use rs2convert::purpose::{self, Class, Purpose};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
 use serde::Serialize;
@@ -88,7 +90,8 @@ pub fn run(
         }
     }
     let defs = definitions(records, &regions);
-    let found = structure::find(&regions, &defs);
+    let mut found = structure::find(&regions, &defs);
+    material::dress(&mut found, records, &defs, &floors(records));
     // Each structure under the region its origin is in.
     let mut by_region: BTreeMap<(u8, u8), Vec<&Structure>> = BTreeMap::new();
     for s in &found {
@@ -154,6 +157,17 @@ fn definitions(records: &Records, regions: &[Region]) -> BTreeMap<u16, LocDef> {
     ids.into_iter()
         .filter_map(|id| match records.decode(RecordType::Loc, id.into()) {
             Ok(Record::Loc(d)) => Some((id, d)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every floor definition that decodes, by id.
+fn floors(records: &Records) -> BTreeMap<u16, FloDef> {
+    let ids = records.ids(RecordType::Flo).unwrap_or_default();
+    ids.into_iter()
+        .filter_map(|id| match records.decode(RecordType::Flo, id) {
+            Ok(Record::Flo(d)) => Some((u16::try_from(id).ok()?, d)),
             _ => None,
         })
         .collect()

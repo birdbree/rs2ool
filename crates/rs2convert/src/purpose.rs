@@ -709,6 +709,7 @@ mod tests {
         Room {
             plane,
             roofed,
+            floor: None,
             tiles: (0..n)
                 .map(|i| RoomTile {
                     x: i % 8,
@@ -728,6 +729,7 @@ mod tests {
             name: Some(name.into()),
             category: furnish::category(name),
             icon: None,
+            material: None,
             kind: 10,
             rotation: 0,
             plane: 0,
