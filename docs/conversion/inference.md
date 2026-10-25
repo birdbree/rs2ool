@@ -98,7 +98,7 @@ The hold is the strongest death signal. Last frames are held either briefly (2�
 
 Against those labels, the death rule's precision went from 0.14 with the original single rule (`drop ≥ 0.3` and `end_height ≤ 0.75`, which called all 21 deaths) to 0.50, still finding every death. The two falls into a gap that vanish do drop out of sight.
 
-What's left is a real limit of motion alone: falling backward or to the knees and then lying still for good, or landing heavily and staying put, looks exactly like a death. Those sequences may well be used as deaths in some situations. Telling them apart would need more than the motion, such as captions or which sequences the game plays together ([#72](https://github.com/birdbree/rs2ool/issues/72)).
+What's left is a real limit of motion alone: falling backward or to the knees and then lying still for good, or landing heavily and staying put, looks exactly like a death. Those sequences may well be used as deaths in some situations. Telling them apart would need more than the motion, such as captions or which sequences the game plays together. `rs2ool cache caption` asks a vision model you run to describe each candidate and pick a class, as labels to check these roles against ([Captions](../tools/captions.md)).
 
 The labels aren't in the repository, since they describe the game's content. `crates/rs2convert/tests/infer_labels.rs` reads them from the JSON file named by `RS2_SEQUENCE_LABELS` (`[{"npc": 1, "seq": 2820, "class": "death", "note": "…"}, …]`), reports the table above and checks the death rule still beats the original. Without the file it skips.
 

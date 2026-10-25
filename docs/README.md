@@ -51,6 +51,7 @@ This wiki covers the tools and also the formats themselves. If you're here to un
   - [Examples](tools/examples.md): one per subcommand.
   - [`rs2ool cache`](tools/cache-commands.md) and [what a dump writes](tools/dump-output.md).
   - [`rs2ool pack`](tools/pack-commands.md).
+  - [Captions](tools/captions.md): describing sequences with a vision model you run.
   - [The explorer](tools/explorer.md).
 - [Crates](crates/README.md): [rs2cache](crates/rs2cache.md), [contentpack](crates/contentpack.md), [rs2convert](crates/rs2convert.md), [rs2classic](crates/rs2classic.md), [rs2ool](crates/rs2ool.md).
 - [Development](development/README.md): [testing](development/testing.md) and [conventions](development/conventions.md).

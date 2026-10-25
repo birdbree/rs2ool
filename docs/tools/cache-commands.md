@@ -138,6 +138,17 @@ index	present	absent	truncated	bad-sector	inflate-failed	modified
 
 Then, per index, the ids in each damaged class (the first 20, then a count), and the ids that differ from the versionlist. A file is *truncated* when its chain runs out of range or a sector is short, and *bad-sector* for any other chain fault. *Modified* files have a different version or CRC from the versionlist; that isn't damage, and it doesn't change the exit code. The last line is either `no damaged files` (exit 0) or `N damaged files` (exit 3). If the versionlist can't be read, the report says so and skips the comparison.
 
+## caption
+
+Draws an NPC's candidate sequences and asks a vision model on a server you run what each one shows, keeping the answers locally:
+
+```text
+rs2ool cache caption --npc 1 --dry-run --images frames/
+rs2ool cache caption --npc 1 --enable --model <a vision model>
+```
+
+It's off until you turn it on, and nothing is sent anywhere on a dry run. Setup, settings, flags, the images and where captions go are on [Captions](captions.md).
+
 ## explorer
 
 `rs2ool cache explorer` opens the GUI on the cache. Its startup options are on [Explorer](explorer.md#command-line-startup).

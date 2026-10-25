@@ -195,6 +195,23 @@ impl Creature {
         ))
     }
 
+    /// How long each frame of sequence `s` shows, in client cycles
+    /// (20 ms): the sequence's delay for it, or the frame's own when that's
+    /// 0, and at least 1. Empty when the sequence isn't there.
+    pub fn delays(&self, s: usize) -> Vec<u32> {
+        let Some(seq) = self.sequences.get(s) else {
+            return Vec::new();
+        };
+        (0..seq.def.frames.len())
+            .map(|i| match seq.def.frames[i].delay {
+                0 => self
+                    .frame(seq, i)
+                    .map_or(1, |(_, f)| u32::from(f.delay.max(1))),
+                d => u32::from(d),
+            })
+            .collect()
+    }
+
     /// Every label the merged mesh uses.
     pub fn mesh_labels(&self) -> BTreeSet<u8> {
         self.model.vertex_labels.iter().flatten().copied().collect()

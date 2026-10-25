@@ -4,7 +4,7 @@
 
 `rs2ool` is the workspace's one binary. It's also a library, which holds the `rs2ool cache` command code and, behind a cargo feature, the GUI explorer. This page covers how the crate is laid out and why. For using the commands, see the [tools section](../tools/README.md).
 
-Sources: [`src/main.rs`](../../src/main.rs), [`src/lib.rs`](../../src/lib.rs), [`src/cli/`](../../src/cli/mod.rs), [`src/cache/`](../../src/cache/mod.rs) and [`src/explorer/`](../../src/explorer/mod.rs).
+Sources: [`src/main.rs`](../../src/main.rs), [`src/lib.rs`](../../src/lib.rs), [`src/cli/`](../../src/cli/mod.rs), [`src/cache/`](../../src/cache/mod.rs), [`src/caption/`](../../src/caption/mod.rs), [`src/settings.rs`](../../src/settings.rs) and [`src/explorer/`](../../src/explorer/mod.rs).
 
 ## Layout
 
@@ -15,8 +15,10 @@ Cargo.toml       the workspace, and the rs2ool package
 src/
   main.rs        the binary: argument parsing, logging, dispatch
   cli/           binary only: the clap definitions for `cache` and `pack`
-  lib.rs         the library: `cache` and (with the feature) `explorer`
+  lib.rs         the library: `cache`, and with their features `caption`, `settings` and `explorer`
   cache/         list, dump, decode, verify, groups, xref, output layout
+  caption/       sequence captioning, behind the `caption` feature
+  settings.rs    settings.json, shared by the explorer and `cache caption`
   explorer/      the Bevy + egui GUI, behind the `explorer` feature
 tests/           integration tests, CLI and explorer
 crates/          rs2cache, contentpack, rs2convert, rs2classic
@@ -26,7 +28,7 @@ crates/          rs2cache, contentpack, rs2convert, rs2classic
 
 **`cli`**, declared with `mod cli` in `main.rs` and so private to the binary, maps arguments onto library calls:
 
-- `cli::cache` defines `list`, `dump`, `decode`, `info`, `verify` and `explorer`, and calls into the library's `cache` module.
+- `cli::cache` defines `list`, `dump`, `decode`, `info`, `verify`, `caption` and `explorer`, and calls into the library's `cache` module.
 - `cli::pack` defines `inspect`, `materials`, `textures`, `npc`, `player-kit`, `sprites`, `floors`, `objects`, `models`, `build` and `explorer`.
 - `cli::convert` holds the converting `pack` subcommands as thin wrappers over `rs2convert::run`. `pack build` calls `contentpack::loose::bake` directly.
 
@@ -57,13 +59,35 @@ cargo build -p rs2ool --no-default-features
 
 Without the feature, the `explorer` module isn't compiled, the `rs2ool cache explorer` and `rs2ool pack explorer` subcommands don't exist, and the explorer tests compile to nothing (each starts with `#![cfg(feature = "explorer")]`).
 
+## The `caption` feature
+
+`caption` is a default feature too. It adds `rs2ool cache caption` and the `caption` module ([Captions](../tools/captions.md)), with two small dependencies and `directories`:
+
+| Dependency | Version | Why |
+| --- | --- | --- |
+| `ureq` | `3`, without default features, with `json` | a blocking HTTP client, with no async runtime |
+| `base64` | `0.23` | images in JSON request bodies |
+| `directories` | `=6.0.0` | the settings file and the caption store |
+
+The default build speaks plain HTTP only, which is all a server on this machine needs. `caption-tls` adds `ureq`'s rustls support for https endpoints.
+
+The module has three parts:
+
+- `caption::frames` draws a sequence as a grid of frames with `rs2classic`.
+- `caption::client` talks to the server, in Ollama's API or the OpenAI-compatible one.
+- `caption::store` keeps the captions, one JSON file per cache in the data directory.
+
+`caption::run` puts them together for the command line. It reports progress through a callback, so the explorer can drive it as a job.
+
+`settings` is compiled with either feature. It's the one `Settings` struct both read and write, with the explorer's output folder and the caption settings, so a change made in one applies to the other. With the `explorer` feature it's also a Bevy resource.
+
 ## Explorer module map
 
 Every cache read and conversion runs on Bevy's `AsyncComputeTaskPool` through `jobs` or `sources`; UI systems only poll finished tasks.
 
 | Module | What it does |
 | --- | --- |
-| [`actions`](../../src/explorer/actions.rs) | Export, dump, convert and bake through the same library calls the CLI makes, as jobs; remembers the output folder in `settings.json` in the platform config directory. |
+| [`actions`](../../src/explorer/actions.rs) | Export, dump, convert and bake through the same library calls the CLI makes, as jobs; remembers the output folder in `settings.json` (see `settings`). |
 | [`app`](../../src/explorer/app.rs) | The window, and the startup options the command line sets (`--select`, `--compare`, `--classic`). |
 | [`classic`](../../src/explorer/classic.rs) | The classic renderer view: the selected model drawn by `rs2classic` into a pixel buffer, shown nearest-neighbour over the viewport. |
 | [`inspector`](../../src/explorer/inspector.rs) | What the inspector shows (sidecar rows, decoded fields, hex dump), kept apart from egui so it can be tested. |

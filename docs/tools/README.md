@@ -14,6 +14,7 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
+                         caption   (--npc N | --all | --check) [--dry-run] [--limit N] [--images DIR] [--redo] [SERVER]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…
 
 rs2ool [--cache DIR] pack  materials   -o DIR
@@ -31,6 +32,7 @@ rs2ool [--cache DIR] pack  materials   -o DIR
 SOURCE  = --index N | --archive NAME | --type TYPE | --region RX_RY | --all-regions | --group G
 IDS     = --id N | --range A-B | --all
 OUTPUT  = --meta | --meta-only, --xref, --jsonl
+SERVER  = --enable, --backend ollama|openai, --endpoint URL, --model NAME, --api-key-env VAR, --timeout SECS, --frames N, --prompt TEXT
 ```
 
 `TYPE` is one of the 17 record type names: `model`, `anim`, `map`, `loc`, `npc`, `obj`, `idk`, `seq`, `spotanim`, `flo`, `varp`, `varbit`, `texture`, `sprite`, `font`, `interface`, `midi` (case doesn't matter). See [Records](../records/README.md) for what each one is.
@@ -48,9 +50,9 @@ rs2ool cache verify
 
 `--cache` is global, so it can go before or after the subcommand, and it overrides `RS2_CACHE`. Use an absolute path when you set the variable, since tests run from each crate's own directory.
 
-Every `cache` command except `explorer` needs a cache, and so does every converting `pack` command. `pack inspect` and `pack build` don't read one. The explorers open without one; `pack explorer` opens the cache too when one is given, so compare mode can pair packs with their originals.
+Every `cache` command except `explorer` and `caption --check` needs a cache, and so does every converting `pack` command. `pack inspect` and `pack build` don't read one. The explorers open without one; `pack explorer` opens the cache too when one is given, so compare mode can pair packs with their originals.
 
-The tools only read the cache. They write to the output directory you name and nowhere else (the explorer also remembers its output folder, see [Explorer](explorer.md#the-actions-menu)).
+The tools only read the cache. They write to the output directory you name and nowhere else (the explorer also remembers its output folder, see [Explorer](explorer.md#the-actions-menu), and `caption` keeps its captions in your data directory, see [Captions](captions.md#where-captions-go)).
 
 ## Exit codes
 
@@ -77,7 +79,7 @@ The GUI is behind the `explorer` cargo feature, which is on by default. To build
 cargo build -p rs2ool --no-default-features
 ```
 
-That binary has no `cache explorer` or `pack explorer` subcommand; everything else is the same.
+That binary has no `cache explorer` or `pack explorer` subcommand, and no `cache caption`, which is behind the `caption` feature (also on by default). Everything else is the same. `--no-default-features --features caption` builds the command line with captioning and without the GUI.
 
 ## Pages
 
@@ -85,6 +87,7 @@ That binary has no `cache explorer` or `pack explorer` subcommand; everything el
 - [Cache commands](cache-commands.md): `list`, `dump`, `decode`, `info` and `verify`, every selector and flag.
 - [Dump output](dump-output.md): where `dump` writes things, `manifest.json`, sidecars, `--xref`, groups.
 - [Pack commands](pack-commands.md): every `rs2ool pack` subcommand, what it writes, and the validation reports.
+- [Captions](captions.md): `cache caption`, captioning sequences with a vision model you run.
 - [Explorer](explorer.md): the GUI.
 
 ## See also
