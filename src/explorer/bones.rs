@@ -1,12 +1,15 @@
-//! The bone overlay (**View › Bones**): a converted creature's rig drawn
-//! with gizmos, a dot on each bone's pivot and a line to its parent's,
-//! posed at the playback clock's frame so it moves with the mesh.
+//! The bone overlay (**View › Bones**): a creature's rig drawn with
+//! gizmos, a dot on each bone's pivot and a line to its parent's, posed at
+//! the playback clock's frame so it moves with the mesh.
 //!
-//! The pose comes from the same library code that skins the mesh
-//! (`rs2convert::validate::pose`), so the pivots sit exactly where the
-//! skinned vertices rotate about. Each bone gets the colour that
-//! **Vertex colours › By bone** paints its vertices with. Only converted
-//! creatures have a rig; anything else draws nothing.
+//! A converted creature's pose comes from the same library code that
+//! skins its mesh (`rs2convert::validate::pose`), so the pivots sit exactly
+//! where the skinned vertices rotate about. A cache creature shows the rig
+//! conversion would infer for it; its animation moves vertices, not bones,
+//! so each pivot is the centroid of its bone's vertices in the posed frame
+//! (`rs2convert::rig::InferredRig::posed_pivots`). Each bone gets the colour
+//! that **Vertex colours › By bone** paints its vertices with. Anything
+//! without a rig draws nothing.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::system::SystemParam;
@@ -81,10 +84,35 @@ impl Skeleton {
 }
 
 /// A renderable's skeleton at frame `frame` of sequence `seq`, matching
-/// what [`posed`](crate::explorer::playback::posed) skins: the frame is
-/// clamped to the clip, and a sequence it doesn't have (or none) gives the
-/// rest pose. `None` for anything but a converted creature.
+/// what [`posed`](crate::explorer::playback::posed) draws: the frame is
+/// clamped to the sequence, and a sequence it doesn't have (or none) gives
+/// the rest pose.
+///
+/// A converted creature's bones come from its rig and clip. A cache
+/// creature's come from the rig inferred from it: its animation moves
+/// vertices rather than bones, so each bone's pivot is the centroid of the
+/// vertices it stands for in the posed frame. `None` for anything else.
 pub fn skeleton(r: &Renderable, seq: Option<u32>, frame: usize) -> Option<Skeleton> {
+    if let Renderable::Creature {
+        creature,
+        rig: Some(rig),
+        ..
+    } = r
+    {
+        let posed = seq.and_then(|s| crate::explorer::playback::posed(r, s, frame));
+        let vertices = match &posed {
+            Some(crate::explorer::playback::Posed::Cache(v)) => v.as_slice(),
+            _ => creature.rest.as_slice(),
+        };
+        let labels = creature.model.vertex_labels.as_deref().unwrap_or_default();
+        let pivots = rig
+            .posed_pivots(labels, vertices)
+            .into_iter()
+            .map(|p| Vec3::from(crate::explorer::mesh::world(p)))
+            .collect();
+        let parents = rig.bones.iter().map(|b| b.parent).collect();
+        return Some(Skeleton { pivots, parents });
+    }
     let Renderable::PackCreature { rig, clips, .. } = r else {
         return None;
     };

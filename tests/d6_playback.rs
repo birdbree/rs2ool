@@ -113,8 +113,8 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
     let rest = skeleton(&right, None, 0).unwrap();
     assert_eq!(rest.pivots.len(), rig.bones.len());
     assert!(
-        skeleton(&left, Some(walk), 0).is_none(),
-        "cache NPCs have no rig"
+        skeleton(&left, Some(walk), 0).is_some(),
+        "cache NPCs show their inferred rig"
     );
     let mut moved = false;
     for f in 0..delays.len() {
@@ -216,4 +216,67 @@ fn humanoids_get_the_whole_pool_grouped_by_role() {
     let seqs = sequences(&r);
     let named = seqs.len() - inferred.len();
     assert!(seqs[named..].iter().zip(inferred).all(|(s, c)| *s == c.seq));
+}
+
+/// A cache NPC shows the bones conversion would infer for it, each pivot
+/// following the centroid of its vertices through the animation.
+#[test]
+fn cache_npcs_show_their_inferred_bones() {
+    use rs2ool::explorer::bones::skeleton;
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    let npc = common::walking_npc(records);
+    let (_, r) = load(&cache, &Sel::Record(RecordType::Npc, npc)).unwrap();
+    let r = r.unwrap();
+    let Renderable::Creature {
+        creature,
+        rig: Some(rig),
+        ..
+    } = &r
+    else {
+        panic!("npc {npc} has an inferred rig")
+    };
+    let labels = creature.model.vertex_labels.clone().unwrap();
+    let bones = rig.vertex_bones(&labels);
+    let walk = sequences(&r)[1];
+    let rest = skeleton(&r, None, 0).unwrap();
+    assert_eq!(rest.pivots.len(), rig.bones.len());
+    let mut moved = false;
+    for f in 0..timing(&r, walk).unwrap().0.len() {
+        let Some(Posed::Cache(v)) = posed(&r, walk, f) else {
+            panic!("frame {f} poses")
+        };
+        let s = skeleton(&r, Some(walk), f).unwrap();
+        moved |= s != rest;
+        // Each bone with vertices sits at their centroid (cache space,
+        // integer division, then y and z negated for the world).
+        for (b, bone) in rig.bones.iter().enumerate().skip(1) {
+            let mine: Vec<[i32; 3]> = v
+                .iter()
+                .zip(&labels)
+                .filter(|(_, l)| bone.labels.contains(l))
+                .map(|(p, _)| *p)
+                .collect();
+            if mine.is_empty() {
+                continue;
+            }
+            let n = mine.len() as i64;
+            let c =
+                [0, 1, 2].map(|a| (mine.iter().map(|p| i64::from(p[a])).sum::<i64>() / n) as f32);
+            assert_eq!(
+                s.pivots[b].to_array(),
+                [c[0], -c[1], -c[2]],
+                "frame {f}, bone {b}"
+            );
+        }
+    }
+    assert!(moved, "the bones move with the walk");
+    // Every vertex follows a real bone.
+    assert!(bones.iter().all(|&b| b < rig.bones.len()));
 }

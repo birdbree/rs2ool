@@ -33,6 +33,7 @@ use rs2convert::creature::{self, Creature};
 use rs2convert::infer::{Candidate, SequenceIndex};
 use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
+use rs2convert::rig::{self, InferredRig};
 
 use crate::explorer::selection::Sel;
 use crate::explorer::sources::Source;
@@ -77,6 +78,10 @@ pub enum Renderable {
         /// The inferred sequences among `creature`'s, best first, with
         /// their evidence and role (see [`rs2convert::infer`]).
         inferred: Vec<Candidate>,
+        /// The rig inferred from `creature`, as conversion would infer it,
+        /// for showing its bones before converting; `None` when it can't
+        /// be rigged (no vertex labels).
+        rig: Option<Arc<InferredRig>>,
     },
     /// A converted creature: its model, rig and clips (by clip id).
     PackCreature {
@@ -194,10 +199,12 @@ pub fn load_renderable(
                     {
                         let (c, inferred) = with_inferred(source, records, &index, d.id, c);
                         let model = c.rest_model();
+                        let rig = rig::infer(&c, None).ok().map(Arc::new);
                         return Ok(Some(Renderable::Creature {
                             creature: Arc::new(c),
                             model,
                             inferred,
+                            rig,
                         }));
                     }
                 }
