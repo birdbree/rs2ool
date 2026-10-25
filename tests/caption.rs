@@ -146,3 +146,65 @@ fn labels_are_measured_and_judged() {
     // A walk moves and comes back: the rules call it an action.
     assert!(rules >= 1);
 }
+
+#[test]
+fn descriptions_go_into_the_anims_pack() {
+    use rs2ool::caption::describe::describe;
+    use rs2ool::caption::store::Imported;
+
+    let Some(dir) = std::env::var_os("RS2_CACHE") else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = Cache::open(std::path::Path::new(&dir)).unwrap();
+    let records = Records::new(&cache);
+    let npc = common::walking_npc(&records);
+    let rs2cache::types::record::Record::Npc(d) = records
+        .decode(rs2cache::types::record::RecordType::Npc, npc)
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let stand = u32::from(d.stand_anim.unwrap());
+    let convert = || rs2convert::run::npc(&records, 0, npc, true, &[], None).unwrap();
+    let anims = |o: &rs2convert::run::Outcome| {
+        let p = o
+            .packs
+            .iter()
+            .find(|p| p.kind() == contentpack::Kind::Anims)
+            .unwrap();
+        contentpack::PackReader::from_bytes(&p.bake().1).unwrap()
+    };
+    let data = std::env::temp_dir().join(format!("rs2ool-describe-test-{}", std::process::id()));
+
+    // No captions: no table, and the same pack as without describing.
+    let empty = Store::open(&data, 3).unwrap();
+    let mut plain = convert();
+    assert_eq!(describe(&mut plain, &empty, Some(npc)), 0);
+    assert!(anims(&plain).manifest.extra.is_empty());
+    assert_eq!(plain.packs[2].bake().0, convert().packs[2].bake().0);
+
+    // A caption for the stand sequence lands on its clip.
+    let mut store = Store::open(&data, 3).unwrap();
+    store.import(
+        "labeller",
+        vec![Imported {
+            npc,
+            seq: stand,
+            class: Some("idle".into()),
+            text: "stands about".into(),
+            frames: 9,
+        }],
+    );
+    let mut described = convert();
+    assert_eq!(describe(&mut described, &store, Some(npc)), 1);
+    let extra = &anims(&described).manifest.extra["descriptions"];
+    let (id, e) = extra.as_object().unwrap().iter().next().unwrap();
+    assert_eq!(id.parse::<u32>().unwrap() & 0xffff, stand);
+    assert_eq!(e["class"], "idle");
+    assert_eq!(e["role"], "idle");
+    assert_eq!(e["text"], "stands about");
+    assert_eq!(e["by"], "labeller");
+    assert_eq!(e["reviewed"], false);
+    let _ = std::fs::remove_dir_all(data);
+}

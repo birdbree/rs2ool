@@ -87,7 +87,7 @@ Locale 0 is English and is the only locale the tools write. Object records refer
 
 ## Manifest extras
 
-Two packs carry a table in the manifest's `extra` object ([Container](container.md#manifest)). JSON object keys are decimal strings.
+Three packs carry a table in the manifest's `extra` object ([Container](container.md#manifest)). JSON object keys are decimal strings.
 
 `floors`, in the `materials` pack the floor conversion writes, maps each `flo.dat` id to its material and its name:
 
@@ -104,6 +104,8 @@ Every floor gets a name entry, an empty string when the definition has no name, 
 ```
 
 The key is the model record id (`0x20000000 | idk`, written in decimal). `slot` is the kit's body part modulo 7 and `body_type` is the body part divided by 7. `hide_mask` is always 0, by design. In the original client a kit part never hides another: for each of its 12 slots the server sends empty, a kit part or an item, and the client draws what it's sent, so worn items hide body parts only because the server leaves those slots empty. Hide masks belong on items, inferred from their wear models ([equipment slots](../conversion/inference.md#equipment-slots)), not on kit parts. `selectable` is copied from the kit definition ([Identity kit](../records/idk.md)).
+
+`descriptions`, in the `anims` pack `npc --describe` and `player-kit --describe` write, says what each described clip shows, keyed by clip id; see [Anims](anims.md#descriptions).
 
 ## See also
 

@@ -85,7 +85,8 @@ fn gui_actions_match_the_clis() {
     // Convert the NPC.
     let (gui, cli_out) = (tmp("convert-gui"), tmp("convert-cli"));
     let done = convert(records, &ConvertTarget::Npc(npc), &gui).unwrap();
-    convert_cli(&[
+    // With captions, the explorer writes them too, as --describe does.
+    let mut args = vec![
         "--cache",
         d,
         "pack",
@@ -94,9 +95,13 @@ fn gui_actions_match_the_clis() {
         &id,
         "--with-anims",
         "--infer",
-        "-o",
-        cli_out.to_str().unwrap(),
-    ]);
+    ];
+    if cfg!(feature = "caption") {
+        args.push("--describe");
+    }
+    let out = cli_out.to_str().unwrap();
+    args.extend(["-o", out]);
+    convert_cli(&args);
     let (a, b) = (tree(&gui), tree(&cli_out));
     let packs = |t: &BTreeMap<PathBuf, Vec<u8>>| {
         t.iter()

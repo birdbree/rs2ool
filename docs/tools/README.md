@@ -14,15 +14,15 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
-                         caption   (--npc N | --all | --check) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
-                         classify  [--labels FILE] [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
+                         caption   (--npc N | --all | --check | --import FILE --model NAME) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
+                         classify  [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…
 
 rs2ool [--cache DIR] pack  materials   -o DIR
                          textures    -o DIR
                          models      (--id N | --all) -o DIR
-                         npc         --id N [--with-anims] [--seq A,B,…] [--override FILE] -o DIR
-                         player-kit  [--with-anims] [--override FILE] -o DIR
+                         npc         --id N [--with-anims] [--seq A,B,…] [--infer] [--describe] [--override FILE] -o DIR
+                         player-kit  [--with-anims] [--describe] [--override FILE] -o DIR
                          sprites     [--archive media|title] [--all] -o DIR
                          floors      -o DIR
                          objects     (--id N | --all) -o DIR

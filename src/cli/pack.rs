@@ -40,6 +40,11 @@ pub enum Cmd {
         /// offers (see docs/conversion/inference.md).
         #[arg(long)]
         infer: bool,
+        /// Write each clip's caption into the anims pack manifest, from the
+        /// local caption file (see docs/tools/captions.md).
+        #[cfg(feature = "caption")]
+        #[arg(long, requires = "with_anims")]
+        describe: bool,
         #[command(flatten)]
         out: Out,
     },
@@ -48,6 +53,11 @@ pub enum Cmd {
     PlayerKit {
         #[command(flatten)]
         anims: AnimArgs,
+        /// Write each clip's caption into the anims pack manifest, from the
+        /// local caption file (see docs/tools/captions.md).
+        #[cfg(feature = "caption")]
+        #[arg(long, requires = "with_anims")]
+        describe: bool,
         #[command(flatten)]
         out: Out,
     },
@@ -184,8 +194,14 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                     anims,
                     seq,
                     infer,
+                    #[cfg(feature = "caption")]
+                    describe,
                     out,
-                } => ctx.and_then(|c| c.npc(id, &anims, &seq, infer, &out.dir)),
+                } => {
+                    #[cfg(not(feature = "caption"))]
+                    let describe = false;
+                    ctx.and_then(|c| c.npc(id, &anims, &seq, infer, describe, &out.dir))
+                }
                 Cmd::Sprites {
                     archive,
                     // Every sprite is already the default without --archive.
@@ -195,7 +211,16 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Cmd::Objects { ids, out } => ctx.and_then(|c| c.objects(&ids, &out.dir)),
                 Cmd::Items { ids, out } => ctx.and_then(|c| c.items(&ids, &out.dir)),
                 Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
-                Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
+                Cmd::PlayerKit {
+                    anims,
+                    #[cfg(feature = "caption")]
+                    describe,
+                    out,
+                } => {
+                    #[cfg(not(feature = "caption"))]
+                    let describe = false;
+                    ctx.and_then(|c| c.player_kit(&anims, describe, &out.dir))
+                }
                 // Handled in the outer match.
                 _ => unreachable!(),
             }

@@ -4,7 +4,7 @@
 
 `rs2ool cache caption` draws an NPC's candidate sequences on its model and asks a vision model running on your own machine what each one shows. It keeps the answers in a local file: a short description, plus one class from a fixed list. The captions are cheap and roughly right, and they're quick to check by eye, which makes them a practical way to build a labelled set of sequences. The cache doesn't name its deaths, attacks or jumps, so [role inference](../conversion/inference.md#roles) has to go on motion alone.
 
-Captioning is opt-in and only adds evidence. Candidate inference and the motion roles work the same with or without it, and nothing a caption says goes into a pack.
+Captioning is opt-in and only adds evidence. Candidate inference and the motion roles work the same with or without it. A caption reaches a pack only when you ask for it with `--describe` ([Into the packs](#into-the-packs)).
 
 Implemented in [`rs2ool::caption`](../../src/caption/mod.rs), with the settings in [`rs2ool::settings`](../../src/settings.rs). It needs the `caption` cargo feature, which is on by default.
 
@@ -57,6 +57,7 @@ Command-line flags override them for one run without saving anything: `--enable`
 rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER FLAGS]
 rs2ool cache caption --all   [the same]
 rs2ool cache caption --check [SERVER FLAGS]
+rs2ool cache caption --import FILE --model NAME
 ```
 
 - `--npc N` captions every candidate of NPC `N`, in the order the explorer's picker gives them.
@@ -91,8 +92,9 @@ The built-in question explains the grid and asks for two lines: what the charact
 | `block` | braces, flinches or recoils as if hit, then returns to its starting pose |
 | `gesture` | waves, bows, dances, cheers or makes another expressive movement aimed at no one |
 | `work` | repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking |
-| `death` | collapses, then squashes flat into the ground and stays there |
-| `fall over` | topples backwards, forwards or onto its knees, without squashing flat |
+| `death` | goes down, then squashes flat into the ground and stays there |
+| `collapse` | crumples into a heap and stays down, without squashing flat |
+| `fall over` | topples backwards, forwards or onto its knees, then gets up or keeps moving |
 | `fall away` | moves down below the ground band at full size, out of sight, as into a gap |
 | `descend` | comes down slowly from above, floating or lowering itself, and settles on the ground |
 | `jump` | pushes off and leaves the ground, leaping up, over or across |
@@ -100,7 +102,7 @@ The built-in question explains the grid and asks for two lines: what the charact
 | `vanish` | gets smaller or fades in place until nothing is left, as in a teleport |
 | `other` | none of these |
 
-Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat and a `fall over` doesn't; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
+Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat, a `collapse` crumples and stays down, and a `fall over` gets up or keeps moving; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
 
 Requests ask for temperature 0, no streaming and, from Ollama, no thinking. Small models don't always follow the format, so the reply is read leniently:
 
@@ -129,6 +131,26 @@ The data directory is the platform's, for example `~/Library/Application Support
 
 Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption and every review, so stopping a run part way keeps everything captioned so far. Captioning a sequence again with `--redo` replaces its caption, review and all.
 
+## Importing labels
+
+Labels from another labeller, a person or a program, can go into the caption file too:
+
+```text
+rs2ool cache caption --import labels.json --model <labeller>
+```
+
+The file is a list of `{"npc", "seq", "class", "text"}` objects, plus an optional `"frames"`. Every class has to be one from the list above (or `null`); one that isn't stops the import (exit 1) before anything is written. Each label becomes a caption by `<labeller>`, so it shows in the explorer's picker and can be reviewed like any other. Importing a label again replaces the caption but keeps its review. `--dry-run --images DIR` draws the frame grids such a labeller would look at.
+
+## Into the packs
+
+`rs2ool pack npc … --with-anims --describe` and `pack player-kit --with-anims --describe` write each clip's caption into the anims pack's manifest, as a `descriptions` table ([Descriptions](../pack/anims.md#descriptions)). For each clip they take the best caption of its sequence:
+
+1. a reviewed caption first;
+2. then one drawn on this NPC (for the player kit, any NPC);
+3. then by labeller name.
+
+A caption marked wrong with no class given is left out. A reviewed caption gives its checked class. The explorer's Convert action describes too, so its packs match the command line's.
+
 ## In the explorer
 
 The explorer's **Captions** window holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
@@ -138,10 +160,10 @@ The explorer's **Captions** window holds the same settings with a connection tes
 Reviewed captions are labels. `rs2ool cache classify` learns a small role tree from them and compares it with the hand-tuned motion rules:
 
 ```text
-rs2ool cache classify [--labels FILE] [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
+rs2ool cache classify [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
 ```
 
-It prints how many labelled sequences each gets right, a confusion table for each (labelled role against what it said), and the tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--weak W` also learns from unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the tree, and the explorer's sequence picker then uses it for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
+It prints how many labelled sequences each gets right, the families with enough labels to try a tree of their own and how those do, a confusion table for each (labelled role against what it said), and the global tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--trust <model>` (repeatable) counts that model's unreviewed captions as checked labels, scored like reviews; meant for imported labels you've spot-checked and found good. `--weak W` also learns from any other unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the trees, and the explorer's sequence picker then uses them for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
 
 ## See also
 

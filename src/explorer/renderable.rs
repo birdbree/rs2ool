@@ -159,8 +159,11 @@ fn with_inferred(
     let Some(seqs) = sequence_index(path, records, index) else {
         return (named, Vec::new(), false);
     };
-    match role_tree() {
-        Some(t) => {
+    match role_trees(records) {
+        Some(trees) => {
+            // The NPC's own family tree if there is one, else the global.
+            let names: Vec<u32> = named.sequences.iter().map(|s| s.def.id).collect();
+            let t = trees.for_family(seqs.family_of(&names));
             let (c, inferred) =
                 rs2convert::infer::npc_candidates_by(&seqs, records, index, id, named, &|m| {
                     t.role(m)
@@ -174,17 +177,21 @@ fn with_inferred(
     }
 }
 
-/// The role tree `rs2ool cache classify --save` learned, if there is one.
-/// Read on every NPC load, so a newly saved tree shows on the next.
-fn role_tree() -> Option<rs2convert::classify::Tree> {
+/// The role trees `rs2ool cache classify --save` learned on this cache,
+/// if there are any. Read on every NPC load, so newly saved trees show on
+/// the next. Trees learned on another cache are ignored, since their
+/// family numbers don't carry over.
+fn role_trees(records: &Records) -> Option<rs2convert::classify::RoleTrees> {
     let bytes = std::fs::read(crate::settings::role_tree_path()?).ok()?;
-    match serde_json::from_slice(&bytes) {
-        Ok(t) => Some(t),
+    let trees: rs2convert::classify::RoleTrees = match serde_json::from_slice(&bytes) {
+        Ok(t) => t,
         Err(e) => {
-            tracing::warn!("role tree: {e}");
-            None
+            tracing::warn!("role trees: {e}");
+            return None;
         }
-    }
+    };
+    let crc = rs2convert::source_cache_crc(records.cache()).ok()?;
+    (trees.cache_crc == crc).then_some(trees)
 }
 
 /// The renderable a selection resolves to, if it has one.

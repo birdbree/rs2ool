@@ -120,7 +120,7 @@ pub struct SourceCli {
 #[derive(Args)]
 pub struct CaptionArgs {
     /// Caption every candidate of one NPC.
-    #[arg(long, group = "target", required_unless_present = "check")]
+    #[arg(long, group = "target", required_unless_present_any = ["check", "import"])]
     npc: Option<u32>,
     /// Caption every candidate sequence of every NPC, each once.
     #[arg(long, group = "target")]
@@ -128,6 +128,11 @@ pub struct CaptionArgs {
     /// Ask the server which models it has, then stop.
     #[arg(long, conflicts_with_all = ["dry_run", "target"])]
     check: bool,
+    /// Load labels from this JSON file as captions by --model, instead of
+    /// captioning: `[{"npc", "seq", "class", "text"}, …]`. Reviews of
+    /// earlier imports are kept.
+    #[arg(long, value_name = "FILE", requires = "model", conflicts_with_all = ["dry_run", "target", "check"])]
+    import: Option<PathBuf>,
     /// Draw the images and print what would be sent, without sending it.
     #[arg(long)]
     dry_run: bool,
@@ -177,6 +182,10 @@ pub struct ClassifyArgs {
     /// (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`); reviews win.
     #[arg(long, value_name = "FILE", env = "RS2_SEQUENCE_LABELS")]
     labels: Option<PathBuf>,
+    /// Count this model's unreviewed captions as checked labels
+    /// (repeatable); reviews still win.
+    #[arg(long, value_name = "MODEL")]
+    trust: Vec<String>,
     /// Also learn from unreviewed captions' own classes, each counting
     /// this much (a reviewed label counts 1). They're never scored.
     #[arg(long, value_name = "W")]
@@ -487,6 +496,9 @@ mod caption {
     }
 
     pub fn run(cache: &Cache, records: &Records, a: &CaptionArgs) -> Result<Outcome> {
+        if let Some(path) = &a.import {
+            return import(cache, path, a.model.as_deref().expect("clap requires it"));
+        }
         let c = settings(a);
         let target = match a.npc {
             Some(id) => Target::Npc(id),
@@ -560,6 +572,39 @@ mod caption {
         Ok(outcome)
     }
 
+    // `--import`: check every class, then add the labels to the caption
+    // file under `model`.
+    fn import(cache: &Cache, path: &std::path::Path, model: &str) -> Result<Outcome> {
+        use anyhow::Context;
+        use rs2ool::caption::CLASSES;
+        use rs2ool::caption::store::Imported;
+
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let rows: Vec<Imported> =
+            serde_json::from_str(&text).with_context(|| format!("reading {}", path.display()))?;
+        for r in &rows {
+            if let Some(c) = &r.class
+                && !CLASSES.iter().any(|(n, _)| n == c)
+            {
+                return Err(rs2ool::cache::select::usage(format!(
+                    "npc {} seq {}: {c:?} isn't a class",
+                    r.npc, r.seq
+                )));
+            }
+        }
+        let dir = settings::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("this platform has no data directory for captions"))?;
+        let mut store = Store::open(&dir, rs2convert::source_cache_crc(cache)?)?;
+        let n = store.import(model, rows);
+        store.save()?;
+        println!(
+            "imported {n} labels as {model} into {}",
+            store.path().display()
+        );
+        Ok(Outcome::Ok)
+    }
+
     // `classify`: gather the labels, grow and score the tree, print the
     // comparison, and save the tree if asked.
     pub fn classify(cache: &Cache, records: &Records, a: &ClassifyArgs) -> Result<Outcome> {
@@ -574,7 +619,7 @@ mod caption {
             Some(p) => learn::read_labels(p)?,
             None => Vec::new(),
         };
-        let (labels, overridden) = learn::gather(&store, &file, a.weak.is_some());
+        let (labels, overridden) = learn::gather(&store, &file, &a.trust, a.weak.is_some());
         let params = Params {
             max_depth: a.depth,
             min_leaf: a.min_leaf,
@@ -587,9 +632,10 @@ mod caption {
             return Ok(Outcome::Ok);
         }
         println!(
-            "{n} labelled sequences: {} reviewed captions, {} from the labels file",
+            "{n} labelled sequences: {} reviewed captions, {} from the labels file, {} trusted",
             count(Origin::Review),
-            count(Origin::Labels)
+            count(Origin::Labels),
+            count(Origin::Trusted)
         );
         if overridden > 0 {
             println!("  ({overridden} labels-file entries disagree with a review; the review won)");
@@ -613,6 +659,33 @@ mod caption {
             "tree, leave-one-out   {tree:>3}/{n} right ({:.0}%)",
             pct(tree)
         );
+        let combined = report.combined();
+        println!(
+            "family trees where there are, else the tree   {combined:>3}/{n} right ({:.0}%)",
+            pct(combined)
+        );
+        let families = report.family_scores();
+        if !families.is_empty() {
+            println!();
+            println!(
+                "families with enough labels to try a tree of their own, scored within the family; kept where it beats the tree:"
+            );
+            println!(
+                "  {:<24} {:>5} {:>7} {:>7} {:>7}",
+                "family", "n", "rules", "tree", "own"
+            );
+            for f in &families {
+                println!(
+                    "  {:<24} {:>5} {:>7} {:>7} {:>7}{}",
+                    format!("{} ({})", f.name, f.family),
+                    f.n,
+                    f.rules,
+                    f.global,
+                    f.own,
+                    if f.kept { "  kept" } else { "" }
+                );
+            }
+        }
         // One confusion table per judge: rows the true role, columns what
         // the judge said.
         let table = |name: &str, said: fn(&learn::Judged) -> Role| {
@@ -662,13 +735,17 @@ mod caption {
         }
         println!();
         println!("the tree, grown on every label:");
-        print!("{}", report.tree.describe());
+        print!("{}", report.trees.global.describe());
         if a.save {
             let path = settings::role_tree_path()
                 .ok_or_else(|| anyhow::anyhow!("this platform has no data directory"))?;
             std::fs::create_dir_all(&dir)?;
-            std::fs::write(&path, serde_json::to_vec_pretty(&report.tree)?)?;
-            println!("saved to {}", path.display());
+            std::fs::write(&path, serde_json::to_vec_pretty(&report.trees)?)?;
+            println!(
+                "saved the tree and {} family trees to {}",
+                report.trees.families.len(),
+                path.display()
+            );
         }
         Ok(Outcome::Ok)
     }

@@ -111,29 +111,50 @@ The rules above were tuned by hand. `rs2ool cache classify` learns roles from se
 | --- | --- |
 | `idle` | idle |
 | `walk`, `attack`, `block`, `gesture`, `work`, `jump` (and `action` from the labels file) | action: all of them move and come back |
-| `death` | death |
+| `death`, `collapse` | death: both go down and stay down |
 | `fall over`, `descend` | down |
 | `fall away` | drop |
 | `vanish` | vanish |
 | `land`, `other` | other: a landing starts in the air |
 
-Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
 
-On 54 labelled sequences (38 reviewed captions and 16 from the labels file), the rules got 34 right (63%) and the tree 39 (72%). Two cautions:
+On 756 labelled sequences, the rules got 457 right (60%) and the tree 534 (71%). The labels were 46 reviewed captions, 16 from the labels file, and 694 imported from another labeller. The imported labels cover one NPC from each of 56 skeleton families plus 100 of the shared humanoid pool, and a second round of 125 sequences, drawn from every NPC, that the rules called downs, drops or vanishes. Where the imported labels and the reviews cover the same sequences, they agree on the role 12 times out of 15. Two cautions:
 
-- The depth and leaf size were picked by trying several on these same labels, which flatters the tree a little.
-- Five sequences out of 54 is a hint, not proof.
+- The depth and leaf size were picked by trying several on earlier labels, which flatters the tree a little.
+- Most of the labels weren't checked one by one.
 
-Where they differ:
+The second round showed what the rules' rarer roles really are:
 
-- **The rules** call anything that ends low a death: 17 sequences, of which 6 are, among them sitting or lying down, landings, falls and some gestures. They do catch all 6 deaths and all 3 vanishes.
-- **The tree** puts most of those false deaths where they belong, as actions, other or downs. But with so few examples it finds only 3 of the 6 deaths and none of the 4 drops or 3 vanishes.
+- Of 47 sequences the rules call downs, 25 stay down for good: 15 collapses and 10 flattened deaths. Only 7 are downs as labelled (5 descents, 2 falls).
+- Of 60 they call drops, 26 are other, 10 fall away, and 12 collapse or die.
+- Of 18 they call vanishes, 15 vanish.
 
-So the tree is better on the common cases and worse on the rare ones. More reviewed deaths, drops and vanishes are what would help it most.
+Where the rules and the tree differ:
+
+- **The rules** call 71 actions "other" and 20 "idle", and 42 deaths downs or drops.
+- **The tree** gets 327 of the 377 actions, against the rules' 265, and 73 of the 104 deaths, against 42. Vanishes come out even, 19 of 29 each. But it never says down or drop: real downs are few once collapses count as deaths, and drops are mixed up with other, so the rules do better there (13 of 33 downs and 14 of 19 drops, against none).
+
+#### Trees per skeleton family
+
+NPCs on one skeleton family share their sequences, so a family with enough labels might be better served by a tree of its own. A family with at least 20 checked labels over two roles or more (`FAMILY_MIN`) gets one tried, scored leave-one-out within the family. It's kept only if it beats the global tree on that family's sequences:
+
+| Family | Labels | Rules | Global tree | Own tree | |
+| --- | --- | --- | --- | --- | --- |
+| humanoids | 191 | 107 | 122 | 125 | kept |
+| dwarves | 42 | 41 | 39 | 40 | kept |
+| gnomes | 40 | 27 | 28 | 28 | |
+| monkeys | 39 | 20 | 25 | 16 | |
+| lesser demons | 26 | 23 | 25 | 24 | |
+| goblins | 24 | 15 | 19 | 19 | |
+| ogres | 20 | 15 | 14 | 12 | |
+| trolls | 20 | 14 | 17 | 15 | |
+
+With a few dozen labels, a family tree usually does worse than the global one, which has seen ten times as much. Using the kept family trees and the global tree elsewhere gets 538 right (71%), though choosing which to keep on the same labels flatters that a little.
 
 Unreviewed captions' own classes can be added as weak labels (`--weak W`, each counting `W`). With the 2B captioning model they don't help: its classes are mostly wrong.
 
-`--save` writes the tree to `role-tree.json` in the data directory. When it's there, the explorer's sequence picker uses it to group an NPC's candidates, marking each group "learned". Conversion always uses the rules, so packs don't depend on a local file. The tree is only ever learned locally; none is shipped. Shipping one would make sense once it beats the rules clearly on a few hundred labels.
+`--save` writes the trees to `role-tree.json` in the data directory: the global tree, the kept family trees, and the CRC of the cache they were learned on. When the file is there and matches the open cache, the explorer's sequence picker uses the NPC's family tree, or else the global one, to group its candidates, marking each group "learned". Conversion always uses the rules, so packs don't depend on a local file. The trees are only ever learned locally; none is shipped.
 
 ### Sequences that tear the model
 

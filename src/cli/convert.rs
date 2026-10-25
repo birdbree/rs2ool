@@ -115,13 +115,14 @@ impl<'c> Ctx<'c> {
     }
 
     /// `pack npc`: one NPC, plus clips for its sequences and the `extra`
-    /// ones with `--with-anims`.
+    /// ones with `--with-anims`, and with `describe` their captions.
     pub fn npc(
         &self,
         id: u32,
         anims: &AnimArgs,
         extra: &[u16],
         infer: bool,
+        describe: bool,
         dir: &Path,
     ) -> anyhow::Result<()> {
         let o = overrides(anims)?;
@@ -138,18 +139,40 @@ impl<'c> Ctx<'c> {
                 &extra,
                 o.as_ref(),
             )
-            .map_err(Into::into),
+            .map_err(Into::into)
+            .and_then(|out| self.described(out, describe, Some(id))),
             dir,
         )
     }
 
+    /// `outcome` with its clips' captions added, when `describe` is set.
+    fn described(
+        &self,
+        outcome: Outcome,
+        describe: bool,
+        npc: Option<u32>,
+    ) -> anyhow::Result<Outcome> {
+        #[cfg(feature = "caption")]
+        if describe {
+            use rs2ool::caption::describe;
+            let mut outcome = outcome;
+            let store = describe::store_for(self.records.cache())?;
+            let n = describe::describe(&mut outcome, &store, npc);
+            outcome.log.push(format!("{n} clips described"));
+            return Ok(outcome);
+        }
+        let _ = (describe, npc);
+        Ok(outcome)
+    }
+
     /// `pack player-kit`: every identity-kit part, and the rigged default
     /// body.
-    pub fn player_kit(&self, anims: &AnimArgs, dir: &Path) -> anyhow::Result<()> {
+    pub fn player_kit(&self, anims: &AnimArgs, describe: bool, dir: &Path) -> anyhow::Result<()> {
         let o = overrides(anims)?;
         finish(
             run::player_kit(&self.records, self.crc, anims.with_anims, o.as_ref())
-                .map_err(Into::into),
+                .map_err(Into::into)
+                .and_then(|out| self.described(out, describe, None)),
             dir,
         )
     }
