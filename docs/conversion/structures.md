@@ -4,7 +4,7 @@
 
 The map stores ground tiles and placed objects, but it never says where a building is, what it's for, or which room is the kitchen. This page covers how whole structures are found in the map, with their rooms, doors, walls, roofs and everything inside, and how they're written out as blueprints. Read it before using structure data, to know what's found from cache facts and where the method stops.
 
-**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules, on [Structure purposes](structure-purposes.md). What its walls, roofs and floors are made of comes from their textures, names and colours ([Materials](#materials)). Learning those rules, grouping structures into complexes and a pack record for blueprints are the next stages ([Next](#next)).
+**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules and by forests learned from labelled structures, which also group structures into sites, on [Structure purposes](structure-purposes.md). What its walls, roofs and floors are made of comes from their textures, names and colours ([Materials](#materials)). A pack record for blueprints is the next stage ([Next](#next)).
 
 ## What a blueprint is for
 
@@ -248,7 +248,7 @@ Each placement has the definition id, its name where it has one, its [furnishing
 | stairs | `#000080` |
 | remains | `#f5f5dc` |
 
-**The sheet** gives the structure's size, planes, rooms, doors and openings; its walls' and roof pieces' materials, commonest first; its current guess with the evidence; each room's plane, whether it's roofed, its size, floor and guessed use, and what it contains (named objects with their categories, minimap icons with what they show, unnamed decorations counted); what hangs on its outside walls; and up to 12 neighbouring structures within 24 tiles, nearest first, each with its id, size, planes, gap, direction and guess. The neighbours are there so a labeller can say which belong to the same site, since structures aren't grouped into complexes.
+**The sheet** gives the structure's size, planes, rooms, doors and openings; its walls' and roof pieces' materials, commonest first; its current guess with the evidence; each room's plane, whether it's roofed, its size, floor and guessed use, and what it contains (named objects with their categories, minimap icons with what they show, unnamed decorations counted); what hangs on its outside walls; and up to 12 neighbouring structures within 24 tiles, nearest first, each with its id, size, planes, gap, direction and guess. The neighbours are there so a labeller can say which belong to the same site; they're the pairs the [site forest](structure-purposes.md#forests) decides.
 
 ## What it finds
 
@@ -286,7 +286,7 @@ The contents already say a lot: a castle block, a general shop, a smithy, a hous
 
 ## Limits
 
-- **Open grounds don't join.** Blocks joined only by open ground stay separate structures: the first and sixth structures above are blocks of one castle, but the courtyard between them opens straight onto the grounds, which aren't walled in, so it isn't a yard. Grouping neighbouring structures into one complex belongs with the next stage, where how alike and how close they are can be weighed.
+- **Open grounds don't join.** Blocks joined only by open ground stay separate structures: the first and sixth structures above are blocks of one castle, but the courtyard between them opens straight onto the grounds, which aren't walled in, so it isn't a yard. The learned [sites](structure-purposes.md#forests) put them together.
 - **Broken walls don't close.** A ruin whose walls have gaps leaks into the open country, so it isn't found yet; nor is any enclosure bigger than `YARD_MAX`.
 - **Open doors and gates merge rooms.** With the door open, nothing walls the doorway, so the rooms either side flood into one; an open gate leaves a yard unclosed.
 - **Diagonal walls don't split rooms.** A tile with a diagonal wall belongs wholly to the room it's roofed with, and a yard's diagonal wall doesn't close it.
@@ -297,9 +297,10 @@ The contents already say a lot: a castle block, a general shop, a smithy, a hous
 
 ## Next
 
-1. **Complexes.** Grouping neighbouring structures into complexes (a castle's blocks, a farm's barns). Neither linking structures by runs of walls (fences and garden walls link unrelated buildings) nor by nearness alone (a shop stands three tiles from a castle tower) is enough by itself. Furnishing categories, minimap icons, rules for what a structure and its rooms are for, and materials are done: see [Structure purposes](structure-purposes.md) and [Materials](#materials).
-2. **Labels and learned trees.** Cutaway plans and object lists labelled the same way as [sequence roles](inference.md#learning-roles-from-labels), trees learned on the labels, and a profile per class: rooms, floors, room purposes, how rooms connect and which furnishings go where.
-3. **A pack record** for blueprints and class profiles.
+Segmentation, furnishing categories, minimap icons, materials, rules, labels and learned forests are done, and sites group structures into complexes: see [Structure purposes](structure-purposes.md). What's left:
+
+1. **Class profiles:** for each class, its rooms, floors, room uses, how rooms connect and which furnishings go where, from the learned guesses over the whole map, for generating new structures.
+2. **A pack record** for blueprints and class profiles, laid out with the client project.
 
 ## See also
 

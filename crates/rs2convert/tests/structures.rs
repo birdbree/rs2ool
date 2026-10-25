@@ -1,7 +1,8 @@
 //! Structures found in the map: in region 50_50, a church, a smithy and a
 //! castle come out with their rooms, doors and furnishings, read as what
-//! they are and are dressed in stone and wood; the whole map gives the
-//! same structures every time, and its yards.
+//! they are by the rules and the learned trees (which also put the castle's
+//! blocks on one site), and are dressed in stone and wood; the whole map
+//! gives the same structures every time, and its yards.
 
 mod common;
 
@@ -11,6 +12,7 @@ use rs2cache::Records;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
+use rs2convert::learn::Trees;
 use rs2convert::material::{self, Material};
 use rs2convert::purpose::{self, Class};
 use rs2convert::structure::{self, Structure};
@@ -244,4 +246,41 @@ fn a_regions_buildings_are_dressed_in_their_materials() {
         church.rooms[0].floor.map(|f| f.material),
         Some(Material::Wood)
     );
+}
+
+#[test]
+fn the_learned_trees_read_a_region_and_group_its_castle() {
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let (regions, defs) = load(&cache, |x, y| {
+        (49..=51).contains(&x) && (49..=51).contains(&y)
+    });
+    let floors = records
+        .ids(RecordType::Flo)
+        .unwrap()
+        .into_iter()
+        .filter_map(|id| match records.decode(RecordType::Flo, id) {
+            Ok(Record::Flo(d)) => Some((u16::try_from(id).ok()?, d)),
+            _ => None,
+        })
+        .collect();
+    let mut found = structure::find(&regions, &defs);
+    material::dress(&mut found, &records, &defs, &floors);
+    let trees = Trees::built_in();
+    let sites = trees.sites(&found);
+    let at = |x: u16, y: u16| found.iter().position(|s| s.origin == (x, y)).unwrap();
+    let class = |i: usize| trees.classify(&found[i]).0;
+    // The church, the smithy and the two castle blocks.
+    let (church, smithy, keep, tower) = (
+        at(3238, 3204),
+        at(3222, 3252),
+        at(3203, 3206),
+        at(3227, 3212),
+    );
+    assert_eq!(class(church), Class::Church);
+    assert_eq!(class(smithy), Class::Smithy);
+    assert_eq!((class(keep), class(tower)), (Class::Castle, Class::Castle));
+    // The blocks are one site; the church is on its own.
+    assert_eq!(sites[keep], sites[tower]);
+    assert!(sites.iter().filter(|&&s| s == sites[church]).count() == 1);
 }

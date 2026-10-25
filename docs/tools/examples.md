@@ -133,6 +133,7 @@ Find the buildings in one region, then write every structure in the map as JSON 
 rs2ool cache structures --region 50_50
 rs2ool cache structures --all -o out/
 rs2ool cache structures --region 50_50 -o out/ --plans
+rs2ool cache structures --all --learn labels.json --save trees.json
 ```
 
 Each line gives what a structure is likely to be, its origin, size, planes, rooms, doors and openings, and its commonest named objects; the files hold the rooms, doors, walls, roofs and contents, placed relative to each structure's corner, and the guesses with their evidence. See [Cache commands](cache-commands.md#structures), [Structures](../conversion/structures.md) and [Structure purposes](../conversion/structure-purposes.md).

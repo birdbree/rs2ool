@@ -88,6 +88,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Material.** What a wall, roof piece or floor is made of (stone, wood, thatch, or plain with a colour), from its texture, its name or its colour. See [Materials](conversion/structures.md#materials).
 
+**Site.** Neighbouring structures that belong together, such as a castle's blocks or a farm's barns, as the learned forests group them. See [Learned from labels](conversion/structure-purposes.md#forests).
+
 **Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
 
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).

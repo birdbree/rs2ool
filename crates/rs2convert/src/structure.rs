@@ -672,6 +672,29 @@ fn flood(
     (tiles, closed)
 }
 
+/// The gap in tiles between two structures' boxes, the larger of the gaps
+/// east–west and north–south; 0 when they touch or overlap.
+pub fn gap(a: &Structure, b: &Structure) -> u32 {
+    // The space between two spans, either way round.
+    let axis = |a0: u16, an: u16, b0: u16, bn: u16| {
+        let (a0, b0) = (u32::from(a0), u32::from(b0));
+        let (a1, b1) = (a0 + u32::from(an), b0 + u32::from(bn));
+        b0.saturating_sub(a1).max(a0.saturating_sub(b1))
+    };
+    axis(a.origin.0, a.size.0, b.origin.0, b.size.0)
+        .max(axis(a.origin.1, a.size.1, b.origin.1, b.size.1))
+}
+
+/// A structure's id: `x_y_p`, its origin and lowest plane.
+pub fn id(s: &Structure) -> String {
+    format!(
+        "{}_{}_{}",
+        s.origin.0,
+        s.origin.1,
+        s.planes.first().copied().unwrap_or(0)
+    )
+}
+
 /// A tile and its eight neighbours on a plane.
 fn around(plane: u8, x: u16, y: u16) -> impl Iterator<Item = At> {
     (-1i32..=1).flat_map(move |dx| {

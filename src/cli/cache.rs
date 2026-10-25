@@ -232,6 +232,18 @@ pub struct StructuresCli {
     /// into `plans/RX_RY/` under `-o`.
     #[arg(long, requires = "out")]
     plans: bool,
+    /// Learn what structures and rooms are for, and which belong to one
+    /// site, from this labels file, and report how well, held out, instead
+    /// of listing structures.
+    #[arg(long, value_name = "LABELS")]
+    learn: Option<PathBuf>,
+    /// With --learn, save the trees to this file.
+    #[arg(long, value_name = "FILE", requires = "learn")]
+    save: Option<PathBuf>,
+    /// Use the trees in this file (from --save) instead of the built-in
+    /// ones.
+    #[arg(long, value_name = "FILE", conflicts_with = "learn")]
+    trees: Option<PathBuf>,
 }
 
 // `RX_RY` into `(rx, ry)`; each part has to fit a u8.
@@ -551,6 +563,9 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 all: a.all,
                 out: a.out,
                 plans: a.plans,
+                learn: a.learn,
+                save: a.save,
+                trees: a.trees,
             },
             &mut std::io::stdout().lock(),
         ),
