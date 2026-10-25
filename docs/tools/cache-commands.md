@@ -221,6 +221,7 @@ rs2ool cache structures --all -o out/
 | `--region RX_RY` | search that region and its eight neighbours, and keep the structures whose south-west corner is in it |
 | `--all` | search the whole map at once |
 | `-o DIR` | write `DIR/structures/RX_RY.json` for each region with structures, instead of listing them |
+| `--plans` | with `-o`, also draw each structure's floor plan and write its text sheet, as `DIR/plans/RX_RY/X_Y_P.png` and `.md` ([Plans and sheets](../conversion/structures.md#plans-and-sheets)) |
 
 Without `-o`, each structure prints as one line: its region, what it's likely to be (and what a shop sells, `?` when nothing scored enough), origin, size, planes, rooms (and how many are yards), doors (and how many lead outside), open edges, and its objects with the commonest named ones:
 

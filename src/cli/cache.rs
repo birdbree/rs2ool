@@ -228,6 +228,10 @@ pub struct StructuresCli {
     /// instead of listing them.
     #[arg(short, long, value_name = "DIR")]
     out: Option<PathBuf>,
+    /// Also draw each structure's floor plan, with a text sheet beside it,
+    /// into `plans/RX_RY/` under `-o`.
+    #[arg(long, requires = "out")]
+    plans: bool,
 }
 
 // `RX_RY` into `(rx, ry)`; each part has to fit a u8.
@@ -546,6 +550,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 region: a.region,
                 all: a.all,
                 out: a.out,
+                plans: a.plans,
             },
             &mut std::io::stdout().lock(),
         ),

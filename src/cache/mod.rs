@@ -13,6 +13,7 @@ pub mod dump;
 pub mod groups;
 pub mod list;
 pub mod output;
+pub mod plans;
 pub mod render;
 pub mod select;
 pub mod structures;
