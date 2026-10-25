@@ -16,7 +16,7 @@ src/
   main.rs        the binary: argument parsing, logging, dispatch
   cli/           binary only: the clap definitions for `cache` and `pack`
   lib.rs         the library: `cache`, `render`, and with their features `caption`, `settings` and `explorer`
-  cache/         list, dump, decode, verify, render, structures, groups, xref, output layout
+  cache/         list, dump, decode, verify, render, structures, plans, groups, xref, output layout
   render.rs      drawing models with rs2classic into PNG, APNG and GIF images
   caption/       sequence captioning, behind the `caption` feature
   settings.rs    settings.json, shared by the explorer and `cache caption`
@@ -33,7 +33,7 @@ crates/          rs2cache, contentpack, rs2convert, rs2classic
 - `cli::pack` defines `inspect`, `materials`, `textures`, `npc`, `player-kit`, `sprites`, `floors`, `objects`, `models`, `build` and `explorer`.
 - `cli::convert` holds the converting `pack` subcommands as thin wrappers over `rs2convert::run`. `pack build` calls `contentpack::loose::bake` directly.
 
-**The `cache` module** is in the library, not the binary. Its option structs (`SourceArgs`, `IdArgs`, `OutArgs`, `DumpArgs`) describe a run without any `clap` types, and `dump::run`, `list::run`, `verify::run` and `render::run` do the work, returning an `Outcome` (`Ok` or `Partial`). The submodules: `dump` (dump and decode), `list`, `verify` (every sector chain, file, archive and versionlist entry), `render` (a record's model drawn still, as an animation, a frame or a sheet, optionally beside its conversion; its options are `RenderArgs`), `structures` (whole structures in a region or the whole map, listed or written as JSON per region; its options are `StructuresArgs`), `groups` (dependency closures for `--group`), `xref` (reverse references, cached in `<out>/xref.json`), `select` (selector flags to ids), and `output` (files, sidecars and `manifest.json`).
+**The `cache` module** is in the library, not the binary. Its option structs (`SourceArgs`, `IdArgs`, `OutArgs`, `DumpArgs`) describe a run without any `clap` types, and `dump::run`, `list::run`, `verify::run` and `render::run` do the work, returning an `Outcome` (`Ok` or `Partial`). The submodules: `dump` (dump and decode), `list`, `verify` (every sector chain, file, archive and versionlist entry), `render` (a record's model drawn still, as an animation, a frame or a sheet, optionally beside its conversion; its options are `RenderArgs`), `structures` (whole structures in a region or the whole map, listed or written as JSON per region; its options are `StructuresArgs`), `plans` (each structure's floor plan and text sheet, for `structures --plans`), `groups` (dependency closures for `--group`), `xref` (reverse references, cached in `<out>/xref.json`), `select` (selector flags to ids), and `output` (files, sidecars and `manifest.json`).
 
 **The `render` module** draws with `rs2classic` into images, for `cache render` and the caption frame grids. `View` holds the image size and camera; `frame` fits one camera to every pose of a drawing; `draw` renders one pose over the background and ground; `outline` and `grid` lay tiles out; `png`, `apng` and `gif` encode. It needs no feature: the GIF and APNG encoders come from `image` (with its `gif` feature) and `png`, which `image` already uses.
 

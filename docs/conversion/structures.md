@@ -203,6 +203,53 @@ Rooms' floors are plain (632), wood (485), mud (456), stone (253), invisible (20
 
 Each placement has the definition id, its name where it has one, its [furnishing category](structure-purposes.md#furnishing-categories), its [minimap icon](structure-purposes.md#minimap-icons) if its definition draws one, for walls, doors and roof pieces what it's made of (its `material`, [Materials](#materials)), the placement type, the rotation, the plane, its position (negative just outside the origin: a roof's overhang, a post at an outside corner) and its room. The command adds each structure's `purpose` beside these fields; see [Structure purposes](structure-purposes.md#in-the-output).
 
+## Plans and sheets
+
+`rs2ool cache structures -o DIR --plans` also draws each structure's floor plan and writes a text sheet beside it, as `DIR/plans/RX_RY/X_Y_P.png` and `.md`, named by the structure's id: its origin and lowest plane. They're for looking at structures, and for labelling them by hand or otherwise.
+
+**The plan** ([`cache::plans`](../../src/cache/plans.rs)) is drawn from above, 16 pixels to a tile, north up, one panel per plane from the lowest, each with its plane number in the corner and a margin of one tile:
+
+- roofed rooms are tinted a pale shade of their floor's material, yards pale grey, with faint lines between tiles so sizes can be counted;
+- walls are drawn on their edges in the colour of their material (a plain wall in its own colour), diagonal walls across their tiles, and corner posts as dots at their corners;
+- closed doors are thick green lines, open doors pale green, and openings thin red ones;
+- each furnishing or floor decoration with a category is a square in its category's colour (a wall decoration a smaller one), and each minimap icon a yellow diamond;
+- each room's number is drawn in its middle tile.
+
+| Category | Colour |
+| --- | --- |
+| bank | `#ffd700` |
+| bar | `#b8860b` |
+| smithing | `#404040` |
+| crafting | `#8b4513` |
+| worship | `#9370db` |
+| throne | `#ff00ff` |
+| counter | `#ff8c00` |
+| display | `#ffa07a` |
+| military | `#b22222` |
+| ship | `#1e90ff` |
+| mill | `#deb887` |
+| farm | `#9acd32` |
+| magic | `#00ced1` |
+| books | `#800000` |
+| cooking | `#ff4500` |
+| washing | `#87ceeb` |
+| bed | `#4169e1` |
+| seat | `#a0522d` |
+| table | `#d2691e` |
+| storage | `#808000` |
+| hearth | `#dc143c` |
+| light | `#ffff66` |
+| decoration | `#ee82ee` |
+| plant | `#228b22` |
+| grave | `#696969` |
+| prison | `#2f4f4f` |
+| fixture | `#c0c0c0` |
+| nature | `#556b2f` |
+| stairs | `#000080` |
+| remains | `#f5f5dc` |
+
+**The sheet** gives the structure's size, planes, rooms, doors and openings; its walls' and roof pieces' materials, commonest first; its current guess with the evidence; each room's plane, whether it's roofed, its size, floor and guessed use, and what it contains (named objects with their categories, minimap icons with what they show, unnamed decorations counted); what hangs on its outside walls; and up to 12 neighbouring structures within 24 tiles, nearest first, each with its id, size, planes, gap, direction and guess. The neighbours are there so a labeller can say which belong to the same site, since structures aren't grouped into complexes.
+
 ## What it finds
 
 On the whole map (239 regions with structures), it finds 936 structures in about four seconds in a release build; most of that is the flood fill over the open country, which only proves it isn't a yard.

@@ -23,7 +23,7 @@ use rs2convert::purpose::{self, Class, Purpose};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
 use serde::Serialize;
 
-use crate::cache::{Outcome, select};
+use crate::cache::{Outcome, plans, select};
 
 /// What to search and where the JSON goes.
 #[derive(Debug, Clone, Default)]
@@ -35,7 +35,15 @@ pub struct StructuresArgs {
     /// A directory to write `structures/<rx>_<ry>.json` into; without it,
     /// a summary goes to stdout.
     pub out: Option<PathBuf>,
+    /// Also write a floor plan and a text sheet for each structure under
+    /// `out`, in `plans/<rx>_<ry>/` (see [`crate::cache::plans`]).
+    pub plans: bool,
 }
+
+/// How far, in tiles, a structure's sheet looks for neighbours, and how
+/// many it lists.
+const NEIGHBOUR_GAP: u32 = 24;
+const NEIGHBOURS: usize = 12;
 
 /// One region's file.
 #[derive(Serialize)]
@@ -100,34 +108,44 @@ pub fn run(
             by_region.entry(r).or_default().push(s);
         }
     }
+    if a.plans && a.out.is_none() {
+        return Err(select::usage("--plans needs -o DIR"));
+    }
+    let purposes: Vec<Purpose> = found.iter().map(purpose::of).collect();
     match &a.out {
-        Some(dir) => {
-            let dir = dir.join("structures");
-            std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        Some(dir) if a.plans => {
+            let index: BTreeMap<*const Structure, usize> = found
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (std::ptr::from_ref(s), i))
+                .collect();
             for ((x, y), structures) in &by_region {
-                let path = dir.join(format!("{x}_{y}.json"));
-                let file = RegionFile {
-                    region: format!("{x}_{y}"),
-                    structures: structures
+                let rdir = dir.join("plans").join(format!("{x}_{y}"));
+                std::fs::create_dir_all(&rdir)
+                    .with_context(|| format!("creating {}", rdir.display()))?;
+                for s in structures {
+                    let i = index[&std::ptr::from_ref(*s)];
+                    let mut near: Vec<(&Structure, &Purpose, u32)> = found
                         .iter()
-                        .map(|s| Entry {
-                            structure: s,
-                            purpose: purpose::of(s),
-                        })
-                        .collect(),
-                };
-                let json = serde_json::to_string_pretty(&file)?;
-                std::fs::write(&path, json + "\n")
-                    .with_context(|| format!("writing {}", path.display()))?;
+                        .zip(&purposes)
+                        .filter(|(n, _)| !std::ptr::eq(*n, *s))
+                        .map(|(n, p)| (n, p, plans::gap(s, n)))
+                        .filter(|&(_, _, g)| g <= NEIGHBOUR_GAP)
+                        .collect();
+                    near.sort_by_key(|&(n, _, g)| (g, plans::id(n)));
+                    near.truncate(NEIGHBOURS);
+                    let stem = rdir.join(plans::id(s));
+                    let png = stem.with_extension("png");
+                    std::fs::write(&png, crate::render::png(&plans::plan(s)))
+                        .with_context(|| format!("writing {}", png.display()))?;
+                    let md = stem.with_extension("md");
+                    std::fs::write(&md, plans::sheet(s, &purposes[i], &near))
+                        .with_context(|| format!("writing {}", md.display()))?;
+                }
             }
-            let n: usize = by_region.values().map(Vec::len).sum();
-            writeln!(
-                out,
-                "{n} structures in {} regions, written to {}",
-                by_region.len(),
-                dir.display()
-            )?;
+            write_json(dir, &by_region, out)?;
         }
+        Some(dir) => write_json(dir, &by_region, out)?,
         None => {
             for ((x, y), structures) in &by_region {
                 for s in structures {
@@ -160,6 +178,41 @@ fn definitions(records: &Records, regions: &[Region]) -> BTreeMap<u16, LocDef> {
             _ => None,
         })
         .collect()
+}
+
+/// Writes `structures/RX_RY.json` under `dir` for each region, and says
+/// so on `out`.
+fn write_json(
+    dir: &std::path::Path,
+    by_region: &BTreeMap<(u8, u8), Vec<&Structure>>,
+    out: &mut impl Write,
+) -> Result<()> {
+    let dir = dir.join("structures");
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    for ((x, y), structures) in by_region {
+        let path = dir.join(format!("{x}_{y}.json"));
+        let file = RegionFile {
+            region: format!("{x}_{y}"),
+            structures: structures
+                .iter()
+                .map(|s| Entry {
+                    structure: s,
+                    purpose: purpose::of(s),
+                })
+                .collect(),
+        };
+        let json = serde_json::to_string_pretty(&file)?;
+        std::fs::write(&path, json + "\n")
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    let n: usize = by_region.values().map(Vec::len).sum();
+    writeln!(
+        out,
+        "{n} structures in {} regions, written to {}",
+        by_region.len(),
+        dir.display()
+    )?;
+    Ok(())
 }
 
 /// Every floor definition that decodes, by id.
