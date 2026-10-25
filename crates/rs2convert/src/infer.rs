@@ -83,21 +83,54 @@ pub enum Role {
     /// Moves and comes back to where it started: an attack, a block or a
     /// gait.
     Action,
-    /// Ends collapsed: between its first frame and its last, the model's
-    /// top drops by at least 30% of its height and it ends at most 75% as
-    /// tall.
+    /// Goes down and stays down: the model's top drops by at least 30% of
+    /// its height, it ends at most 75% as tall with its lowest point where
+    /// it was, and the last frame is held (at least 50 cycles, 1 s). Falling
+    /// over and then lying still looks the same, so some of these are
+    /// falls rather than deaths.
     Death,
+    /// Goes down the same way but doesn't stay: falling over, kneeling,
+    /// sitting, floating down.
+    Down,
+    /// The whole body moves down, lowest point included (by at least 30%
+    /// of its height): a fall, or a jump down into a gap.
+    Drop,
+    /// Ends with no height at all (under 5%): shrinking away, sinking out
+    /// of sight, a teleport.
+    Vanish,
     /// None of those.
     Other,
 }
 
+/// The order roles are grouped in: the most useful first.
+pub const ROLE_ORDER: [Role; 7] = [
+    Role::Death,
+    Role::Action,
+    Role::Down,
+    Role::Drop,
+    Role::Vanish,
+    Role::Idle,
+    Role::Other,
+];
+
 impl Role {
+    /// Its place in [`ROLE_ORDER`].
+    pub fn order(self) -> usize {
+        ROLE_ORDER
+            .iter()
+            .position(|&r| r == self)
+            .unwrap_or(ROLE_ORDER.len())
+    }
+
     /// The role's name, lowercase.
     pub fn name(self) -> &'static str {
         match self {
             Role::Idle => "idle",
             Role::Action => "action",
             Role::Death => "death",
+            Role::Down => "down",
+            Role::Drop => "drop",
+            Role::Vanish => "vanish",
             Role::Other => "other",
         }
     }
@@ -105,7 +138,7 @@ impl Role {
 
 /// How a sequence moves a model, each distance as a share of the model's
 /// height in the sequence's first frame.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Motion {
     /// The last frame's height.
     pub end_height: f64,
@@ -119,8 +152,28 @@ pub struct Motion {
     /// How long one run of the sequence lasts, in client cycles (20 ms):
     /// each frame's sequence delay, or the frame's own when that's 0.
     pub duration: u32,
+    /// How far the model's lowest point rises above where it started, at
+    /// most: feet leaving the ground.
+    pub lift: f64,
+    /// How far the model's top rises above where it started, at most.
+    pub rise: f64,
+    /// How much lower the model's lowest point ends than it started
+    /// (negative: higher).
+    pub base_drop: f64,
+    /// The model's widest horizontal extent at the end over at the start.
+    pub spread: f64,
+    /// How long the last frame is held, in cycles.
+    pub hold: u32,
 }
 
+/// How far down (as a share of height) counts as going down.
+const LOWERED: f64 = 0.3;
+/// An end height below which the model has gone.
+const VANISHED: f64 = 0.05;
+/// A last frame held at least this long (cycles, 1 s) stays down. The
+/// sequences that go down without staying hold their last frame for well
+/// under half a second.
+const HELD: u32 = 50;
 /// Peak motion below which a sequence counts as idle.
 const IDLE_PEAK: f64 = 0.06;
 /// How far from the first frame an action may end.
@@ -160,16 +213,39 @@ impl Motion {
         };
         let (end_top, end_bottom) = span(last);
         let seq = &c.sequences[s];
-        let duration = (0..n)
+        let delays: Vec<u32> = (0..n)
             .map(|i| match seq.def.frames[i].delay {
                 0 => c
                     .frame(seq, i)
                     .map_or(1, |(_, f)| u32::from(f.delay.max(1))),
                 d => u32::from(d),
             })
-            .sum();
+            .collect();
+        // The widest horizontal extent, x or z.
+        let extent = |v: &[[i32; 3]]| {
+            let along = |a: usize| {
+                let (lo, hi) = v.iter().fold((i32::MAX, i32::MIN), |(lo, hi), p| {
+                    (lo.min(p[a]), hi.max(p[a]))
+                });
+                f64::from(hi.saturating_sub(lo))
+            };
+            along(0).max(along(2))
+        };
+        // y is down, so rising is a smaller y.
+        let most_risen = |f: fn((i32, i32)) -> i32, from: i32| {
+            frames
+                .iter()
+                .map(|v| f64::from(from - f(span(v))))
+                .fold(0.0, f64::max)
+                / height
+        };
         Some(Self {
-            duration,
+            duration: delays.iter().sum(),
+            lift: most_risen(|(_, b)| b, bottom),
+            rise: most_risen(|(t, _)| t, top),
+            base_drop: f64::from(end_bottom - bottom) / height,
+            spread: extent(last) / extent(first).max(1.0),
+            hold: delays.last().copied().unwrap_or(0),
             end_height: f64::from(end_bottom - end_top) / height,
             drop: f64::from(end_top - top) / height,
             returns: mean_distance(last, first) / height,
@@ -183,8 +259,15 @@ impl Motion {
 
     /// The role this motion suggests.
     pub fn role(&self) -> Role {
-        if self.drop >= 0.3 && self.end_height <= 0.75 {
+        let lowered = self.drop >= LOWERED && self.end_height <= 0.75;
+        if self.end_height < VANISHED {
+            Role::Vanish
+        } else if self.base_drop >= LOWERED {
+            Role::Drop
+        } else if lowered && self.hold >= HELD {
             Role::Death
+        } else if lowered {
+            Role::Down
         } else if self.peak < IDLE_PEAK {
             Role::Idle
         } else if self.returns <= ACTION_RETURN {
@@ -296,13 +379,7 @@ pub const SHORT_ACTION: u32 = 60;
 /// collapsed first, actions short ones first (see [`SHORT_ACTION`]) and
 /// then the most motion first, and the rest by score.
 pub fn sort_by_role(candidates: &mut [Candidate]) {
-    let group = |c: &Candidate| match c.role {
-        Some(Role::Death) => 0,
-        Some(Role::Action) => 1,
-        Some(Role::Idle) => 2,
-        Some(Role::Other) => 3,
-        None => 4,
-    };
+    let group = |c: &Candidate| c.role.map_or(ROLE_ORDER.len(), |r| r.order());
     candidates.sort_by(|a, b| {
         let within = match (a.shared(), a.role, a.motion, b.motion) {
             (true, Some(Role::Death), Some(ma), Some(mb)) => mb.drop.total_cmp(&ma.drop),
@@ -530,8 +607,20 @@ mod tests {
             returns,
             peak,
             duration: 20,
+            ..Motion::default()
         };
-        assert_eq!(m(0.5, 0.56, 0.3, 0.42).role(), Role::Death);
+        let held = |m: Motion| Motion { hold: 20000, ..m };
+        // Goes down and stays down: death. Without the hold: down.
+        assert_eq!(held(m(0.5, 0.56, 0.3, 0.42)).role(), Role::Death);
+        assert_eq!(m(0.5, 0.56, 0.3, 0.42).role(), Role::Down);
+        // The whole body going down is a drop, held or not.
+        let falls = Motion {
+            base_drop: 1.15,
+            ..held(m(0.71, 1.45, 1.6, 1.6))
+        };
+        assert_eq!(falls.role(), Role::Drop);
+        // Nothing left at the end: vanish, whatever else happened.
+        assert_eq!(held(m(0.0, 0.7, 0.4, 0.4)).role(), Role::Vanish);
         assert_eq!(m(1.0, 0.0, 0.01, 0.02).role(), Role::Idle);
         assert_eq!(m(1.0, 0.0, 0.05, 0.15).role(), Role::Action);
         assert_eq!(m(0.97, 0.03, 0.3, 0.3).role(), Role::Other);
@@ -554,6 +643,7 @@ mod tests {
                 returns: 0.0,
                 peak,
                 duration,
+                ..Motion::default()
             }),
         };
         let shared =

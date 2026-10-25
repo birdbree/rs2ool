@@ -4,7 +4,7 @@
 
 The cache links surprisingly little together. This page covers what it states outright, and how the tools can infer the rest from structure: which sequences animate which NPCs and locations, and which equipment slot an item goes in. Read it to know which links you can rely on and which are educated guesses.
 
-**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Each candidate's role (idle, action, death) is worked out from its motion. Equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
+**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Each candidate's role (death, action, down, drop, vanish, idle or other) is worked out from its motion. Equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
 
 ## What the cache states
 
@@ -52,25 +52,55 @@ On the test cache, anchored on each NPC's stand sequence alone, its walk sequenc
 
 ### Roles
 
-`Motion::measure` poses the NPC's model through every frame of a sequence with the reference deformation and measures, as shares of the model's height in the first frame:
+`Motion::measure` poses the NPC's model through every frame of a sequence with the reference deformation and measures, as shares of the model's height in the first frame unless noted:
 
 | Measure | Meaning |
 | --- | --- |
 | `end_height` | the last frame's height |
 | `drop` | how far the model's top has dropped from the first frame to the last |
+| `base_drop` | how much lower its lowest point ends (negative: higher) |
+| `lift` | how far its lowest point rises above where it started, at most |
+| `rise` | how far its top rises above where it started, at most |
+| `spread` | its widest horizontal extent at the end over at the start (a ratio) |
 | `returns` | the mean distance each vertex ends from where it started |
 | `peak` | the largest mean distance of the vertices from the first frame, over all frames |
+| `hold` | how long the last frame is held, in cycles |
+| `duration` | how long one run lasts, in cycles |
 
-The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks, in this order:
+The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks the first rule that fits:
 
-| Role | Rule |
-| --- | --- |
-| death | `drop ≥ 0.3` and `end_height ≤ 0.75` |
-| idle | `peak < 0.06` |
-| action | `returns ≤ 0.15`: an attack, a block or a gait, which motion alone can't tell apart |
-| other | anything else, such as a sequence that ends somewhere new |
+| Role | Rule | What it is |
+| --- | --- | --- |
+| vanish | `end_height < 0.05` | shrinks away, sinks out of sight, a teleport |
+| drop | `base_drop ≥ 0.3` | the whole body goes down: a fall, or a jump down into a gap |
+| death | `drop ≥ 0.3`, `end_height ≤ 0.75` and `hold ≥ 50` (1 s) | goes down and stays down |
+| down | `drop ≥ 0.3` and `end_height ≤ 0.75` | goes down without staying: falls over, kneels, sits, floats down |
+| idle | `peak < 0.06` | barely moves |
+| action | `returns ≤ 0.15` | moves and comes back: an attack, a block or a gait, which motion alone can't tell apart |
+| other | anything else | such as a sequence that ends somewhere new |
 
-There's no ground truth in the cache for attacks or deaths, so the rules are checked against what is named. Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles) and other 9. Their walk sequences come out action 201 times, idle 19, other 24 and death once. 149 of the 250 creatures have a death among their candidates. `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
+The hold is the strongest death signal. Last frames are held either briefly (2–50 cycles) or for a very long time (10,000–20,000), with little in between, and a death holds. Vanish comes first because a model shrinking about its centre also lifts its lowest point and lowers its top, which would otherwise read as a jump or a death.
+
+**Checked against what is named.** Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles), other 8 and drop once. Their walk sequences come out action 201 times, idle 19, other 24 and down once. 120 of the 250 creatures have a death among their candidates, and 125 a death or a vanish (some creatures die by shrinking or sinking away). `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
+
+**Checked against labels.** 21 sequences labelled by eye (17 from the humanoid pool's former "deaths", 4 from creatures) give, class by role:
+
+| Labelled as | death | down | drop | vanish |
+| --- | --- | --- | --- | --- |
+| death (3) | **3** | | | |
+| fall over (4) | 2 | 2 | | |
+| land (1) | 1 | | | |
+| descend, floating down (2) | | 2 | | |
+| fall away into a gap (3) | | | 1 | 2 |
+| jump down (2) | | | 2 | |
+| vanish (4) | | 1 | | 3 |
+| other (2) | | 2 | | |
+
+Against those labels, the death rule's precision went from 0.14 with the original single rule (`drop ≥ 0.3` and `end_height ≤ 0.75`, which called all 21 deaths) to 0.50, still finding every death. The two falls into a gap that vanish do drop out of sight.
+
+What's left is a real limit of motion alone: falling backward or to the knees and then lying still for good, or landing heavily and staying put, looks exactly like a death. Those sequences may well be used as deaths in some situations. Telling them apart would need more than the motion, such as captions or which sequences the game plays together ([#72](https://github.com/birdbree/rs2ool/issues/72)).
+
+The labels aren't in the repository, since they describe the game's content. `crates/rs2convert/tests/infer_labels.rs` reads them from the JSON file named by `RS2_SEQUENCE_LABELS` (`[{"npc": 1, "seq": 2820, "class": "death", "note": "…"}, …]`), reports the table above and checks the death rule still beats the original. Without the file it skips.
 
 ### Every candidate, grouped by role
 
@@ -79,9 +109,9 @@ There's no cap on the candidates. `npc_candidates` loads every one onto the NPC'
 - **Creatures** keep score order within each group; they have a few dozen candidates at most.
 - **Humanoids** get the whole shared pool, about 1200 sequences. Id distance means almost nothing there, so within a group deaths go most collapsed first (largest `drop`), and actions go those that fit in 60 cycles first (1.2 s, `SHORT_ACTION`, since attacks are brief), then the most motion first. The rest keep score order.
 
-Classifying the pool takes about 0.1 s per NPC in a release build, so it's done per NPC rather than cached. On four humanoids with different label layouts, the pool came out as roughly 670–770 actions, 60–64 deaths, 190–310 idles and 150–180 others, with 3 sequences that wouldn't pose. About half the actions fit in 1.2 s. Converting a humanoid with every candidate takes about 4 s in a release build and writes about 1.1 MB of packs.
+Classifying the pool takes about 0.1 s per NPC in a release build, so it's done per NPC rather than cached. On four humanoids with different label layouts, the pool came out as roughly 670–770 actions, 190–310 idles and 150–180 others, with about 20 deaths, 27 downs, 9 drops and 11 vanishes (the former 60-odd "deaths"), and 3 sequences that wouldn't pose. About half the actions fit in 1.2 s. Converting a humanoid with every candidate takes about 4 s in a release build and writes about 1.1 MB of packs.
 
-How well the short-first rule puts attacks ahead of other brief gestures can't be measured from the cache, which names no attacks; it's a reasonable rule, not a checked one. Telling deaths apart from jumps, falls and kneels is [#70](https://github.com/birdbree/rs2ool/issues/70).
+How well the short-first rule puts attacks ahead of other brief gestures can't be measured from the cache, which names no attacks; it's a reasonable rule, not a checked one. 
 
 ### Converting them
 

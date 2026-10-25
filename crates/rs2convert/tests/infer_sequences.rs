@@ -85,8 +85,8 @@ fn held_out_walk_sequences_rank_near_the_top() {
 
 /// Roles from motion on the sequences the cache does name: creatures'
 /// stand sequences come out idle and their walk sequences as actions, most
-/// creatures have a death among their candidates, and each death really
-/// ends collapsed.
+/// creatures have a death (or a vanish: some die by shrinking away) among
+/// their candidates, and each death really ends down.
 #[test]
 fn roles_match_the_named_sequences() {
     use rs2convert::creature;
@@ -101,7 +101,7 @@ fn roles_match_the_named_sequences() {
         BTreeMap::<&str, usize>::new(),
         BTreeMap::<&str, usize>::new(),
     );
-    let (mut creatures, mut with_death) = (0, 0);
+    let (mut creatures, mut with_death, mut with_end) = (0, 0, 0);
     for id in records.ids(RecordType::Npc).unwrap() {
         let Ok(Record::Npc(n)) = records.decode(RecordType::Npc, id) else {
             continue;
@@ -147,6 +147,12 @@ fn roles_match_the_named_sequences() {
         }
         with_roles(&c, &mut cands);
         with_death += usize::from(cands.iter().any(|c| c.role == Some(Role::Death)));
+        // Some creatures die by shrinking or sinking away.
+        with_end += usize::from(
+            cands
+                .iter()
+                .any(|c| matches!(c.role, Some(Role::Death | Role::Vanish))),
+        );
         for cand in cands.iter().filter(|c| c.role == Some(Role::Death)) {
             let s = c
                 .sequences
@@ -158,7 +164,7 @@ fn roles_match_the_named_sequences() {
         }
     }
     eprintln!(
-        "{creatures} creatures; stand sequences: {stands:?}; walk sequences: {walks:?}; {with_death} have a death candidate"
+        "{creatures} creatures; stand sequences: {stands:?}; walk sequences: {walks:?}; {with_death} have a death candidate, {with_end} a death or a vanish"
     );
     let share = |m: &BTreeMap<&str, usize>, k: &str| {
         m.get(k).copied().unwrap_or(0) as f64 / m.values().sum::<usize>().max(1) as f64
@@ -170,8 +176,8 @@ fn roles_match_the_named_sequences() {
         "walks are actions: {walks:?}"
     );
     assert!(
-        with_death * 2 >= creatures,
-        "half the creatures have a death candidate: {with_death} of {creatures}"
+        with_end * 2 >= creatures,
+        "half the creatures have a death or vanish candidate: {with_end} of {creatures}"
     );
 }
 
@@ -253,13 +259,7 @@ fn humanoid_candidates_are_grouped_by_role() {
             "npc {id} has a death to offer"
         );
         // Grouped: deaths, then actions, then idles, then others.
-        let group = |c: &rs2convert::infer::Candidate| match c.role {
-            Some(Role::Death) => 0,
-            Some(Role::Action) => 1,
-            Some(Role::Idle) => 2,
-            Some(Role::Other) => 3,
-            None => 4,
-        };
+        let group = |c: &rs2convert::infer::Candidate| c.role.map_or(usize::MAX, |r| r.order());
         assert!(cands.windows(2).all(|w| group(&w[0]) <= group(&w[1])));
         for c in &cands {
             let Some(m) = c.motion else { continue };

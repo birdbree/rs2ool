@@ -455,7 +455,10 @@ fn evidence(c: &Candidate) -> String {
         s.push_str(match r {
             Role::Idle => " It barely moves the model: idle.",
             Role::Action => " It moves the model and returns to its first pose: an action, such as an attack or a block.",
-            Role::Death => " It ends with the model collapsed: probably a death.",
+            Role::Death => " It goes down and stays down: probably a death, though falling over and lying still looks the same.",
+            Role::Down => " It goes down without staying down: falling over, kneeling, sitting or floating down.",
+            Role::Drop => " The whole body moves down: a fall, or a jump down into a gap.",
+            Role::Vanish => " The model ends with no height at all: shrinking away, sinking out of sight or a teleport.",
             Role::Other => " It moves the model and ends somewhere else.",
         });
     }
