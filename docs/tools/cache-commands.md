@@ -222,13 +222,13 @@ rs2ool cache structures --all -o out/
 | `--all` | search the whole map at once |
 | `-o DIR` | write `DIR/structures/RX_RY.json` for each region with structures, instead of listing them |
 
-Without `-o`, each structure prints as one line: its region, origin, size, planes, rooms (and how many are yards), doors (and how many lead outside), open edges, and its objects with the commonest named ones:
+Without `-o`, each structure prints as one line: its region, what it's likely to be (and what a shop sells, `?` when nothing scored enough), origin, size, planes, rooms (and how many are yards), doors (and how many lead outside), open edges, and its objects with the commonest named ones:
 
 ```text
-50_50  at 3238,3204  10×12  plane 0  1 rooms  3 doors (3 to outside)  0 open edges  82 objects (69 unnamed): Church pew ×6, Candles ×4, Altar, Church organ, Stool
+50_50  church            at 3238,3204  10×12  plane 0  1 rooms  3 doors (3 to outside)  0 open edges  82 objects (69 unnamed): Church pew ×6, Candles ×4, Altar, Church organ, Stool
 ```
 
-Each file holds `region` (`RX_RY`) and `structures`, the blueprints of the structures whose origin is in it, with every field described on [Structures](../conversion/structures.md#the-blueprint). A structure belongs to the region its south-west corner is in, so each comes out once, whole, even when it crosses into a neighbour. One that goes on past the regions searched is marked `clipped`. The whole map takes about four seconds in a release build. Regions that won't decode are reported on stderr and skipped, and the exit code is then 3.
+Each file holds `region` (`RX_RY`) and `structures`, the blueprints of the structures whose origin is in it, with every field described on [Structures](../conversion/structures.md#the-blueprint), each with its `purpose`: what it and its rooms are likely for, with the evidence ([Structure purposes](../conversion/structure-purposes.md#in-the-output)). A structure belongs to the region its south-west corner is in, so each comes out once, whole, even when it crosses into a neighbour. One that goes on past the regions searched is marked `clipped`. The whole map takes about four seconds in a release build. Regions that won't decode are reported on stderr and skipped, and the exit code is then 3.
 
 ## caption
 

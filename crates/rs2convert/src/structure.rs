@@ -37,6 +37,8 @@ use rs2cache::types::config::LocDef;
 use rs2cache::types::map::{Location, Plane, Region};
 use serde::{Deserialize, Serialize};
 
+use crate::furnish::{self, Category};
+
 /// Tiles along a region's side.
 pub const REGION_SIZE: u16 = 64;
 
@@ -160,6 +162,11 @@ pub struct Placed {
     pub id: u16,
     /// Its name, where the definition has one.
     pub name: Option<String>,
+    /// Its furnishing category, from its name (see [`crate::furnish`]).
+    pub category: Option<Category>,
+    /// The minimap icon its definition draws (opcode 60), if any: an index
+    /// into the `mapfunction` sprites (see [`crate::furnish::ICONS`]).
+    pub icon: Option<u16>,
     /// The 317 location type, 0–22.
     pub kind: u8,
     /// Quarter turns, 0–3.
@@ -806,6 +813,11 @@ impl Building {
         let placed = |w: &World, room: Option<usize>| Placed {
             id: w.loc.id,
             name: defs.get(&w.loc.id).and_then(|d| d.name.clone()),
+            category: defs
+                .get(&w.loc.id)
+                .and_then(|d| d.name.as_deref())
+                .and_then(furnish::category),
+            icon: defs.get(&w.loc.id).and_then(|d| d.minimap_function),
             kind: w.loc.kind,
             rotation: w.loc.rotation,
             plane: w.loc.plane,

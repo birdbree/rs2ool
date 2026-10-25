@@ -84,6 +84,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Yard.** A room open to the sky: unroofed tiles walled in all round, such as a courtyard, a walled garden, a pen or a roof terrace. See [Structures](conversion/structures.md#yards).
 
+**Furnishing category.** What a placed object is in general terms (a bed, a counter, storage), from its name; the evidence for what a room is for, and what lets one object stand in for another in a blueprint. See [Structure purposes](conversion/structure-purposes.md#furnishing-categories).
+
 **Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
 
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).

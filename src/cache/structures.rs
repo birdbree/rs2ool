@@ -17,6 +17,7 @@ use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
+use rs2convert::purpose::{self, Class, Purpose};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
 use serde::Serialize;
 
@@ -40,7 +41,15 @@ struct RegionFile<'a> {
     /// `RX_RY`.
     region: String,
     /// The structures whose origin is in it.
-    structures: Vec<&'a Structure>,
+    structures: Vec<Entry<'a>>,
+}
+
+/// A structure's blueprint and what it's likely for, side by side.
+#[derive(Serialize)]
+struct Entry<'a> {
+    #[serde(flatten)]
+    structure: &'a Structure,
+    purpose: Purpose,
 }
 
 /// Runs the command.
@@ -96,7 +105,13 @@ pub fn run(
                 let path = dir.join(format!("{x}_{y}.json"));
                 let file = RegionFile {
                     region: format!("{x}_{y}"),
-                    structures: structures.clone(),
+                    structures: structures
+                        .iter()
+                        .map(|s| Entry {
+                            structure: s,
+                            purpose: purpose::of(s),
+                        })
+                        .collect(),
                 };
                 let json = serde_json::to_string_pretty(&file)?;
                 std::fs::write(&path, json + "\n")
@@ -113,7 +128,12 @@ pub fn run(
         None => {
             for ((x, y), structures) in &by_region {
                 for s in structures {
-                    writeln!(out, "{x}_{y}  {}", summary(s))?;
+                    writeln!(
+                        out,
+                        "{x}_{y}  {:<16}  {}",
+                        class(&purpose::of(s)),
+                        summary(s)
+                    )?;
                 }
             }
         }
@@ -143,6 +163,22 @@ fn definitions(records: &Records, regions: &[Region]) -> BTreeMap<u16, LocDef> {
 fn region_of(s: &Structure) -> (u8, u8) {
     let r = |v: u16| u8::try_from(v / REGION_SIZE).unwrap_or(u8::MAX);
     (r(s.origin.0), r(s.origin.1))
+}
+
+/// The structure's guessed class, with what a shop sells, or `?` when
+/// nothing scored enough.
+fn class(p: &Purpose) -> String {
+    let name = match p.class.what {
+        Class::Unknown => "?".to_string(),
+        c => serde_json::to_value(c)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default(),
+    };
+    match &p.class.detail {
+        Some(d) => format!("{name} ({d})"),
+        None => name,
+    }
 }
 
 /// One line about a structure: where it is, its size, its rooms (and how

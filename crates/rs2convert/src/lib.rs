@@ -40,6 +40,10 @@
 //!   wear models, and strings, with inferred slots.
 //! - [`structure`]: whole structures found in the map, with their rooms,
 //!   doors, walls, roofs and contents.
+//! - [`furnish`]: what a placed object is in general terms: its furnishing
+//!   category, and what its minimap icon shows.
+//! - [`purpose`]: what a structure and its rooms are likely for, with the
+//!   evidence.
 //! - [`preview`]: the model a record describes, put together for viewing.
 //! - [`space`]: cache space to pack space (y and z negated).
 //!
@@ -69,6 +73,7 @@ pub mod clip;
 pub mod creature;
 pub mod deform;
 pub mod floor;
+pub mod furnish;
 pub mod infer;
 pub mod item;
 pub mod model;
@@ -77,6 +82,7 @@ pub mod object;
 pub mod palette;
 pub mod pipeline;
 pub mod preview;
+pub mod purpose;
 pub mod rig;
 pub mod run;
 pub mod slot;
