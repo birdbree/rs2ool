@@ -348,6 +348,48 @@ impl InferredRig {
         self.bones[b].pivot
     }
 
+    /// Each bone's pivot in a posed frame of the mesh it was inferred from:
+    /// the integer centroid of its vertices in `vertices` (cache
+    /// coordinates), by the same rule as the rest pivots, so at rest they're
+    /// equal. The root, and a bone with no vertices, sit at the origin.
+    /// `labels` are the mesh's vertex labels.
+    ///
+    /// The cache's own animation moves vertices, not bones, so this is how
+    /// a bone follows it: with the vertices it stands for.
+    pub fn posed_pivots(&self, labels: &[u8], vertices: &[[i32; 3]]) -> Vec<[i32; 3]> {
+        let groups = Groups::new(labels);
+        self.bones
+            .iter()
+            .map(|b| {
+                let (mut sum, mut n) = ([0i64; 3], 0i64);
+                for &l in &b.labels {
+                    for &v in groups.0.get(usize::from(l)).into_iter().flatten() {
+                        let Some(p) = vertices.get(v) else { continue };
+                        for a in 0..3 {
+                            sum[a] += i64::from(p[a]);
+                        }
+                        n += 1;
+                    }
+                }
+                if n == 0 {
+                    [0; 3]
+                } else {
+                    sum.map(|c| (c / n) as i32)
+                }
+            })
+            .collect()
+    }
+
+    /// The bone each vertex follows: its label's bone, or the root for a
+    /// label no bone binds. The same binding the `rigs` record stores, so
+    /// colouring by bone matches the converted model's.
+    pub fn vertex_bones(&self, labels: &[u8]) -> Vec<usize> {
+        labels
+            .iter()
+            .map(|l| self.label_bone.get(l).copied().unwrap_or(0))
+            .collect()
+    }
+
     /// The `rigs` record.
     ///
     /// Rest positions are each pivot relative to its parent's, in pack
@@ -509,5 +551,27 @@ mod tests {
         assert_eq!(rig.bones[1].labels, LabelSet::from([1]));
         // Same result as a frame that only uses real slots.
         assert_eq!(infer(&creature(0), None).unwrap().bones.len(), 2);
+    }
+
+    #[test]
+    fn posed_pivots_follow_their_vertices() {
+        let c = creature(0);
+        let rig = infer(&c, None).unwrap();
+        let labels = c.model.vertex_labels.clone().unwrap();
+        // At rest they're the rest pivots.
+        let rest = rig.posed_pivots(&labels, &c.rest);
+        assert_eq!(rest, rig.bones.iter().map(|b| b.pivot).collect::<Vec<_>>());
+        // Moved 30 along x, the bone's pivot moves with them; the root stays.
+        let moved: Vec<[i32; 3]> = c.rest.iter().map(|p| [p[0] + 30, p[1], p[2]]).collect();
+        let posed = rig.posed_pivots(&labels, &moved);
+        assert_eq!(posed[0], [0; 3]);
+        assert_eq!(posed[1], [rest[1][0] + 30, rest[1][1], rest[1][2]]);
+        // Every vertex has label 1, which bone 1 binds.
+        assert_eq!(rig.vertex_bones(&labels), [1, 1, 1]);
+        assert_eq!(
+            rig.vertex_bones(&[200]),
+            [0],
+            "an unbound label follows the root"
+        );
     }
 }

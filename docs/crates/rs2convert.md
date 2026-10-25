@@ -59,7 +59,7 @@ An `Outcome` holds `packs` (one `PackWriter` each), side `files`, RGBA `images`,
 
 `rig::infer(creature, overrides)` builds an `InferredRig`. A bone candidate is a distinct label set moved by a transform the creature's frames use, restricted to the labels its mesh has. `A` is `B`'s parent when `B` is a strict subset of `A` (after removing transitive edges, the largest of several minimal supersets wins). A candidate with no superset that overlaps another is attached by co-movement, and a root bone sits above everything. Each label binds to the smallest candidate containing it; labels in no candidate bind to the root.
 
-Bones are ordered parents first, with pivots at the centroid of their rest vertices in cache coordinates. They're named from a built-in table of body regions by vertex label where one matches, and `bone_<n>` otherwise. `InferredRig::record()` produces the `rigs` record; `name_hash` is the FNV-1a hash used for bone names. A `ParentOverride` (the `--override` file) replaces the parent of the candidates it names. [Rig inference](../conversion/rig-inference.md) walks through it.
+Bones are ordered parents first, with pivots at the centroid of their rest vertices in cache coordinates. They're named from a built-in table of body regions by vertex label where one matches, and `bone_<n>` otherwise. `InferredRig::record()` produces the `rigs` record; `posed_pivots` gives the pivots in a posed frame (each bone's vertices' centroid) and `vertex_bones` each vertex's bone; `name_hash` is the FNV-1a hash used for bone names. A `ParentOverride` (the `--override` file) replaces the parent of the candidates it names. [Rig inference](../conversion/rig-inference.md) walks through it.
 
 ## `clip`, `deform` and `validate`
 

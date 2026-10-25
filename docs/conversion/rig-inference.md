@@ -87,6 +87,8 @@ In bone order, each bone counts how many of the labels bound to it fall in each 
 
 A bone's pivot is the centroid of its vertices in the rest mesh (scale baked in): the mean of every vertex whose label is in the bone's set, in cache coordinates, with integer division per axis. A set with no vertices gets `(0, 0, 0)`. The root's pivot is `(0, 0, 0)`.
 
+`InferredRig::posed_pivots` applies the same rule to a posed frame: each bone's pivot is the centroid of its vertices in that frame, so at rest it's the rest pivot. The explorer uses it to draw a cache NPC's bones following the original animation, which moves vertices rather than bones. `InferredRig::vertex_bones` gives the bone each vertex follows, the same binding the record stores.
+
 ## The record
 
 `InferredRig::record` builds the `rigs` record:

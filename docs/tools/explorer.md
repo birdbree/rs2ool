@@ -96,9 +96,14 @@ Every face is flat-shaded in both. For pack models, 317 lighting takes each face
 | --- | --- |
 | Face colours (default) | each face's own colour |
 | By vertex label | each vertex coloured by its label, which makes groups and welds easy to see; cache models and pack models alike |
-| By bone | each vertex of a converted creature coloured by the bone it follows (its label's bone in the rig, or bone 0 when unbound), the way the skinning binds it; anything without a rig keeps its face colours |
+| By bone | each vertex of a creature coloured by the bone it follows (its label's bone in the rig, or bone 0 when unbound), the way the skinning binds it: a converted creature by its rig, a cache NPC by the rig conversion would infer for it; anything without a rig keeps its face colours |
 
-**View › Bones** draws a converted creature's rig over the model: a dot on each bone's pivot and a line from it to its parent's pivot, each bone in the colour **By bone** paints its vertices. The bones are posed at the playback frame, with the same pose that skins the mesh, so they move with it, and at rest when nothing's playing. In compare mode they're drawn in whichever pane shows the converted creature. Cache models and NPCs have no rig, so they show no bones. It's the quickest way to check [rig inference](../conversion/rig-inference.md): a pivot in the wrong place or a bone hanging off the wrong parent shows up straight away.
+**View › Bones** draws a creature's rig over the model: a dot on each bone's pivot and a line from it to its parent's pivot, each bone in the colour **By bone** paints its vertices. The bones are posed at the playback frame, so they move with the mesh, and at rest when nothing's playing.
+
+- A **converted creature** shows its rig, posed with the same pose that skins the mesh.
+- A **cache NPC** shows the rig [rig inference](../conversion/rig-inference.md) finds for it, before any conversion. Its animation moves vertices, not bones, so each bone's pivot is the centroid of its vertices in the posed frame, by the same rule as the rest pivots.
+
+In compare mode both panes show their bones, in the same colours, so you can see where the converted rig's motion drifts from the original's. Plain models have no rig and show no bones. It's the quickest way to check [rig inference](../conversion/rig-inference.md): a pivot in the wrong place or a bone hanging off the wrong parent shows up straight away.
 
 ## Compare mode
 

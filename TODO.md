@@ -49,8 +49,14 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#40](https://github.com/birdbree/rs2ool/issues/40) Female default body and real hide masks for the player kit
 - [ ] [#41](https://github.com/birdbree/rs2ool/issues/41) Compare two caches
 - [ ] [#55](https://github.com/birdbree/rs2ool/issues/55) Fly the camera across the whole map
-- [ ] [#59](https://github.com/birdbree/rs2ool/issues/59) Infer which sequences belong to which NPCs and objects
+- [x] [#59](https://github.com/birdbree/rs2ool/issues/59) Infer which sequences belong to which NPCs and objects
 - [ ] [#60](https://github.com/birdbree/rs2ool/issues/60) Infer an item's equipment slot from its wear models
+- [x] [#65](https://github.com/birdbree/rs2ool/issues/65) Pick humanoid candidate sequences by role, not id distance
+- [x] [#67](https://github.com/birdbree/rs2ool/issues/67) Converted NPCs don't play their inferred sequences in compare view
+- [x] [#68](https://github.com/birdbree/rs2ool/issues/68) Label each "Open as source" button with what it opens
+- [x] [#69](https://github.com/birdbree/rs2ool/issues/69) Show inferred bones on cache models too
+- [ ] [#70](https://github.com/birdbree/rs2ool/issues/70) Tell deaths apart from jumps, falls and kneels
+- [ ] [#72](https://github.com/birdbree/rs2ool/issues/72) Opt-in captioning of candidate sequences with a local vision model, to train a role classifier
 - [x] [#61](https://github.com/birdbree/rs2ool/issues/61) Spike: how far do frame bases alone narrow an NPC's sequences?
 
 ## Housekeeping

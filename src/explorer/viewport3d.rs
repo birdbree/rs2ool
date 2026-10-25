@@ -34,6 +34,7 @@ use crate::explorer::selection::{CompareSelected, Loaded, Selected};
 use crate::explorer::sources::Sources;
 use crate::explorer::ui::ViewportRect;
 use contentpack::records::model::PackModel;
+use rs2cache::types::model::Model;
 
 /// Marks the world camera(s).
 #[derive(Component)]
@@ -200,8 +201,8 @@ pub enum VertexColours {
     Faces,
     /// Each vertex's label.
     Labels,
-    /// The bone each vertex follows, in the bone overlay's colours. Only
-    /// converted creatures have bones; anything else keeps its face
+    /// The bone each vertex follows, in the bone overlay's colours. Cache
+    /// and converted creatures have bones; anything else keeps its face
     /// colours.
     Bones,
 }
@@ -211,7 +212,7 @@ pub enum VertexColours {
 pub struct Overlays {
     /// What vertices are coloured by.
     pub colours: VertexColours,
-    /// Draw a converted creature's bones (**View › Bones**); see
+    /// Draw a creature's bones (**View › Bones**); see
     /// [`bones`](crate::explorer::bones).
     pub bones: bool,
 }
@@ -716,8 +717,27 @@ pub fn posed_parts(
                 Pose::Cache(v) if v.len() == m.vertices.len() => v,
                 _ => &m.vertices,
             };
+            // Coloured by bone, a cache creature is drawn as a copy whose
+            // labels are its vertices' bones, so the label colouring paints
+            // each bone in the bone overlay's colour.
+            let by_bone = match (colours, r) {
+                (
+                    VertexColours::Bones,
+                    Renderable::Creature {
+                        creature,
+                        rig: Some(rig),
+                        ..
+                    },
+                ) => creature.model.vertex_labels.as_deref().map(|l| Model {
+                    // A rig has at most 254 bones, so an index fits a u8.
+                    vertex_labels: Some(rig.vertex_bones(l).into_iter().map(|b| b as u8).collect()),
+                    ..m.clone()
+                }),
+                _ => None,
+            };
+            let m = by_bone.as_ref().unwrap_or(m);
             let parts = |shading| {
-                if colours == VertexColours::Labels {
+                if colours == VertexColours::Labels || by_bone.is_some() {
                     let mesh = mesh::mesh_from_model(m, verts, shading, true);
                     vec![mesh::Part {
                         texture: None,

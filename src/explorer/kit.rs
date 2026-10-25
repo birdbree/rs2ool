@@ -119,10 +119,12 @@ impl KitBase {
             self.creature.packs.clone(),
         );
         let model = c.rest_model();
+        let rig = rs2convert::rig::infer(&c, None).ok().map(Arc::new);
         Ok(Renderable::Creature {
             creature: Arc::new(c),
             model,
             inferred: Vec::new(),
+            rig,
         })
     }
 }
