@@ -73,6 +73,11 @@ pub struct Candidate {
     pub role: Option<Role>,
     /// The motion the role was worked out from.
     pub motion: Option<Motion>,
+    /// Whether it keeps the model see-through throughout
+    /// ([`Motion::see_through`]) though the NPC's own sequences show all
+    /// of it, so it was probably made for a see-through model on the same
+    /// skeleton: a ghost, say. Worked out with the role.
+    pub see_through: bool,
 }
 
 /// What a sequence looks like it does to a model, from its motion alone.
@@ -184,6 +189,9 @@ pub struct Motion {
     /// How much shows in the first frame: under 1 for a sequence that
     /// starts faded (appearing, say).
     pub start_visible: f64,
+    /// The most of the model that shows in any frame: under 1 for a
+    /// sequence that never shows all of it.
+    pub max_visible: f64,
 }
 
 /// A stretch from which a sequence counts as tearing its model: it was
@@ -191,6 +199,11 @@ pub struct Motion {
 /// the sequences NPCs name reach it on their own models, against about
 /// 12% of creatures' candidates.
 pub const TEARS: f64 = 1.5;
+
+/// A share of the model showing that a sequence keeps it see-through
+/// under, if no frame shows more ([`Motion::max_visible`]). Sequences that
+/// fade a model in or out show all of it at one end.
+pub const SEE_THROUGH: f64 = 0.9;
 
 /// How far down (as a share of height) counts as going down.
 const LOWERED: f64 = 0.3;
@@ -265,6 +278,7 @@ impl Default for Motion {
             end_visible: 1.0,
             min_visible: 1.0,
             start_visible: 1.0,
+            max_visible: 1.0,
         }
     }
 }
@@ -307,6 +321,12 @@ impl Motion {
     /// Whether it stretches its model past [`TEARS`].
     pub fn tears(&self) -> bool {
         self.stretch >= TEARS
+    }
+
+    /// Whether it keeps its model see-through throughout: no frame shows
+    /// [`SEE_THROUGH`] of it.
+    pub fn see_through(&self) -> bool {
+        self.max_visible < SEE_THROUGH
     }
 
     /// Measures sequence `s` of creature `c` (an index into its
@@ -380,6 +400,7 @@ impl Motion {
             end_visible: visible.last().copied().unwrap_or(1.0),
             min_visible: visible.iter().copied().fold(1.0, f64::min),
             start_visible: visible.first().copied().unwrap_or(1.0),
+            max_visible: visible.iter().copied().fold(0.0, f64::max),
         })
     }
 
@@ -408,6 +429,9 @@ impl Motion {
 
 /// Fills in each candidate's role by posing creature `c` through it.
 /// Candidates whose sequence `c` doesn't have, or won't pose, keep `None`.
+/// Also works out which keep the model see-through when the sequences `c`
+/// has that aren't candidates, its own, don't
+/// ([`Candidate::see_through`]).
 pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
     with_roles_by(c, candidates, &Motion::role);
 }
@@ -421,9 +445,23 @@ pub fn with_roles_by(c: &Creature, candidates: &mut [Candidate], judge: &dyn Fn(
         .enumerate()
         .map(|(i, s)| (s.def.id, i))
         .collect();
+    let picked: BTreeSet<u32> = candidates.iter().map(|cand| cand.seq).collect();
+    // A model its own sequences keep see-through is a ghost, and a
+    // see-through candidate fits it.
+    let solid = c
+        .sequences
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !picked.contains(&s.def.id))
+        .all(|(i, s)| {
+            visibility(c, i, s.def.frames.len())
+                .iter()
+                .any(|&v| v >= SEE_THROUGH)
+        });
     for cand in candidates {
         cand.motion = at.get(&cand.seq).and_then(|&s| Motion::measure(c, s));
         cand.role = cand.motion.as_ref().map(judge);
+        cand.see_through = solid && cand.motion.is_some_and(|m| m.see_through());
     }
 }
 
@@ -522,8 +560,8 @@ pub const SHORT_ACTION: u32 = 60;
 /// Orders candidates with roles (see [`with_roles`]) into groups by role:
 /// deaths, actions, idles, others, then any without a role.
 ///
-/// Within a group, the ones that tear the model ([`Candidate::tears`]) go
-/// after the rest. Otherwise candidates on their own family keep score
+/// Within a group, the ones that don't fit the model ([`Candidate::fits`])
+/// go after the rest. Otherwise candidates on their own family keep score
 /// order, where the score works. On a shared pool, where it doesn't, deaths
 /// go most collapsed first, actions short ones first (see
 /// [`SHORT_ACTION`]) and then the most motion first, and the rest by score.
@@ -540,10 +578,10 @@ pub fn sort_by_role(candidates: &mut [Candidate]) {
             }
             _ => b.score.total_cmp(&a.score),
         };
-        // Within a group, the ones that tear the model go last.
+        // Within a group, the ones that don't fit the model go last.
         group(a)
             .cmp(&group(b))
-            .then(a.tears().cmp(&b.tears()))
+            .then(b.fits().cmp(&a.fits()))
             .then(within)
             .then(a.seq.cmp(&b.seq))
     });
@@ -560,6 +598,12 @@ impl Candidate {
     /// for another model on the same skeleton.
     pub fn tears(&self) -> bool {
         self.motion.is_some_and(|m| m.tears())
+    }
+
+    /// Whether it looks made for this model: it neither tears it nor
+    /// keeps it see-through ([`Candidate::see_through`]).
+    pub fn fits(&self) -> bool {
+        !self.tears() && !self.see_through
     }
 }
 
@@ -685,6 +729,7 @@ impl SequenceIndex {
                     pool,
                     role: None,
                     motion: None,
+                    see_through: false,
                 })
             })
             .collect();
@@ -824,6 +869,7 @@ mod tests {
                 duration,
                 ..Motion::default()
             }),
+            see_through: false,
         };
         let shared =
             |seq, drop, peak, duration, role| cand(seq, 0.0, drop, peak, duration, role, 1000);
@@ -848,6 +894,11 @@ mod tests {
         ];
         sort_by_role(&mut own);
         assert_eq!(own[0].seq, 2);
+        // One that keeps the model see-through goes after the rest, however
+        // it scores.
+        own[0].see_through = true;
+        sort_by_role(&mut own);
+        assert_eq!(own[0].seq, 1);
     }
 
     #[test]

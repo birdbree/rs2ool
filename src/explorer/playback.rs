@@ -786,6 +786,9 @@ pub fn playback_ui(
                                 if let Some(m) = c.motion.filter(|m| m.tears()) {
                                     text.push_str(&format!(" · stretches {:.1}×", m.stretch));
                                 }
+                                if c.see_through {
+                                    text.push_str(" · see-through");
+                                }
                                 if let Some(t) = tag(s) {
                                     text.push_str(&format!(" · {t}"));
                                 }
@@ -794,6 +797,12 @@ pub fn playback_ui(
                                     why.push_str(&format!(
                                         " In its worst frame, 5% of the model's face edges grow by more than {:.0}%: it tears this model, so it was probably made for another model on the same skeleton.",
                                         (m.stretch - 1.0) * 100.0
+                                    ));
+                                }
+                                if let Some(m) = c.motion.filter(|_| c.see_through) {
+                                    why.push_str(&format!(
+                                        " No frame shows more than {:.0}% of the model, though this NPC's own sequences show all of it: it was probably made for a see-through model on the same skeleton.",
+                                        m.max_visible * 100.0
                                     ));
                                 }
                                 if learned {

@@ -154,7 +154,7 @@ A sequence the original client mixes with movement (one with an interleave list,
 
 Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/animation.md#sequence-timing): the sequence's delay, else the frame's own, else 1. A converted creature's frame lengths come from its clip's frame start times. At the end the loop offset decides where playback restarts; with **Loop** off it stops on the last frame, and **Play** starts again from the beginning.
 
-A candidate that tears the model, because it was made for another model on the same skeleton, says so after its name: "stretches 2.4×". It's listed after the clean ones in its group, and its tooltip explains it ([Sequences that tear the model](../conversion/inference.md#sequences-that-tear-the-model)).
+A candidate that tears the model, because it was made for another model on the same skeleton, says so after its name: "stretches 2.4×". It's listed after the clean ones in its group, and its tooltip explains it ([Sequences that tear the model](../conversion/inference.md#sequences-that-tear-the-model)). One that keeps a solid model see-through, because it was made for a ghostly one, says "see-through" and goes after them the same way ([Sequences that make the model see-through](../conversion/inference.md#sequences-that-make-the-model-see-through)).
 
 ### Captions
 

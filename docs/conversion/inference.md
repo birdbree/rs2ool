@@ -70,6 +70,7 @@ On the test cache, anchored on each NPC's stand sequence alone, its walk sequenc
 | `end_visible` | how much of the model shows in the last frame: each face's rest-pose area weighted by its opacity under the frame's [fades](../client/animation.md#alpha), over the same at rest (1 when nothing fades, 0 when it's faded away) |
 | `min_visible` | the least of the model that shows in any frame, the same way |
 | `start_visible` | how much shows in the first frame: under 1 for a sequence that starts faded |
+| `max_visible` | the most that shows in any frame: under 1 for a sequence that never shows all of the model (see [see-through candidates](#sequences-that-make-the-model-see-through)) |
 
 The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks the first rule that fits:
 
@@ -121,7 +122,7 @@ The rules above were tuned by hand. `rs2ool cache classify` learns roles from se
 | `vanish` | vanish |
 | `land`, `other` | other: a landing starts in the air |
 
-Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the fourteen measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the fifteen measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
 
 On 756 labelled sequences, the rules got 457 right (60%) and the tree 534 (71%). The labels were 46 reviewed captions, 16 from the labels file, and 694 imported from another labeller. The imported labels cover one NPC from each of 56 skeleton families plus 100 of the shared humanoid pool, and a second round of 125 sequences, drawn from every NPC, that the rules called downs, drops or vanishes. Where the imported labels and the reviews cover the same sequences, they agree on the role 12 times out of 15. Two cautions:
 
@@ -174,11 +175,23 @@ On the sequences NPCs name, played on their own models, that's 1.13 at the media
 
 Creatures are where it matters: 618 of the 4941 candidates on those NPCs tear (12.5%). The shared humanoid pool mostly fits, so across every candidate it's only 1.7%. A candidate that tears (`Candidate::tears`) goes after the clean ones in its role group, and the picker marks it ("stretches 2.4×"). Its role still counts: the motion usually reads clearly even when the mesh tears. `crates/rs2convert/tests/infer_sequences.rs` checks that under 2% of the named sequences reach the threshold and that some creature candidates do.
 
+### Sequences that make the model see-through
+
+Fades give a second sign of a candidate made for another model. Ghosts, shades, spirits and elementals share skeletons with solid creatures, and the sequences they name fade the whole model and keep it faded: the see-through skeletons (NPCs 936–938) play 264 and 267 at under half their opacity throughout, and the see-through humanoids (ice and shadow warriors and others) share a stand and walk, 842 and 841, at about half. Offered to a plain skeleton or a man, those sequences would turn it into a ghost.
+
+`Motion::max_visible` is the most of the model that shows in any frame, measured the same way as the other visibility measures. A sequence keeps the model see-through (`Motion::see_through`) when that stays under `SEE_THROUGH`, 0.9. Fading in or out shows all of the model at one end, so appearances and vanishes don't count. A candidate is marked `see_through` only when the NPC's own sequences each show all of it at some point. On a ghost, a see-through candidate fits.
+
+Across the candidates of every distinct creature and three humanoids (18,602), 155 on 71 NPCs are marked. Skeletons get the see-through skeletons' 264–268, dagannoths the see-through dagannoths' 1344–1346, and the monkeys 1412, which hides the model entirely, and 3490 and 3491, which hide the monkey king and leave his throne. Each humanoid gets about 25 from the shared pool. Another 171 see-through candidates sit on ghostly NPCs and aren't marked. The faintest case marked is 3171 on a man: he fades in, leaps at 84% opacity and fades out, which reads more as a teleport than a ghost, but it would still leave him slightly see-through.
+
+The [learned trees](#learning-roles-from-labels) can split on `max_visible` too, but on the relabelled sequences no split picks it and the trees come out the same: a ghost's walk is still a walk, so being see-through says how well a sequence fits a model, not what it does.
+
+Like a tearing candidate, a see-through one keeps its role and goes after the candidates that fit in its group (`Candidate::fits`), and the picker marks it ("see-through"). `crates/rs2convert/tests/infer_sequences.rs` checks that a skeleton's 264–268 are marked and go last, and that nothing is marked on a see-through skeleton.
+
 ### Every candidate, grouped by role
 
 There's no cap on the candidates. `npc_candidates` loads every one onto the NPC's model, gives each a role, leaves out any that won't pose, and `sort_by_role` groups them: deaths, then actions, then idles, then others.
 
-- In each group, candidates that tear the model go last.
+- In each group, candidates that tear the model or make it see-through go last.
 - **Creatures** keep score order within each group; they have a few dozen candidates at most.
 - **Humanoids** get the whole shared pool, about 1200 sequences. Id distance means almost nothing there, so within a group deaths go most collapsed first (largest `drop`), and actions go those that fit in 60 cycles first (1.2 s, `SHORT_ACTION`, since attacks are brief), then the most motion first. The rest keep score order.
 

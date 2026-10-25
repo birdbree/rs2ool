@@ -3,15 +3,16 @@
 //! hand-tuned rules of [`Motion::role`].
 //!
 //! It's written here rather than taken from a crate because it's tiny: a
-//! binary tree over the eleven motion measures, grown greedily on weighted
-//! Gini impurity, depth-limited and with a minimum leaf weight. Both keep
-//! it small enough to read, which matters more than accuracy with a few
-//! dozen labels. Growing it is deterministic: ties go to the first feature
+//! binary tree over the motion measures in [`FEATURES`], grown greedily on
+//! weighted Gini impurity, depth-limited and with a minimum leaf weight.
+//! Both keep it small enough to read, which matters more than accuracy
+//! with a few dozen labels. Growing it is deterministic: ties go to the first feature
 //! and the lowest threshold, and a leaf's role to the earliest in
 //! [`ROLE_ORDER`].
 //!
 //! ```text
 //! features  end_height drop returns peak duration lift rise base_drop spread hold stretch
+//!           end_visible min_visible start_visible max_visible
 //! split     feature < at  →  below, else above
 //! ```
 
@@ -23,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::infer::{Motion, ROLE_ORDER, Role};
 
 /// How many measures the tree splits on.
-pub const FEATURE_COUNT: usize = 14;
+pub const FEATURE_COUNT: usize = 15;
 
 /// The measures the tree splits on, in [`features`] order. New ones go at
 /// the end, so a saved tree's feature numbers keep their meaning.
@@ -42,6 +43,7 @@ pub const FEATURES: [&str; FEATURE_COUNT] = [
     "end_visible",
     "min_visible",
     "start_visible",
+    "max_visible",
 ];
 
 /// A motion as the tree sees it, in [`FEATURES`] order.
@@ -61,6 +63,7 @@ pub fn features(m: &Motion) -> [f64; FEATURE_COUNT] {
         m.end_visible,
         m.min_visible,
         m.start_visible,
+        m.max_visible,
     ]
 }
 
