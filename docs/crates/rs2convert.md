@@ -29,7 +29,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`floor`](../../crates/rs2convert/src/floor.rs) | One floor material per `flo.dat` entry, their names in a string table, and the floor → material map in the materials manifest. |
 | [`object`](../../crates/rs2convert/src/object.rs) | `loc.dat` definitions into models, `objects` records, `kits` entries and a string table. |
 | [`item`](../../crates/rs2convert/src/item.rs) | `obj.dat` definitions into `items` records, their inventory and wear models, and a string table, with inferred slots. See [Items](../pack/items.md). |
-| [`preview`](../../crates/rs2convert/src/preview.rs) | The model a record describes, assembled as the original client draws it, for viewers. |
+| [`preview`](../../crates/rs2convert/src/preview.rs) | The model a record describes, assembled as the original client draws it, for viewers, and ready to pose with sequences. |
 
 ## `run`: the entry points
 
@@ -73,7 +73,7 @@ Bones are ordered parents first, with pivots at the centroid of their rest verti
 
 `clip::convert(creature, rig, sequence, rig_id)` replays each frame's ops. Alongside the integer reference deformation, every bone accumulates the affine transform of the ops that move its whole label set. Bones are processed parents first against the parent's quantised transform, so rounding doesn't pile up down the chain. For each bone, `frame_keys` tries the quantised angles of its exact rotation and their neighbours, each with the least-squares translation for its vertices, and keeps the best. Frame lengths come from `delays`: the sequence's delay, else the frame's own, else 1. A sequence over 255 frames is an error.
 
-`validate::validate` poses the rig from the decoded records (`pose`), skins the creature's rest mesh in pack space, and measures the distance from the reference deformation for every vertex and frame. It reports the max, the mean, and the five worst vertices per frame. A clip whose max exceeds `THRESHOLD` (4.0 cache units) is flagged. `validate::skinned` gives the skinned vertices of a converted model at one frame, `validate::rest_pivots` the bones' rest pivots, and `validate::vertex_bones` the bone each vertex follows. The explorer's bone overlay draws from `pose` and `rest_pivots`, and colours by bone with `vertex_bones`. See [validation](../conversion/validation.md) and [clips](../conversion/clips.md).
+`validate::validate` poses the rig from the decoded records (`pose`), skins the creature's rest mesh in pack space, and measures the distance from the reference deformation for every vertex and frame. It reports the max, the mean, and the five worst vertices per frame. A clip whose max exceeds `THRESHOLD` (4.0 cache units) is flagged. `validate::skinned` gives the skinned vertices of a converted model at one frame, `validate::converted` the creature's vertices posed by a rig and clip back in cache space (what `cache render --compare` draws), `validate::rest_pivots` the bones' rest pivots, and `validate::vertex_bones` the bone each vertex follows. The explorer's bone overlay draws from `pose` and `rest_pivots`, and colours by bone with `vertex_bones`. See [validation](../conversion/validation.md) and [clips](../conversion/clips.md).
 
 ## `space`
 
@@ -84,6 +84,8 @@ A key rotation `R` in a clip means `P · R317 · P` with `P = diag(1, −1, −1
 ## `preview`
 
 `preview::model_for(records, record)` returns the model a record describes as the original client would draw it: a model as is; an NPC, item (inventory model), identity-kit part or spot animation merged, recoloured and scaled; a location shaped for placement type 10, or its first type. `location_model(records, def, kind)` picks a location's model for one placement type. Viewers use these; packs don't.
+
+`preview::animated(records, index, kind, id, seqs)` gives the same model as a `Subject` to pose: a `Creature` with the record's model unscaled, its scale and the sequences, assembled as the pack commands assemble it (an NPC with its stance and walk sequences too, a spot animation with its own). For a location the subject also carries the shaping, since the original client poses a location's model before mirroring, scaling and moving it: `Subject::posed` poses then shapes, `Subject::finish` shapes vertices posed some other way, and `Subject::model` is the shaped rest model to light. `player_body` does the same for a default player body, and `own_sequence` names the sequence a record plays by itself. `rs2ool cache render` draws through these.
 
 ## `material_id` and `source_cache_crc`
 

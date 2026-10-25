@@ -14,6 +14,7 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
+                         render    TYPE [--id N] [--female] [--seq [ID]] [--frame N | --sheet [N]] [--compare] [CAMERA] -o FILE
                          caption   (--npc N | --all | --check | --import FILE --model NAME) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
                          classify  [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…
@@ -35,6 +36,7 @@ rs2ool [--cache DIR] pack  materials   -o DIR
 SOURCE  = --index N | --archive NAME | --type TYPE | --region RX_RY | --all-regions | --group G
 IDS     = --id N | --range A-B | --all
 OUTPUT  = --meta | --meta-only, --xref, --jsonl
+CAMERA  = --size N|WxH, --yaw A, --pitch A, --distance D, --background RRGGBB
 SERVER  = --enable, --backend ollama|openai, --endpoint URL, --model NAME, --api-key-env VAR, --timeout SECS, --frames N, --prompt TEXT
 ```
 
@@ -87,7 +89,7 @@ That binary has no `cache explorer` or `pack explorer` subcommand, and no `cache
 ## Pages
 
 - [Examples](examples.md): one example per subcommand.
-- [Cache commands](cache-commands.md): `list`, `dump`, `decode`, `info` and `verify`, every selector and flag.
+- [Cache commands](cache-commands.md): `list`, `dump`, `decode`, `info`, `verify` and `render`, every selector and flag.
 - [Dump output](dump-output.md): where `dump` writes things, `manifest.json`, sidecars, `--xref`, groups.
 - [Pack commands](pack-commands.md): every `rs2ool pack` subcommand, what it writes, and the validation reports.
 - [Captions](captions.md): `cache caption`, captioning sequences with a vision model you run.

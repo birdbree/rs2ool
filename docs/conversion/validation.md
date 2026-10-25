@@ -18,10 +18,11 @@ From the rig and clip records alone, for frame `t`:
 
 ```text
 pivot_b = pivot_parent + restPos_b                     (root: restPos_root)
-local_b = T(restPos_b + pos) · R(rot)                  if bone b has a key at t
+local_b = T(restPos_b + pos) · R(rot) · S(scale/256)   if bone b has a key at t
         = T(restPos_b)                                 otherwise
 world_b = world_parent · local_b                       (root: local_root)
 R(rot)  = P · Ry · Rx · Rz · P,  P = diag(1, −1, −1)
+S(s)    = diag(s)                                      (per axis)
 ```
 
 `Ry · Rx · Rz` is the original client's rotation for 8-bit angles (z first, then x, then y), described on [Clips](clips.md). A vertex with rest position `v` (pack space) and label `l` follows bone `b = labelBone[l]`, or bone 0 when that entry is 255:
@@ -103,4 +104,5 @@ Each creature gets `<dir>/<key>/validation.json`, where the key is `npc_<id>` or
 - [Clips](clips.md): how keys are chosen to minimise this error.
 - [Rig inference](rig-inference.md): bones, pivots and label binding.
 - [Pack commands](../tools/pack-commands.md): flags, outputs and exit codes.
+- [`cache render --compare`](../tools/cache-commands.md#render): a clip's frames drawn beside the reference, to see where the error is.
 - [Rigs](../pack/rigs.md) and [Anims](../pack/anims.md): the records being re-skinned.

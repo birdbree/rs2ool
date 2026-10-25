@@ -138,6 +138,64 @@ index	present	absent	truncated	bad-sector	inflate-failed	modified
 
 Then, per index, the ids in each damaged class (the first 20, then a count), and the ids that differ from the versionlist. A file is *truncated* when its chain runs out of range or a sector is short, and *bad-sector* for any other chain fault. *Modified* files have a different version or CRC from the versionlist; that isn't damage, and it doesn't change the exit code. The last line is either `no damaged files` (exit 0) or `N damaged files` (exit 3). If the versionlist can't be read, the report says so and skips the comparison.
 
+## render
+
+Draws a record's model with the classic renderer ([`rs2classic`](../crates/rs2classic.md), a reimplementation of the original client's software renderer) into an image file, at rest or posed by a sequence:
+
+```text
+rs2ool cache render npc --id 1 -o npc1.png
+rs2ool cache render npc --id 1 --seq -o npc1-stand.gif
+rs2ool cache render kit --seq 819 --sheet 6 --compare -o walk.png
+```
+
+`TYPE` is a record type with a model, or `kit`. Each draws the model the explorer shows for it:
+
+| `TYPE` | Draws |
+| --- | --- |
+| `model` | the model as it is |
+| `npc` | the NPC's models merged, recoloured and scaled |
+| `obj` | the item's inventory model, recoloured and scaled |
+| `idk` | the identity-kit part's models merged and recoloured |
+| `spotanim` | the spot animation's model, recoloured and scaled |
+| `loc` | the location's placement-type 10 model (or its first), mirrored, scaled and offset |
+| `kit` | the default male player body, or with `--female` the female one, as `pack player-kit` builds it |
+
+| Flag | Effect |
+| --- | --- |
+| `--id N` | the record (required, except for `kit`, which takes none) |
+| `--female` | with `kit`, the female body |
+| `--seq [ID]` | pose the model with sequence `ID`; with no id, the record's own: an NPC's stand sequence, a spot animation's or location's sequence, or for `kit` the player's stand sequence (808) |
+| `--frame N` | draw just frame `N` of the sequence (its index, from 0) |
+| `--sheet [N]` | draw a grid of `N` frames (9 with no `N`) spaced evenly in time, first and last included |
+| `--compare` | draw the converted rig and clip beside the original, and print the clip's validation |
+| `--size N` or `--size WxH` | the image size, or each tile's with `--sheet`, 1–4096; default 512, or 256 with `--sheet` |
+| `--yaw A` | the camera's turn about the model, 2048 a turn; default 256, three-quarters on |
+| `--pitch A` | the camera's tilt, 2048 a turn, positive looking down; default 48 |
+| `--distance D` | the camera's distance from the model's centre, in cache units; fitted when not given |
+| `--background RRGGBB` | the background colour; default `8a9ba8` |
+| `-o, --out FILE` | the file to write (required) |
+
+`--frame`, `--sheet` and `--compare` need `--seq`. Without `--frame` or `--sheet`, a sequence is drawn as an animation, every frame shown for its own delay at 20 ms a client cycle, looping forever.
+
+**The file.** The extension picks the format: `.gif` writes a GIF, anything else a PNG. A PNG with more than one frame is an animated PNG (APNG), lossless; viewers that don't play APNG show its first frame. A GIF holds 256 colours per frame. The command prints one line saying what it wrote:
+
+```text
+walk.png	1536×512 PNG
+stand.gif	512×512 GIF, 12 frames, 1.44 s
+```
+
+**The camera** is the original client's model-viewer camera, turned about the centre of the box around every pose drawn, so all frames share one camera and a model that moves, falls or shrinks does so on screen. The fitted distance keeps the box's bounding sphere inside a margin of a sixteenth of the shorter side. Faces are one-sided, as in the original client, so a flat model only shows from its front; turn the camera (`--yaw 1280`, `--pitch -48`) if one comes out empty. Everything is lit with the NPC lighting, like the explorer's classic view.
+
+**Posing.** Each frame is posed exactly as the original client deforms the model, the same reference [validation](../conversion/validation.md) measures against, then scaled. A location is posed first and shaped after, as the original client does it. A band of ground is drawn at the lowest point of the first frame shown.
+
+**`--compare`** draws every frame twice: as the original client deforms it, and as the converted rig and clip pose it. An animation or a single frame shows the two side by side, the original on the left; a sheet shows a strip of the original frames over a strip of the converted ones. The conversion is the one `rs2ool pack` writes, from the same assembly: an NPC with its stance and walk sequences plus the one drawn, as `pack npc --seq` converts it, the kit as `pack player-kit` with the sequence added, and a spot animation as `pack spotanims`. The command then prints the clip's validation, and, like the pack commands, ends the line in `FLAGGED` and exits 3 when the clip is over the threshold:
+
+```text
+sequence 819: max error 2.08, mean 0.66
+```
+
+A record type with no model, a record without one, a missing or unwanted `--id`, a bare `--seq` on a record with no sequence of its own, and a frame past the end are usage errors (exit 1).
+
 ## caption
 
 Draws an NPC's candidate sequences and asks a vision model on a server you run what each one shows, keeping the answers locally:
