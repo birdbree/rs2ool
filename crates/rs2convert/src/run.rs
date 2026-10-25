@@ -261,6 +261,25 @@ pub fn objects(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, 
     })
 }
 
+/// One item definition, or every item definition: its `items` record,
+/// its inventory and wear models, and the string table.
+pub fn items(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, ConvertError> {
+    let (palette, _) = palette(records)?;
+    let list = match id {
+        Some(id) => vec![id],
+        None => records.ids(RecordType::Obj)?,
+    };
+    let p = crate::item::convert(records, &list, &palette, crc)?;
+    let packs = [p.models, p.items, p.strings]
+        .into_iter()
+        .filter(|w| !w.is_empty())
+        .collect();
+    Ok(Outcome {
+        packs,
+        ..Default::default()
+    })
+}
+
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ConvertError + '_ {
     move |e| ConvertError::Invalid(format!("{}: {e}", path.display()))
 }

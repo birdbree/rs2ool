@@ -4,7 +4,7 @@
 
 Every record in a pack is keyed by a `u32` id. This page lists every id namespace the tools use, kind by kind, along with the reserved ids and the manifest `extra` tables that map cache ids to pack ids. Material ids, which records use to refer to materials, are here too.
 
-The constants live in [`rs2convert::pipeline::ids`](../../crates/rs2convert/src/pipeline.rs), [`rs2convert::object`](../../crates/rs2convert/src/object.rs), [`rs2convert::sprite`](../../crates/rs2convert/src/sprite.rs), [`rs2convert::floor`](../../crates/rs2convert/src/floor.rs), [`rs2convert::material_id`](../../crates/rs2convert/src/lib.rs), and the record modules [`material`](../../crates/contentpack/src/records/material.rs) and [`texture`](../../crates/contentpack/src/records/texture.rs).
+The constants live in [`rs2convert::pipeline::ids`](../../crates/rs2convert/src/pipeline.rs), [`rs2convert::object`](../../crates/rs2convert/src/object.rs), [`rs2convert::item`](../../crates/rs2convert/src/item.rs), [`rs2convert::sprite`](../../crates/rs2convert/src/sprite.rs), [`rs2convert::floor`](../../crates/rs2convert/src/floor.rs), [`rs2convert::material_id`](../../crates/rs2convert/src/lib.rs), and the record modules [`material`](../../crates/contentpack/src/records/material.rs) and [`texture`](../../crates/contentpack/src/records/texture.rs).
 
 Ids only need to be unique within one pack. Several namespaces share a kind, so they're spaced out by their top bits.
 
@@ -17,6 +17,8 @@ Ids only need to be unique within one pack. Several namespaces share a kind, so 
 | `0x20000000 \| k` | Identity-kit part `k`'s merged model |
 | `0x30000000` | The default player body's merged model |
 | `0x40000000 \| loc << 4 \| i` | Model `i` (0–15) of location definition `loc` |
+| `0x50000000 \| item` | Item `item`'s inventory model |
+| `0x60000000 \| item << 1 \| body` | Item `item`'s wear model for body type `body` (0 male, 1 female) |
 
 A location definition can list at most 16 models after untyped ones are merged; the conversion fails on one with more. See [Models](models.md) for the layout.
 
@@ -62,11 +64,12 @@ Material ids are `u16`. A model face names its material through a `u8` slot, so 
 
 `s` is an `rs2cache` sprite id: the position of the sprite's entry in the list of media-archive sprite entries followed by title-archive sprite entries, fonts left out (see [Sprite](../records/sprite.md)). `f` is the font id, 0–3, in the order `p11_full`, `p12_full`, `b12_full`, `q8_full` ([Font](../records/font.md)). The sub-index `i` is the sprite's position in its sheet and is also stored in the record. See [Sprites](sprites.md).
 
-## objects, kits and strings
+## objects, items, kits and strings
 
 | Kind | Id | Record |
 | --- | --- | --- |
 | `objects` | `loc` | Location definition `loc` |
+| `items` | `item` | Item definition `item` |
 | `kits` | `loc` | The wall kit of location definition `loc` (only for definitions with wall-layer models) |
 | `strings` | `domain << 8 \| locale` | One string table |
 
@@ -76,8 +79,9 @@ String-table domains and locales:
 | --- | --- | --- |
 | 1 | Floor names | `0x100` |
 | 2 | Object names and options | `0x200` |
+| 3 | Item names, examine texts and options | `0x300` |
 
-Locale 0 is English and is the only locale the tools write. Object records refer to strings by their index in the domain 2 table; see [Objects](objects.md) and [Strings](strings.md).
+Locale 0 is English and is the only locale the tools write. Object records refer to strings by their index in the domain 2 table, and item records by their index in the domain 3 table; see [Objects](objects.md), [Items](items.md) and [Strings](strings.md).
 
 ## Manifest extras
 

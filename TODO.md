@@ -41,7 +41,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [x] [#32](https://github.com/birdbree/rs2ool/issues/32) Add CI
 - [ ] [#33](https://github.com/birdbree/rs2ool/issues/33) glTF export
 - [ ] [#34](https://github.com/birdbree/rs2ool/issues/34) Render to PNG from the command line
-- [ ] [#35](https://github.com/birdbree/rs2ool/issues/35) Item packs
+- [x] [#35](https://github.com/birdbree/rs2ool/issues/35) Item packs
 - [ ] [#36](https://github.com/birdbree/rs2ool/issues/36) Convert spot animations
 - [x] [#37](https://github.com/birdbree/rs2ool/issues/37) Bone overlay in the explorer
 - [ ] [#38](https://github.com/birdbree/rs2ool/issues/38) Evaluate morph tables in the explorer

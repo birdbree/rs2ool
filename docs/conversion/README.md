@@ -34,8 +34,9 @@ Each `rs2ool pack` subcommand is one function in [`rs2convert::run`](../../crate
 | `sprites` | `sprites` | media and title sprites, the four fonts | `sprites`: `sprite << 8 \| sub`, glyphs `0x01000000 \| font << 8 \| glyph`, metrics `0x02000000 \| font` |
 | `floors` | `floors` | `flo.dat` | `materials`: `1000 + flo`, manifest extra `floors`; `strings`: `0x100` |
 | `objects` | `objects` | `loc.dat` (plus morph children), their models | `models`: `0x40000000 \| loc << 4 \| n`; `objects`: `loc`; `kits`: `loc`; `strings`: `0x200` |
+| `items` | `items` | `obj.dat`, its inventory and wear models | `models`: `0x50000000 \| item` and `0x60000000 \| item << 1 \| body`; `items`: `item`; `strings`: `0x300` |
 
-Every run that writes palette indices (`models`, `npc`, `player-kit`, `floors`, `objects`) builds the palette from scratch first, the same way `materials` does. That's why indices written by separate runs agree with each other.
+Every run that writes palette indices (`models`, `npc`, `player-kit`, `floors`, `objects`, `items`) builds the palette from scratch first, the same way `materials` does. That's why indices written by separate runs agree with each other.
 
 Material ids share one space: 0 is the palette material, `1 + t` is texture `t`, `1000 + f` is floor `f` (constants in `rs2convert::material_id`). Wall kits name material 0.
 

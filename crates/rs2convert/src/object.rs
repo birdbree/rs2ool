@@ -101,13 +101,14 @@ pub fn models_of(records: &Records, d: &LocDef) -> Result<Vec<(u8, Model)>, Conv
 
 /// Deduplicating string table builder.
 #[derive(Default)]
-struct Strings {
-    list: Vec<String>,
+pub(crate) struct Strings {
+    pub(crate) list: Vec<String>,
     index: BTreeMap<String, u32>,
 }
 
 impl Strings {
-    fn add(&mut self, s: Option<&str>) -> u32 {
+    /// The string's index, adding it if it's new; `NONE` for no string.
+    pub(crate) fn add(&mut self, s: Option<&str>) -> u32 {
         let Some(s) = s else { return object::NONE };
         if let Some(&i) = self.index.get(s) {
             return i;

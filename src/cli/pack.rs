@@ -71,6 +71,14 @@ pub enum Cmd {
         #[command(flatten)]
         out: Out,
     },
+    /// Convert items: items records, their inventory and wear models, and
+    /// strings, with each item's slot inferred from its wear models.
+    Items {
+        #[command(flatten)]
+        ids: Ids,
+        #[command(flatten)]
+        out: Out,
+    },
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -185,6 +193,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                     out,
                 } => ctx.and_then(|c| c.sprites(archive.as_deref(), &out.dir)),
                 Cmd::Objects { ids, out } => ctx.and_then(|c| c.objects(&ids, &out.dir)),
+                Cmd::Items { ids, out } => ctx.and_then(|c| c.items(&ids, &out.dir)),
                 Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
                 Cmd::PlayerKit { anims, out } => ctx.and_then(|c| c.player_kit(&anims, &out.dir)),
                 // Handled in the outer match.
