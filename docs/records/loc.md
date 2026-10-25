@@ -110,7 +110,7 @@ Untyped models are merged (with vertex welding) before shaping, into one type-10
 
 ## Morph table
 
-When `morph` is set, the location shows one of `children` (loc ids, each possibly none) chosen by the value of a varbit or, failing that, a varp. See [Varp and varbit](varp-varbit.md) for those and [Config archive](../cache/config.md) for the encoding. The tools don't evaluate player variables; object conversion collects every child instead, as described next.
+When `morph` is set, the location shows one of `children` (loc ids, each possibly none) chosen by the value of a varbit or, failing that, a varp. See [Varp and varbit](varp-varbit.md) for those and [Config archive](../cache/config.md) for the encoding. Conversion doesn't evaluate player variables; object conversion collects every child instead, as described next. The explorer can evaluate one: see [Object states](../tools/explorer.md#object-states).
 
 ## Conversion
 

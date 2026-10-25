@@ -99,7 +99,7 @@ The explorer tests (`tests/d1_skeleton.rs` to `d7_maps.rs`, plus `d8_actions.rs`
 | `d5_viewport2d.rs` | A sprite drawn at 4× is crisp (each texel exactly four physical pixels across), a font lays out 256 glyphs, and an interface nests its children with their sprites. |
 | `d6_kit.rs` | The kit's default slots rebuild the converter's default body; an item in an empty slot adds its equipment model, and one in a kit-backed slot replaces that part. |
 | `d6_playback.rs` | A sequence plays at the original client's speed (frame delays at 20 ms per cycle), and the converted creature stays in step: every frame, the skinned pack vertices sit where the reference deformation puts the cache vertices. |
-| `d6_states.rs` | A location with a morph table lists its default and child states, each with its own model, and the converted objects pack lists the same states and options. |
+| `d6_states.rs` | A location with a morph table lists its default and child states, each with its own model, and the converted objects pack lists the same states and options. Setting a varbit-driven location's varp to each value the varbit holds shows the child its table names, or nothing; an NPC's morph children load as creatures. |
 | `d7_maps.rs` | A region builds terrain for planes 0–2 and models for its locations, including those on upper planes. |
 
 Several of these (the orbit, fly, compare-camera, viewport-split and lighting-switch tests) need no cache and always run.

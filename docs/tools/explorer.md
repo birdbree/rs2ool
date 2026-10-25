@@ -180,12 +180,15 @@ A warning shows when the server isn't this machine. **Test connection** asks the
 
 ## Object states
 
-A location with a morph table, or an object record in an objects pack, has states. The bottom panel shows a state picker and the chosen state's options:
+A location or NPC with a morph table, or an object record in an objects pack, has states. The bottom panel shows a state picker and the chosen state's options:
 
 - For a cache location the states are "default (loc N)" and then "loc C" for each morph child, each drawn as its own definition.
+- For a cache NPC they're "default (npc N)" and then "npc C" for each child. Each child is loaded as a full creature, so it plays its own sequences.
 - For a pack object the states are "state 0", "state 1" and so on; models come from the models pack beside it and option names from the strings pack beside it.
 
 A state that draws nothing says so.
+
+For a morph table, a second row names the variable that picks the child: "varbit 42 (bits 3–5 of varp 17)" or "varp 17". Set the varp's contents there, or for a varbit its value, which writes just its bits and keeps the varp's others, and the explorer shows the state the original client would pick ([Morph tables](../cache/config.md#morph-tables)). **Pick** applies the value as it stands, for example 0. When the value picks no child (out of range, negative, or an empty slot), nothing is drawn and the row says so, since the client draws nothing then. In compare mode the other pane follows. Picking a state from the list stops following the varp.
 
 ## The player kit
 

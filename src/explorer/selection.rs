@@ -124,6 +124,10 @@ pub struct Loaded<S = Selected> {
     pub states: Option<Arc<States>>,
     /// Index of the state shown, into `states`; 0 when there are none.
     pub state: usize,
+    /// For a morph table, the contents of its variable's varp, once you've
+    /// set them: the state shown is then the one the original client
+    /// picks, and nothing is drawn when it picks none.
+    pub morph_varp: Option<i32>,
     /// Why the last load failed, if it did.
     pub error: Option<String>,
     // The decode in flight and the selection it's for.
@@ -140,6 +144,7 @@ impl<S> Default for Loaded<S> {
             renderable: None,
             states: None,
             state: 0,
+            morph_varp: None,
             error: None,
             pending: None,
             slot: PhantomData,
@@ -313,15 +318,24 @@ fn poll<S: Slot>(mut loaded: ResMut<Loaded<S>>) {
     let (key, _) = loaded.pending.take().expect("pending");
     loaded.for_sel = Some(key);
     match result {
-        Ok((d, r, states)) => {
+        Ok((d, r, mut states)) => {
             loaded.data = Some(Arc::new(d));
+            let r = r.map(Arc::new);
+            // A state list leaves the definition's own state empty when the
+            // selection draws it anyway (an NPC's creature).
+            if let (Some(s), Some(r)) = (&mut states, &r)
+                && s.renderables.first().is_some_and(Option::is_none)
+            {
+                s.renderables[0] = Some(r.clone());
+            }
+            loaded.morph_varp = None;
             // An object with states shows its own model, or when it has none
             // (a morph parent is often invisible) its first state that draws.
             let first = states
                 .as_ref()
                 .and_then(|s| s.renderables.iter().position(Option::is_some));
             loaded.state = if r.is_some() { 0 } else { first.unwrap_or(0) };
-            loaded.renderable = r.map(Arc::new).or_else(|| {
+            loaded.renderable = r.or_else(|| {
                 states
                     .as_ref()
                     .and_then(|s| s.renderables.get(loaded.state).cloned().flatten())

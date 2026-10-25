@@ -26,11 +26,13 @@ use contentpack::records::texture::{ATLAS_BASE, Atlas};
 use contentpack::{Kind, PackReader};
 use rs2cache::Records;
 use rs2cache::anim::FrameIndex;
+use rs2cache::types::config::{LocDef, Morph, NpcDef};
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::types::sprite::{Font, SpriteSheet};
 use rs2convert::creature::{self, Creature};
 use rs2convert::infer::{Candidate, SequenceIndex};
+use rs2convert::morph::Variable;
 use rs2convert::object::STRINGS_DOMAIN as OBJECT_STRINGS;
 use rs2convert::pipeline::ids;
 use rs2convert::rig::{self, InferredRig};
@@ -332,48 +334,124 @@ pub struct States {
     pub options: Vec<Vec<String>>,
     /// What each state draws; `None` when it draws nothing.
     pub renderables: Vec<Option<Arc<Renderable>>>,
+    /// For a cache location or NPC, the morph table behind its states.
+    pub morph: Option<MorphView>,
 }
 
-/// The states of a cache location with a morph table, or of an object in
-/// an objects pack (drawn from the models pack beside it, its options from
-/// the strings pack). `None` for anything else, or a location with no
-/// morph children.
+/// A morph table and how its slots map onto the states.
+#[derive(Debug, Clone)]
+pub struct MorphView {
+    /// The table.
+    pub table: Morph,
+    /// The variable it reads; `None` when its varbit won't decode.
+    pub variable: Option<Variable>,
+    /// For each slot of the table, the state showing its child; `None` for
+    /// an empty slot or a child that won't load.
+    pub slots: Vec<Option<usize>>,
+}
+
+impl MorphView {
+    /// The state the original client would show with the variable's varp
+    /// holding `contents`, or `None` when it would draw nothing.
+    pub fn state_for(&self, contents: i32) -> Option<usize> {
+        let value = self.variable?.read(contents);
+        self.slots
+            .get(rs2convert::morph::pick(&self.table, value)?)
+            .copied()
+            .flatten()
+    }
+}
+
+/// States from a morph table: the definition itself as state 0, labelled
+/// `default (<kind> <id>)`, then each child that loads, labelled
+/// `<kind> <id>`. `child` loads one child's options and renderable.
+fn morph_states(
+    records: &Records,
+    kind: &str,
+    id: u32,
+    options: Vec<String>,
+    own: Option<Arc<Renderable>>,
+    table: &Morph,
+    mut child: impl FnMut(u16) -> Option<(Vec<String>, Option<Arc<Renderable>>)>,
+) -> Option<States> {
+    // A table with no children has no states to pick between.
+    table.children.iter().flatten().next()?;
+    let mut st = States {
+        labels: vec![format!("default ({kind} {id})")],
+        options: vec![options],
+        renderables: vec![own],
+        morph: None,
+    };
+    let mut slots = Vec::with_capacity(table.children.len());
+    for c in &table.children {
+        let state = c.and_then(|c| {
+            let (options, r) = child(c)?;
+            st.labels.push(format!("{kind} {c}"));
+            st.options.push(options);
+            st.renderables.push(r);
+            Some(st.labels.len() - 1)
+        });
+        slots.push(state);
+    }
+    st.morph = Some(MorphView {
+        table: table.clone(),
+        variable: Variable::of(records, table),
+        slots,
+    });
+    Some(st)
+}
+
+/// The states of a cache location or NPC with a morph table, or of an
+/// object in an objects pack (drawn from the models pack beside it, its
+/// options from the strings pack). `None` for anything else, or a morph
+/// table with no children.
+///
+/// An NPC's own state draws nothing here; the selection fills it in with
+/// the creature it already loaded, rather than load it twice.
 pub fn load_states(source: &Source, sel: &Sel, record: Option<&Record>) -> Option<States> {
     match (source, sel, record) {
-        (Source::Cache { records, .. }, _, Some(Record::Loc(d))) => {
-            // Every morph child id; the `Option`s are slots the table
-            // leaves empty.
-            let children: Vec<u16> = d
-                .morph
-                .iter()
-                .flat_map(|m| m.children.iter())
-                .flatten()
-                .copied()
-                .collect();
-            if children.is_empty() {
-                return None;
-            }
-            let mut st = States::default();
-            // Adds one location definition as a state.
-            let mut push = |label: String, r: &Record| {
-                let Record::Loc(def) = r else { return };
-                st.labels.push(label);
-                st.options
-                    .push(def.actions.iter().flatten().cloned().collect());
-                st.renderables.push(
-                    rs2convert::preview::model_for(records, r)
-                        .ok()
-                        .flatten()
-                        .map(|m| Arc::new(Renderable::CacheModel(m))),
-                );
+        (Source::Cache { records, .. }, _, Some(r @ Record::Loc(d))) => {
+            let model = |r: &Record| {
+                rs2convert::preview::model_for(records, r)
+                    .ok()
+                    .flatten()
+                    .map(|m| Arc::new(Renderable::CacheModel(m)))
             };
-            push(format!("default (loc {})", d.id), record?);
-            for c in children {
-                if let Ok(r) = records.decode(RecordType::Loc, c.into()) {
-                    push(format!("loc {c}"), &r);
-                }
-            }
-            Some(st)
+            let options = |d: &LocDef| d.actions.iter().flatten().cloned().collect::<Vec<_>>();
+            morph_states(
+                records,
+                "loc",
+                d.id,
+                options(d),
+                model(r),
+                d.morph.as_ref()?,
+                |c| {
+                    let r = records.decode(RecordType::Loc, c.into()).ok()?;
+                    let Record::Loc(cd) = &r else { return None };
+                    Some((options(cd), model(&r)))
+                },
+            )
+        }
+        (Source::Cache { records, .. }, _, Some(Record::Npc(d))) => {
+            let options = |d: &NpcDef| d.actions.iter().flatten().cloned().collect::<Vec<_>>();
+            morph_states(
+                records,
+                "npc",
+                d.id,
+                options(d),
+                None,
+                d.morph.as_ref()?,
+                |c| {
+                    let r = records.decode(RecordType::Npc, c.into()).ok()?;
+                    let Record::Npc(cd) = &r else { return None };
+                    let shown =
+                        load_renderable(source, &Sel::Record(RecordType::Npc, c.into()), Some(&r))
+                            .ok()
+                            .flatten()
+                            .map(Arc::new);
+                    Some((options(cd), shown))
+                },
+            )
         }
         (Source::Pack { path, reader }, Sel::PackRecord(id), _)
             if reader.manifest.kind == Kind::Objects =>
