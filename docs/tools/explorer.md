@@ -151,6 +151,29 @@ The NPC definition only names its stand and walk sequences, so the explorer adds
 
 Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/animation.md#sequence-timing): the sequence's delay, else the frame's own, else 1. A converted creature's frame lengths come from its clip's frame start times. At the end the loop offset decides where playback restarts; with **Loop** off it stops on the last frame, and **Play** starts again from the beginning.
 
+### Captions
+
+With the `caption` feature (on by default), an inferred sequence that has a [caption](captions.md) shows its class after its name in the picker, as `seq 2820 · 💬 death`. Once it's reviewed, the mark changes: ✔ for marked right, ✎ with the class it was corrected to, and ✘ for wrong with no class given. A caption drawn on this NPC is shown first, by the model in the settings if there's one; otherwise it's one drawn on another NPC, which is what `--all` makes.
+
+Under the playback bar, the chosen sequence's caption shows its class and description. Hovering it shows the whole reply, the frame count and the model; "(drawn on npc N)" marks one from another NPC. Review it by eye as it plays:
+
+- **✔ Right**: the class is right.
+- **✘ Wrong**, then **it's really…**: the class is wrong; pick the right one from the class list if you can.
+- **clear**: forget the review.
+
+Reviews are saved in the caption file straight away. Reviewed captions are the trusted sample.
+
+The **Captions** menu in the menu bar holds the [caption settings](captions.md#settings), saved to `settings.json` as you change them:
+
+- **Captioning on**: nothing is sent anywhere until this is ticked.
+- **API**: Ollama or OpenAI-compatible.
+- **Server**, **Model**, **API key variable**, **Timeout**, **Frames per image**: as on the command line. After a connection test, a list beside **Model** offers the server's models.
+- **Ask my own question**: replaces the built-in question, starting from it.
+
+A warning shows when the server isn't this machine. **Test connection** asks the server for its models and says whether the chosen one is there. Changing the API, server or key clears the result.
+
+**Caption npc N's candidates** runs the caption job for the NPC selected in a cache, with progress in the bottom panel. It's greyed out until captioning is on, a model is chosen and the connection test has passed. **At most** limits a run to that many images (0 for every candidate; a humanoid has about 1200, at several seconds each). **Stop captioning** stops after the image in hand. A run skips what's already captioned, so running it again carries on. The job and the window share the caption file, so you can review while it runs.
+
 ## Object states
 
 A location with a morph table, or an object record in an objects pack, has states. The bottom panel shows a state picker and the chosen state's options:

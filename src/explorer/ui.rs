@@ -362,7 +362,11 @@ struct UiState<'w> {
     playback: ResMut<'w, Playback>,
     kit: ResMut<'w, Kit>,
     actions: ResMut<'w, Actions>,
-    settings: Res<'w, Settings>,
+    settings: ResMut<'w, Settings>,
+    // Optional so an app put together without the captions plugin, as the
+    // headless tests do, still lays out.
+    #[cfg(feature = "caption")]
+    captions: Option<ResMut<'w, crate::explorer::captions::Captions>>,
 }
 
 /// Draws every panel, applies what was clicked, and publishes what's left
@@ -432,6 +436,22 @@ fn layout(
                     &st.sources,
                     &mut st.jobs,
                 );
+                #[cfg(feature = "caption")]
+                if let Some(captions) = st.captions.as_deref_mut() {
+                    // Work on a copy so `Settings` only changes when they do.
+                    let mut s = st.settings.clone();
+                    crate::explorer::captions::captions_menu(
+                        ui,
+                        captions,
+                        &mut s,
+                        &st.selected,
+                        &st.sources,
+                        &mut st.jobs,
+                    );
+                    if s != *st.settings {
+                        *st.settings = s;
+                    }
+                }
                 if st.sources.pending() > 0 {
                     ui.spinner();
                     ui.label("opening…");
@@ -527,7 +547,34 @@ fn layout(
                 .renderable
                 .as_deref()
                 .filter(|_| st.compare.enabled);
-            playback_ui(ui, &mut st.playback, st.loaded.renderable.as_deref(), right);
+            // The selected NPC, whose captions the picker shows.
+            #[cfg(feature = "caption")]
+            let npc = match st.selected.sel {
+                Some(Sel::Record(rs2cache::types::record::RecordType::Npc, id)) => Some(id),
+                _ => None,
+            };
+            #[cfg(feature = "caption")]
+            let tag = |seq: u32| {
+                let store = st.captions.as_ref()?.store.as_ref()?;
+                let st_ = crate::caption::store::lock(store);
+                st_.lookup(npc?, seq, &st.settings.caption.model)
+                    .map(crate::explorer::captions::tag)
+            };
+            #[cfg(not(feature = "caption"))]
+            let tag = |_: u32| None;
+            playback_ui(
+                ui,
+                &mut st.playback,
+                st.loaded.renderable.as_deref(),
+                right,
+                &tag,
+            );
+            #[cfg(feature = "caption")]
+            if let (Some(c), Some(npc), Some(seq)) =
+                (st.captions.as_deref(), npc, st.playback.seq())
+            {
+                crate::explorer::captions::review_ui(ui, c, &st.settings.caption.model, npc, seq);
+            }
             for job in st.jobs.list.iter().rev().take(4) {
                 // Wrapped, so a long message or a row of buttons flows onto
                 // the next line instead of running off the panel.

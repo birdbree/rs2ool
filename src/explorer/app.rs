@@ -97,8 +97,8 @@ fn select_startup(
 
 /// Open the explorer window; returns when it closes.
 pub fn run(startup: Startup) {
-    App::new()
-        .insert_resource(ClearColor(Color::srgb(0.12, 0.12, 0.14)))
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::srgb(0.12, 0.12, 0.14)))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "rs2ool explorer".into(),
@@ -125,6 +125,8 @@ pub fn run(startup: Startup) {
         ))
         .insert_resource(startup)
         .add_systems(bevy::app::Startup, open_startup)
-        .add_systems(Update, select_startup)
-        .run();
+        .add_systems(Update, select_startup);
+    #[cfg(feature = "caption")]
+    app.add_plugins(crate::explorer::captions::plugin);
+    app.run();
 }
