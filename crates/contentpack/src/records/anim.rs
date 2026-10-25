@@ -1,15 +1,19 @@
 //! `anims` record: one clip.
 //!
 //! ```text
-//! magic "RANM", version u8 = 3
+//! magic "RANM", version u8 = 4
 //! rig u32                       (rigs record the clip drives)
 //! frameCount u8
 //! frameStart frameCount × u16   (start of each frame, in 20 ms cycles)
 //! duration u16                  (total length, in 20 ms cycles)
 //! loopOffset u16                (frames from the end to replay; 65535 = none)
 //! priority u8, replayMode u8
+//! movingCount u8
+//! moving movingCount × u8       (bones a movement clip drives, ascending)
 //! keyCount u32
 //! keys keyCount × {bone u8, t u8 (frame index), rot u8×3, pos i16×3, scale u16×3}
+//! mixKeyCount u32
+//! mixKeys mixKeyCount × key     (the same 17 bytes as a key)
 //! ```
 //!
 //! Each key is 17 bytes. Its bytes put `bone` before `t`, but keys are
@@ -19,8 +23,17 @@
 //! per axis, [`SCALE_ONE`] (256) being 1.0. A key's transform is translate ·
 //! rotate · scale about the bone's pivot.
 //!
-//! Version 2 is the same without `scale` (11-byte keys). It still decodes,
-//! every key at scale 1.0; the encoder always writes version 3.
+//! `moving` lists the bones whose local transform comes from the creature's
+//! movement clip, at that clip's own frame, when this clip plays while the
+//! creature moves. Every other bone then takes its key from `mixKeys`
+//! instead of `keys`: the pose this clip leaves once the movement has taken
+//! its share, which isn't the same as the pose it plays alone. With no
+//! moving bones there are no mix keys, and the clip always plays alone.
+//!
+//! Version 3 is version 4 without the moving bones and mix keys, and version 2
+//! is version 3 without `scale` (11-byte keys). Both still decode, with no
+//! moving bones and, for version 2, every key at scale 1.0; the encoder
+//! always writes version 4.
 //!
 //! Frame `i` runs from `frameStart[i]` to `frameStart[i + 1]`, or to
 //! `duration` for the last frame. A bone with no key at a frame sits at its
@@ -32,9 +45,9 @@ use super::{RecordError, finish, header};
 
 /// Magic at the start of an anim record.
 pub const MAGIC: &[u8; 4] = b"RANM";
-/// The version the encoder writes. Version 2, without scale, still
-/// decodes.
-pub const VERSION: u8 = 3;
+/// The version the encoder writes. Versions 2 (without scale or moving
+/// bones) and 3 (without moving bones) still decode.
+pub const VERSION: u8 = 4;
 /// A key scale of 1.0.
 pub const SCALE_ONE: u16 = 256;
 /// [`Clip::loop_offset`] when the clip doesn't loop.
@@ -74,8 +87,17 @@ pub struct Clip {
     pub priority: u8,
     /// Replay mode, copied from the source sequence.
     pub replay_mode: u8,
+    /// The bones whose local transform comes from the creature's movement
+    /// clip, at that clip's own frame, while this one plays as the creature
+    /// moves; ascending, without repeats. Empty when the clip always plays
+    /// alone.
+    pub moving: Vec<u8>,
     /// Keys, sorted by `(t, bone)` with no repeats.
     pub keys: Vec<Key>,
+    /// Keys for the bones not in `moving`, used instead of `keys` while
+    /// the clip plays over a movement clip; sorted like `keys`. Empty when
+    /// `moving` is.
+    pub mix_keys: Vec<Key>,
 }
 
 impl Clip {
@@ -83,22 +105,33 @@ impl Clip {
         if self.frame_start.len() > 255 {
             return Err(RecordError::Invalid("more than 255 frames".into()));
         }
-        // Strictly increasing (t, bone) means sorted with no duplicate pairs.
-        if self
-            .keys
-            .windows(2)
-            .any(|w| (w[0].t, w[0].bone) >= (w[1].t, w[1].bone))
-        {
+        let frames = self.frame_start.len();
+        for keys in [&self.keys, &self.mix_keys] {
+            // Strictly increasing (t, bone) means sorted with no duplicate
+            // pairs.
+            if keys
+                .windows(2)
+                .any(|w| (w[0].t, w[0].bone) >= (w[1].t, w[1].bone))
+            {
+                return Err(RecordError::Invalid(
+                    "keys must be sorted by (t, bone) without repeats".into(),
+                ));
+            }
+            if keys.iter().any(|k| usize::from(k.t) >= frames) {
+                return Err(RecordError::Invalid("key frame index out of range".into()));
+            }
+        }
+        if self.moving.len() > 255 || self.moving.windows(2).any(|w| w[0] >= w[1]) {
             return Err(RecordError::Invalid(
-                "keys must be sorted by (t, bone) without repeats".into(),
+                "moving bones must be ascending without repeats".into(),
             ));
         }
-        if self
-            .keys
-            .iter()
-            .any(|k| usize::from(k.t) >= self.frame_start.len())
+        if self.mix_keys.iter().any(|k| self.moving.contains(&k.bone))
+            || (self.moving.is_empty() && !self.mix_keys.is_empty())
         {
-            return Err(RecordError::Invalid("key frame index out of range".into()));
+            return Err(RecordError::Invalid(
+                "mix keys are only for bones not in moving, and only with moving bones".into(),
+            ));
         }
         Ok(())
     }
@@ -118,26 +151,19 @@ impl Clip {
             .u16(self.loop_offset)
             .u8(self.priority)
             .u8(self.replay_mode)
+            .u8(self.moving.len() as u8)
+            .bytes(&self.moving)
             .u32(self.keys.len() as u32);
-        for k in &self.keys {
-            // On disk it's bone first, then t.
-            w.u8(k.bone)
-                .u8(k.t)
-                .bytes(&k.rot)
-                .i16(k.pos[0])
-                .i16(k.pos[1])
-                .i16(k.pos[2])
-                .u16(k.scale[0])
-                .u16(k.scale[1])
-                .u16(k.scale[2]);
-        }
+        put_keys(&mut w, &self.keys);
+        w.u32(self.mix_keys.len() as u32);
+        put_keys(&mut w, &self.mix_keys);
         Ok(w.0)
     }
 
     /// Decode a record and check its invariants.
     pub fn decode(data: &[u8]) -> Result<Self, RecordError> {
         let mut r = Reader::new(data);
-        let version = header(&mut r, MAGIC, &[2, VERSION])?;
+        let version = header(&mut r, MAGIC, &[2, 3, VERSION])?;
         let rig = r.u32()?;
         // Frame count.
         let n = r.u8()?;
@@ -146,25 +172,18 @@ impl Clip {
         let loop_offset = r.u16()?;
         let priority = r.u8()?;
         let replay_mode = r.u8()?;
-        // Key count. It comes straight from the data, so cap the up-front
-        // allocation and let a short record fail as Truncated instead.
-        let k = r.u32()? as usize;
-        let mut keys = Vec::with_capacity(k.min(1 << 20));
-        for _ in 0..k {
-            let bone = r.u8()?;
-            let t = r.u8()?;
-            keys.push(Key {
-                t,
-                bone,
-                rot: [r.u8()?, r.u8()?, r.u8()?],
-                pos: [r.i16()?, r.i16()?, r.i16()?],
-                scale: if version == 2 {
-                    [SCALE_ONE; 3]
-                } else {
-                    [r.u16()?, r.u16()?, r.u16()?]
-                },
-            });
-        }
+        let moving = if version >= 4 {
+            let m = r.u8()?;
+            (0..m).map(|_| r.u8()).collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        let keys = get_keys(&mut r, version)?;
+        let mix_keys = if version >= 4 {
+            get_keys(&mut r, version)?
+        } else {
+            Vec::new()
+        };
         finish(&r)?;
         let c = Self {
             rig,
@@ -173,11 +192,51 @@ impl Clip {
             loop_offset,
             priority,
             replay_mode,
+            moving,
             keys,
+            mix_keys,
         };
         c.check()?;
         Ok(c)
     }
+}
+
+fn put_keys(w: &mut Writer, keys: &[Key]) {
+    for k in keys {
+        // On disk it's bone first, then t.
+        w.u8(k.bone)
+            .u8(k.t)
+            .bytes(&k.rot)
+            .i16(k.pos[0])
+            .i16(k.pos[1])
+            .i16(k.pos[2])
+            .u16(k.scale[0])
+            .u16(k.scale[1])
+            .u16(k.scale[2]);
+    }
+}
+
+fn get_keys(r: &mut Reader, version: u8) -> Result<Vec<Key>, RecordError> {
+    // The count comes straight from the data, so cap the up-front
+    // allocation and let a short record fail as Truncated instead.
+    let k = r.u32()? as usize;
+    let mut keys = Vec::with_capacity(k.min(1 << 20));
+    for _ in 0..k {
+        let bone = r.u8()?;
+        let t = r.u8()?;
+        keys.push(Key {
+            t,
+            bone,
+            rot: [r.u8()?, r.u8()?, r.u8()?],
+            pos: [r.i16()?, r.i16()?, r.i16()?],
+            scale: if version == 2 {
+                [SCALE_ONE; 3]
+            } else {
+                [r.u16()?, r.u16()?, r.u16()?]
+            },
+        });
+    }
+    Ok(keys)
 }
 
 #[cfg(test)]
@@ -193,6 +252,7 @@ mod tests {
             loop_offset: NO_LOOP,
             priority: 5,
             replay_mode: 2,
+            moving: vec![2, 5],
             keys: vec![
                 Key {
                     t: 0,
@@ -216,10 +276,27 @@ mod tests {
                     scale: [SCALE_ONE; 3],
                 },
             ],
+            mix_keys: vec![Key {
+                t: 1,
+                bone: 3,
+                rot: [4, 5, 6],
+                pos: [1, -1, 2],
+                scale: [SCALE_ONE; 3],
+            }],
         };
         assert_eq!(Clip::decode(&c.encode().unwrap()).unwrap(), c);
         let mut bad = c.clone();
         bad.keys.swap(0, 1);
+        assert!(bad.encode().is_err());
+        let mut bad = c.clone();
+        bad.moving = vec![5, 2];
+        assert!(bad.encode().is_err());
+        // Mix keys can't drive a moving bone, or exist without any.
+        let mut bad = c.clone();
+        bad.mix_keys[0].bone = 5;
+        assert!(bad.encode().is_err());
+        let mut bad = c.clone();
+        bad.moving.clear();
         assert!(bad.encode().is_err());
     }
 
@@ -243,12 +320,44 @@ mod tests {
         assert_eq!(c.keys[0].bone, 2);
         assert_eq!(c.keys[0].pos, [4, -5, 6]);
         assert_eq!(c.keys[0].scale, [SCALE_ONE; 3]);
-        // It re-encodes as version 3, six bytes longer.
-        let v3 = c.encode().unwrap();
-        assert_eq!((v3[4], v3.len()), (VERSION, v2.len() + 6));
+        assert!(c.moving.is_empty());
+        assert!(c.mix_keys.is_empty());
+        // It re-encodes as version 4: six bytes of scale, an empty moving
+        // list and an empty mix key count longer.
+        let v4 = c.encode().unwrap();
+        assert_eq!((v4[4], v4.len()), (VERSION, v2.len() + 11));
         // Any other version is refused.
         let mut v9 = v2.clone();
         v9[4] = 9;
         assert!(matches!(Clip::decode(&v9), Err(RecordError::Version(9))));
+    }
+
+    #[test]
+    fn version_3_decodes_with_no_moving_bones() {
+        let c = Clip {
+            rig: 3,
+            frame_start: vec![0, 2],
+            duration: 4,
+            loop_offset: NO_LOOP,
+            priority: 5,
+            replay_mode: 2,
+            moving: Vec::new(),
+            keys: vec![Key {
+                t: 1,
+                bone: 1,
+                rot: [1, 2, 3],
+                pos: [4, 5, 6],
+                scale: [300, 256, 200],
+            }],
+            mix_keys: Vec::new(),
+        };
+        // Version 3 is version 4 without the moving count, which sits just
+        // before the key count, and without the mix key count at the end.
+        let mut v3 = c.encode().unwrap();
+        assert_eq!(v3.split_off(v3.len() - 4), [0; 4]);
+        let count = v3.len() - 17 - 4 - 1;
+        assert_eq!(v3.remove(count), 0);
+        v3[4] = 3;
+        assert_eq!(Clip::decode(&v3).unwrap(), c);
     }
 }

@@ -70,10 +70,8 @@ fn candidates(creature: &Creature) -> BTreeMap<LabelSet, usize> {
     let mesh = creature.mesh_labels();
     let mut out: BTreeMap<LabelSet, usize> = BTreeMap::new();
     for s in &creature.sequences {
-        for i in 0..s.def.frames.len() {
-            let Some((pack, frame)) = creature.frame(s, i) else {
-                continue;
-            };
+        let passes = (0..s.def.frames.len()).filter_map(|i| creature.frames(s, i));
+        for (pack, frame) in passes.flatten() {
             for t in &frame.transforms {
                 // A slot past the frame base is skipped, as deform and clip
                 // skip it; decoded packs never have one, built ones might.
@@ -533,6 +531,7 @@ mod tests {
         let seq = Sequence {
             def,
             packs: vec![0],
+            secondary: vec![None],
         };
         Creature::new(
             "test".into(),

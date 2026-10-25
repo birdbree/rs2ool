@@ -45,9 +45,20 @@ A frame that can't be found in its pack is skipped. For the clip, `max` is the l
 
 ## The threshold
 
-A clip is **flagged** when its `max` exceeds `validate::THRESHOLD`, which is 4.0 units. A creature is flagged when any of its clips is.
+A clip is **flagged** when its `max` exceeds `validate::THRESHOLD`, which is 4.0 units. A creature is flagged when any of its clips is, alone or mixed.
 
-Scaling and secondary frames aren't carried into keys (see [Clips](clips.md)), so a sequence that relies on them can end up flagged. When a clip goes over, the per-frame `worst` list tells you which vertex, label and bone to look at first.
+Shear isn't carried into keys (see [Clips](clips.md#what-isnt-carried)), so a sequence that relies on it can end up flagged. When a clip goes over, the per-frame `worst` list tells you which vertex, label and bone to look at first.
+
+## Mixes
+
+A clip with [moving bones](clips.md#moving-bones-and-mix-keys) is also checked mixed with each of the creature's movement clips (its walk and turn sequences, for the player 819–824), when they share its frame base. `validate::validate_moving` poses every pair of their frames through `pose_moving`, the moving bones from the movement clip's keys and the rest from the clip's mix keys:
+
+```text
+local_b = movement key of b at its frame   if b is a moving bone
+        = mix key of b at the clip's frame  otherwise
+```
+
+and skins the rest mesh against the original client's mix of the two sequences (`Creature::reference_moving`). A mix is flagged over `validate::MIX_THRESHOLD`, 8.0 units: twice the clip threshold, since it carries both clips' error. On the player, the worst of the 135 actions that share the walk's base is 2.8 mixed with the walk, the walk back or the turn, 4.6 and 6.4 mixed with walking to either side, and 5.3 mixed with the run.
 
 ## `validation.json`
 
@@ -75,13 +86,14 @@ Each creature gets `<dir>/<key>/validation.json`, where the key is `npc_<id>` or
           "mean": 0.0,
           "worst": [{ "vertex": 0, "label": 0, "bone": 0, "error": 0.0 }]
         }
-      ]
+      ],
+      "moving": [{ "sequence": 819, "max": 0.0, "mean": 0.0, "flagged": false }]
     }
   ]
 }
 ```
 
-`bones` comes from the inferred rig: names, parent indices (`null` for the root) and sorted label sets. The top-level `max` is the largest clip `max`. Without `--with-anims`, `clips` is empty.
+`bones` comes from the inferred rig: names, parent indices (`null` for the root) and sorted label sets. The top-level `max` is the largest clip `max`. Without `--with-anims`, `clips` is empty. `moving` is only there for a clip with moving bones: one entry per movement clip it was checked against, with the worst and mean error over every pair of frames ([Mixes](#mixes)).
 
 ## `validation_summary.json`
 
@@ -97,7 +109,7 @@ Each creature gets `<dir>/<key>/validation.json`, where the key is `npc_<id>` or
 
 ## Exit code 3
 
-`rs2ool pack npc` and `rs2ool pack player-kit` print one line per clip (id, sequence, max, mean, and `FLAGGED` when over the threshold). If any clip is flagged, the process exits with status **3** after writing every pack and report. The packs are still complete. The exit status only tells you something deserves a look. The explorer's convert action reports the same condition in its status message instead.
+`rs2ool pack npc` and `rs2ool pack player-kit` print one line per clip (id, sequence, max, mean, and `FLAGGED` when over the threshold), and under it a `while moving (seq N)` line per mix checked. If any clip is flagged, the process exits with status **3** after writing every pack and report. The packs are still complete. The exit status only tells you something deserves a look. The explorer's convert action reports the same condition in its status message instead.
 
 ## See also
 

@@ -2,7 +2,8 @@
 //! delays at 20 ms per cycle), and its converted version plays the same
 //! clip in step: at every frame the skinned pack vertices sit where the
 //! reference deformation puts the cache vertices. The bone overlay's
-//! skeleton moves with the skinned mesh.
+//! skeleton moves with the skinned mesh. An action with an interleave list
+//! plays over the walk on both sides.
 
 #![cfg(feature = "explorer")]
 
@@ -110,15 +111,15 @@ fn npc_walks_at_client_speed_and_in_step_with_its_conversion() {
         unreachable!()
     };
     let bones = rs2convert::validate::vertex_bones(model, rig);
-    let rest = skeleton(&right, None, 0).unwrap();
+    let rest = skeleton(&right, None, 0, None).unwrap();
     assert_eq!(rest.pivots.len(), rig.bones.len());
     assert!(
-        skeleton(&left, Some(walk), 0).is_some(),
+        skeleton(&left, Some(walk), 0, None).is_some(),
         "cache NPCs show their inferred rig"
     );
     let mut moved = false;
     for f in 0..delays.len() {
-        let s = skeleton(&right, Some(walk), f).unwrap();
+        let s = skeleton(&right, Some(walk), f, None).unwrap();
         moved |= s != rest;
         let Some(Posed::Pack(p)) = posed(&right, walk, f) else {
             unreachable!()
@@ -239,14 +240,14 @@ fn cache_npcs_show_their_inferred_bones() {
     let labels = creature.model.vertex_labels.clone().unwrap();
     let bones = rig.vertex_bones(&labels);
     let walk = sequences(&r)[1];
-    let rest = skeleton(&r, None, 0).unwrap();
+    let rest = skeleton(&r, None, 0, None).unwrap();
     assert_eq!(rest.pivots.len(), rig.bones.len());
     let mut moved = false;
     for f in 0..timing(&r, walk).unwrap().0.len() {
         let Some(Posed::Cache(v)) = posed(&r, walk, f) else {
             panic!("frame {f} poses")
         };
-        let s = skeleton(&r, Some(walk), f).unwrap();
+        let s = skeleton(&r, Some(walk), f, None).unwrap();
         moved |= s != rest;
         // Each bone with vertices sits at their centroid (cache space,
         // integer division, then y and z negated for the world).
@@ -273,4 +274,98 @@ fn cache_npcs_show_their_inferred_bones() {
     assert!(moved, "the bones move with the walk");
     // Every vertex follows a real bone.
     assert!(bones.iter().all(|&b| b < rig.bones.len()));
+}
+
+/// A humanoid's action with an interleave list plays over its walk: the
+/// picker offers the walk, the cache side mixes the two as the original
+/// client does, and the converted side keeps up through its clip's moving
+/// bones.
+#[test]
+fn an_action_plays_over_the_walk_in_step_with_its_conversion() {
+    use rs2ool::explorer::playback::{Playback, movers, posed_moving};
+    let Some(dir) = std::env::var_os("RS2_CACHE").map(PathBuf::from) else {
+        eprintln!("skipping: RS2_CACHE is not set");
+        return;
+    };
+    let cache = open_cache(&dir).unwrap();
+    let Source::Cache { records, .. } = &cache else {
+        unreachable!()
+    };
+    let (_, left) = load(&cache, &Sel::Record(RecordType::Npc, 1)).unwrap();
+    let left = left.unwrap();
+    let Record::Npc(def) = records.decode(RecordType::Npc, 1).unwrap() else {
+        unreachable!()
+    };
+    let walk = u32::from(def.walk_anim.unwrap());
+    assert!(movers(&left, walk).is_empty(), "the walk plays alone");
+    // An action that shares the walk's frame base.
+    let Renderable::Creature { creature, .. } = &left else {
+        panic!("npc 1 plays")
+    };
+    let base = |id: u32| {
+        let s = creature.sequences.iter().find(|s| s.def.id == id)?;
+        creature.frame(s, 0).map(|(p, _)| p.base.clone())
+    };
+    let action = sequences(&left)
+        .into_iter()
+        .find(|&s| movers(&left, s).contains(&walk) && base(s) == base(walk))
+        .expect("npc 1 can play an action over its walk");
+
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("d6_playback_moving");
+    let _ = std::fs::remove_dir_all(&out);
+    let png = |_: &std::path::Path, _: u32, _: u32, _: &[u8]| Ok(());
+    let conv = rs2convert::run::npc(records, 0, 1, true, &[action as u16], None).unwrap();
+    let written = rs2convert::run::write(&conv, &out, png).unwrap();
+    let (_, _, models) = written.iter().find(|(k, ..)| *k == Kind::Models).unwrap();
+    let pack = open_pack(models).unwrap();
+    let id = rs2convert::pipeline::ids::CREATURE_MODEL | 1;
+    let (_, right) = load(&pack, &Sel::PackRecord(id)).unwrap();
+    let right = right.unwrap();
+    assert!(movers(&right, action).contains(&walk));
+
+    // Frame pairs mixed on both sides agree within the mix threshold, and
+    // mixing changes the pose.
+    let (n, m) = (
+        timing(&left, action).unwrap().0.len(),
+        timing(&left, walk).unwrap().0.len(),
+    );
+    let (mut worst, mut changed): (f32, bool) = (0.0, false);
+    for i in 0..n {
+        for j in [0, m / 2] {
+            let (Some(Posed::Cache(c)), Some(Posed::Pack(p))) = (
+                posed_moving(&left, action, i, Some((walk, j))),
+                posed_moving(&right, action, i, Some((walk, j))),
+            ) else {
+                panic!("frame {i} over walk frame {j} poses on both sides")
+            };
+            let Some(Posed::Cache(alone)) = posed(&left, action, i) else {
+                unreachable!()
+            };
+            changed |= alone != c;
+            for (a, b) in c.iter().zip(&p) {
+                let want = [a[0] as f32, -a[1] as f32, -a[2] as f32];
+                let d = ((want[0] - b[0]).powi(2)
+                    + (want[1] - b[1]).powi(2)
+                    + (want[2] - b[2]).powi(2))
+                .sqrt();
+                worst = worst.max(d);
+            }
+        }
+    }
+    assert!(changed, "the walk changes the action's pose");
+    assert!(
+        f64::from(worst) <= rs2convert::validate::MIX_THRESHOLD,
+        "worst vertex error mixed: {worst}"
+    );
+
+    // Choosing a sequence that doesn't mix stops the movement.
+    let mut pb = Playback::default();
+    pb.seqs = sequences(&left);
+    let at = |s| pb.seqs.iter().position(|&x| x == s).unwrap();
+    let (a, w) = (at(action), at(walk));
+    pb.choose(a, &left);
+    pb.set_moving(Some(walk), &left);
+    assert_eq!(pb.moving_at(), Some((walk, 0)));
+    pb.choose(w, &left);
+    assert_eq!(pb.moving, None);
 }

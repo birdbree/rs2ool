@@ -109,6 +109,7 @@ fn every_type_with_a_model_draws() {
                     motion: Motion::Still,
                     frames: Frames::All,
                     compare: false,
+                    moving: None,
                     view: View {
                         width: 128,
                         height: 96,
@@ -394,4 +395,87 @@ fn bad_requests_are_usage_errors() {
         );
     }
     assert!(!file.exists());
+}
+
+#[test]
+fn an_action_renders_over_the_walk() {
+    let Some(dir) = cache() else { return };
+    let cache = Cache::open(&dir).unwrap();
+    let records = Records::new(&cache);
+    let index = cache.frame_index().unwrap();
+    // The player's first action with an interleave list that shares the
+    // walk's frame base.
+    let body = preview::player_body(&records, &index, false, &[]).unwrap();
+    let base = |c: &rs2convert::creature::Creature, id: u32| {
+        let s = c.sequences.iter().find(|s| s.def.id == id)?;
+        c.frame(s, 0).map(|(p, _)| p.base.clone())
+    };
+    let walk = base(&body.creature, 819);
+    let action = records
+        .ids(RecordType::Seq)
+        .unwrap()
+        .into_iter()
+        .find(|&s| {
+            matches!(records.decode(RecordType::Seq, s), Ok(Record::Seq(d)) if d.interleave_labels.is_some())
+                && preview::player_body(&records, &index, false, &[s as u16])
+                    .is_ok_and(|b| base(&b.creature, s) == walk)
+        })
+        .unwrap();
+    let frames = {
+        let b = preview::player_body(&records, &index, false, &[action as u16]).unwrap();
+        b.creature.delays(b.sequence(action as u16).unwrap()).len()
+    };
+    let out = tmp("moving");
+    let file = out.join("mixed.png");
+    let a = action.to_string();
+    let line = ok(
+        &dir,
+        &[
+            "kit",
+            "--seq",
+            &a,
+            "--moving",
+            "819",
+            "--compare",
+            "--size",
+            "64",
+            "-o",
+            file.to_str().unwrap(),
+        ],
+    );
+    // Both clocks step it, so there are at least as many frames as the
+    // action has, and the mix is validated on its own line.
+    let n: usize = line
+        .split("APNG, ")
+        .nth(1)
+        .and_then(|s| s.split(' ').next())
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(n >= frames, "{line}");
+    assert!(
+        line.contains(&format!(
+            "sequence {action} while moving (seq 819): max error"
+        )),
+        "{line}"
+    );
+    // A sequence without an interleave list plays alone, and says so.
+    let line = ok(
+        &dir,
+        &[
+            "kit",
+            "--seq",
+            "808",
+            "--moving",
+            "819",
+            "--frame",
+            "0",
+            "-o",
+            file.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        line.starts_with("sequence 808 doesn't mix with movement"),
+        "{line}"
+    );
 }

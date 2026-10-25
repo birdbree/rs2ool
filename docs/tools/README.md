@@ -14,7 +14,7 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
-                         render    TYPE [--id N] [--female] [--seq [ID]] [--frame N | --sheet [N]] [--compare] [CAMERA] -o FILE
+                         render    TYPE [--id N] [--female] [--seq [ID]] [--moving SEQ] [--frame N | --sheet [N]] [--compare] [CAMERA] -o FILE
                          caption   (--npc N | --all | --check | --import FILE --model NAME) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
                          classify  [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…

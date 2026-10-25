@@ -60,6 +60,16 @@ fn finish(outcome: anyhow::Result<Outcome>, dir: &Path) -> anyhow::Result<()> {
                 r.mean,
                 if r.flagged { "  FLAGGED" } else { "" }
             )?;
+            for m in &r.moving {
+                writeln!(
+                    out,
+                    "  while moving (seq {}): max {:.2} mean {:.2}{}",
+                    m.sequence,
+                    m.max,
+                    m.mean,
+                    if m.flagged { "  FLAGGED" } else { "" }
+                )?;
+            }
         }
     }
     if outcome.flagged() {

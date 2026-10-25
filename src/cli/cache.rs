@@ -307,6 +307,10 @@ pub struct RenderCli {
     /// clip's validation.
     #[arg(long, requires = "seq")]
     compare: bool,
+    /// Play the sequence over this movement sequence, as the creature acts
+    /// while it moves.
+    #[arg(long, value_name = "SEQ", requires = "seq")]
+    moving: Option<u16>,
     /// Image size, `N` or `WxH` (each tile's with --sheet). Default 512,
     /// or 256 with --sheet.
     #[arg(long, value_parser = parse_size)]
@@ -405,6 +409,7 @@ impl RenderCli {
             motion,
             frames,
             compare: self.compare,
+            moving: self.moving,
             view,
             out: self.out,
         })

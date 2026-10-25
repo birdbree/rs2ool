@@ -319,8 +319,9 @@ pub struct SeqFrame {
     /// Global frame id. Look it up with
     /// [`FrameIndex`](crate::anim::FrameIndex); it isn't a file id.
     pub frame: u16,
-    /// Global frame id applied to the interleaved slots, if any (65535 in
-    /// the stream means none).
+    /// Global frame id of a second frame applied in full after `frame`,
+    /// if any (65535 in the stream means none). The original client only
+    /// uses it for models drawn in interfaces, such as chat heads.
     pub secondary: Option<u16>,
     /// Length in client cycles of 20 ms. 0 means "use the frame's own delay
     /// from its frame pack".
@@ -337,9 +338,10 @@ pub struct SeqDef {
     /// How many frames to step back when the sequence runs off the end
     /// (op 2). Kept as read, so 65535 stays 65535.
     pub loop_offset: Option<u16>,
-    /// Op 3: the frame-base slots the secondary frames drive, as stored
-    /// (ascending in practice), without the original client's sentinel.
-    /// Yes, they're slot numbers, not vertex labels.
+    /// Op 3: the frame-base slots the creature's movement sequence drives
+    /// when this plays while it moves, as stored (ascending in practice),
+    /// without the original client's sentinel. Yes, they're slot numbers,
+    /// not vertex labels.
     pub interleave_labels: Option<Vec<u8>>,
     /// Op 4 flag; kept as read.
     pub stretches: bool,

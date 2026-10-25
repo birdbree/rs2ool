@@ -96,9 +96,12 @@ impl CreatureOutput {
         self.clips.iter().map(|c| c.2.max).fold(0.0, f64::max)
     }
 
-    /// Whether any clip went over the validation threshold.
+    /// Whether any clip went over the validation threshold, alone or
+    /// mixed with a movement clip.
     pub fn flagged(&self) -> bool {
-        self.clips.iter().any(|c| c.2.flagged)
+        self.clips
+            .iter()
+            .any(|c| c.2.flagged || c.2.moving.iter().any(|m| m.flagged))
     }
 
     /// The contents of this creature's `validation.json`.
@@ -162,6 +165,37 @@ pub fn convert(
             let clip = Clip::decode(&clip.encode()?)?;
             let report = validate(&creature, &rig, &clip, s);
             clips.push((ids::clip(rig_id, s.def.id), clip, report));
+        }
+        // Each clip that mixes with movement, against each movement clip
+        // whose frames share its frame base. (The original client reads
+        // the movement frame through the action's base either way, which
+        // means nothing when the two differ.)
+        let base = |s: &crate::creature::Sequence| creature.frame(s, 0).map(|(p, _)| &p.base);
+        for a in 0..clips.len() {
+            if clips[a].1.moving.is_empty() {
+                continue;
+            }
+            for &m in &creature.moving {
+                let Some(b) = creature
+                    .sequences
+                    .iter()
+                    .position(|s| s.def.id == u32::from(m))
+                else {
+                    continue;
+                };
+                if base(&creature.sequences[a]) != base(&creature.sequences[b]) {
+                    continue;
+                }
+                let r = crate::validate::validate_moving(
+                    &creature,
+                    &rig,
+                    &clips[a].1,
+                    &creature.sequences[a],
+                    &clips[b].1,
+                    &creature.sequences[b],
+                );
+                clips[a].2.moving.push(r);
+            }
         }
     }
     Ok(CreatureOutput {
@@ -259,13 +293,16 @@ pub fn player_kit(records: &Records, index: &FrameIndex) -> Result<PlayerKit, Co
     let body = |name: &str, range: std::ops::Range<u8>| {
         let models: Vec<_> = default.range(range).map(|(_, m)| m.clone()).collect();
         (!models.is_empty()).then(|| {
-            Creature::new(
+            let mut c = Creature::new(
                 name.into(),
                 creature::merge(&models),
                 [128; 3],
                 sequences.clone(),
                 packs.clone(),
-            )
+            );
+            // Every stance sequence but the stand is one it moves with.
+            c.moving = PLAYER_SEQUENCES[1..].to_vec();
+            c
         })
     };
     let male = body("player", 0..7)

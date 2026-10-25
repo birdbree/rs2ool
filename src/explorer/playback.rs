@@ -8,6 +8,13 @@
 //! (`rs2convert::validate::skinned`). Posing only happens when the frame
 //! actually changes, and it writes straight into the meshes the 3D
 //! viewport already spawned.
+//!
+//! A sequence the original client mixes with movement (one with an
+//! interleave list, or a clip with moving bones) can play over one of the
+//! creature's movement sequences, on a clock of its own: the cache
+//! creature through the original client's mix (`Creature::posed_moving`),
+//! the converted one through its clip's moving bones and mix keys
+//! (`rs2convert::validate::skinned_moving`).
 
 use std::sync::Arc;
 
@@ -185,23 +192,90 @@ impl Posed {
 /// Vertices for a renderable at frame `frame` of sequence `seq` (clamped
 /// to its length), if it plays that sequence.
 pub fn posed(r: &Renderable, seq: u32, frame: usize) -> Option<Posed> {
+    posed_moving(r, seq, frame, None)
+}
+
+/// [`posed`] while the creature moves, at frame `moving.1` of movement
+/// sequence `moving.0` (clamped): the two mixed as the original client
+/// mixes them, or as a converted clip's moving bones do. A sequence that
+/// doesn't mix with movement, or a movement sequence the renderable
+/// doesn't have, plays alone.
+pub fn posed_moving(
+    r: &Renderable,
+    seq: u32,
+    frame: usize,
+    moving: Option<(u32, usize)>,
+) -> Option<Posed> {
     match r {
         Renderable::Creature { creature, .. } => {
-            let s = creature.sequences.iter().position(|s| s.def.id == seq)?;
-            let n = creature.sequences[s].def.frames.len();
-            creature
-                .posed(s, frame.min(n.saturating_sub(1)))
-                .map(Posed::Cache)
+            let at = |id: u32| {
+                let s = creature.sequences.iter().position(|s| s.def.id == id)?;
+                Some((s, creature.sequences[s].def.frames.len().saturating_sub(1)))
+            };
+            let (s, last) = at(seq)?;
+            let frame = frame.min(last);
+            match moving.and_then(|(m, j)| Some((at(m)?, j))) {
+                Some(((m, last_m), j)) => creature.posed_moving(s, frame, m, j.min(last_m)),
+                None => creature.posed(s, frame),
+            }
+            .map(Posed::Cache)
         }
         Renderable::PackCreature {
             model, rig, clips, ..
         } => {
-            let (_, c) = clips.iter().find(|(id, _)| id & 0xffff == seq)?;
-            // Clips hold at most 255 frames, so the index fits a u8.
-            let t = frame.min(c.frame_start.len().saturating_sub(1)) as u8;
-            Some(Posed::Pack(rs2convert::validate::skinned(model, rig, c, t)))
+            // Clips hold at most 255 frames, so an index fits a u8.
+            let at = |id: u32, f: usize| {
+                let (_, c) = clips.iter().find(|(cid, _)| cid & 0xffff == id)?;
+                Some((c, f.min(c.frame_start.len().saturating_sub(1)) as u8))
+            };
+            let (c, t) = at(seq, frame)?;
+            let mixed = moving
+                .filter(|_| !c.moving.is_empty())
+                .and_then(|(m, j)| at(m, j));
+            Some(Posed::Pack(match mixed {
+                Some((mc, tm)) => rs2convert::validate::skinned_moving(model, rig, c, t, mc, tm),
+                None => rs2convert::validate::skinned(model, rig, c, t),
+            }))
         }
         _ => None,
+    }
+}
+
+/// The movement sequences sequence `seq` can play over: for a cache
+/// creature with an interleave list, the walk and turn sequences it has;
+/// for a converted clip with moving bones, every other clip. Empty when
+/// `seq` doesn't mix with movement.
+pub fn movers(r: &Renderable, seq: u32) -> Vec<u32> {
+    match r {
+        Renderable::Creature { creature, .. } => {
+            let mixes = creature
+                .sequences
+                .iter()
+                .any(|s| s.def.id == seq && s.interleave().is_some());
+            if !mixes {
+                return Vec::new();
+            }
+            creature
+                .moving
+                .iter()
+                .map(|&m| u32::from(m))
+                .filter(|&m| m != seq && creature.sequences.iter().any(|s| s.def.id == m))
+                .collect()
+        }
+        Renderable::PackCreature { clips, .. } => {
+            let mixes = clips
+                .iter()
+                .any(|(id, c)| id & 0xffff == seq && !c.moving.is_empty());
+            if !mixes {
+                return Vec::new();
+            }
+            clips
+                .iter()
+                .map(|(id, _)| id & 0xffff)
+                .filter(|&m| m != seq)
+                .collect()
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -214,6 +288,10 @@ pub struct Playback {
     pub current: usize,
     /// The frame clock both panes follow.
     pub clock: Clock,
+    /// The movement sequence playing under the chosen one, if any.
+    pub moving: Option<u32>,
+    /// The movement sequence's own clock.
+    pub moving_clock: Clock,
     // Identity of the main renderable `seqs` was listed for (see `ptr`).
     for_main: usize,
     // What was last posed, so an unchanged frame isn't posed again.
@@ -228,6 +306,7 @@ struct PoseKey {
     compare: usize,
     seq: u32,
     frame: usize,
+    moving: Option<(u32, usize)>,
     colours: VertexColours,
     main_parts: usize,
     compare_parts: usize,
@@ -237,6 +316,19 @@ impl Playback {
     /// The chosen sequence id, if there's anything to play.
     pub fn seq(&self) -> Option<u32> {
         self.seqs.get(self.current).copied()
+    }
+
+    /// The movement sequence and its frame, while one plays.
+    pub fn moving_at(&self) -> Option<(u32, usize)> {
+        self.moving.map(|m| (m, self.moving_clock.frame))
+    }
+
+    /// Plays movement sequence `m` (or none) under the chosen one, from
+    /// its start, looping.
+    pub fn set_moving(&mut self, m: Option<u32>, r: &Renderable) {
+        self.moving = m;
+        let (delays, lo) = m.and_then(|m| timing(r, m)).unwrap_or_default();
+        self.moving_clock = Clock::new(delays, lo);
     }
 
     /// Plays sequence index `i` from its start, keeping the play and loop
@@ -253,6 +345,11 @@ impl Playback {
         self.clock = Clock::new(delays, lo);
         self.clock.playing = playing;
         self.clock.looping = looping;
+        // Keep the movement under the new sequence only if it mixes too.
+        let keep = self
+            .moving
+            .filter(|m| self.seq().is_some_and(|s| movers(r, s).contains(m)));
+        self.set_moving(keep, r);
     }
 }
 
@@ -275,6 +372,7 @@ fn follow(loaded: Res<Loaded>, mut pb: ResMut<Playback>) {
         .map(sequences)
         .unwrap_or_default();
     pb.clock = Clock::default();
+    pb.moving = None;
     if let Some(r) = loaded.renderable.as_deref() {
         pb.choose(0, r);
     }
@@ -286,7 +384,11 @@ fn tick(time: Res<Time>, mut pb: ResMut<Playback>) {
     if pb.clock.playing && !pb.clock.delays.is_empty() {
         // Cap a long stall (window drag, breakpoint) at a quarter second so
         // it doesn't race through frames.
-        pb.clock.advance(time.delta_secs().min(0.25) * 1000.0);
+        let dt = time.delta_secs().min(0.25) * 1000.0;
+        pb.clock.advance(dt);
+        if pb.moving.is_some() {
+            pb.moving_clock.advance(dt);
+        }
     }
 }
 
@@ -313,6 +415,7 @@ fn apply(
         compare: ptr(right.renderable.as_ref()),
         seq,
         frame: pb.clock.frame,
+        moving: pb.moving_at(),
         colours: overlays.colours,
         main_parts: shown.main.parts.len(),
         compare_parts: shown.compare.parts.len(),
@@ -321,12 +424,12 @@ fn apply(
         return;
     }
     pb.shown = Some(key);
-    let frame = pb.clock.frame;
+    let (frame, moving) = (pb.clock.frame, pb.moving_at());
     // Poses one pane: rebuilds both lighting variants of each part's mesh
     // in place. Returns the renderable and its pose for the classic view.
     let mut pose_side = |r: Option<&Arc<Renderable>>, side: &ShownModel| {
         let r = r?;
-        let p = posed(r, seq, frame)?;
+        let p = posed_moving(r, seq, frame, moving)?;
         // `client` is the 317-lit variant, `real` the engine-lit one.
         let (client, real, _) = posed_parts(r, overlays.colours, p.pose());
         for ((part, c), rl) in side.parts.iter().zip(client).zip(real) {
@@ -647,6 +750,25 @@ pub fn playback_ui(
             });
         if chosen != pb.current {
             pb.choose(chosen, r);
+        }
+        let movers = pb.seq().map(|s| movers(r, s)).unwrap_or_default();
+        if !movers.is_empty() {
+            let mut m = pb.moving;
+            egui::ComboBox::from_id_salt("moving")
+                .selected_text(m.map_or("standing".into(), |m| format!("moving: seq {m}")))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut m, None, "standing");
+                    for &s in &movers {
+                        ui.selectable_value(&mut m, Some(s), format!("moving: seq {s}"));
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "The original client mixes this sequence with the creature's movement while it moves: the movement drives the legs and the body's travel, this sequence the rest.",
+                );
+            if m != pb.moving {
+                pb.set_moving(m, r);
+            }
         }
         let label = if pb.clock.playing {
             "⏸ Pause"

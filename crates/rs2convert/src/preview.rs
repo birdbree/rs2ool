@@ -138,6 +138,15 @@ impl Subject {
         self.creature.posed(s, i).map(|v| self.finish(v))
     }
 
+    /// The vertices at frame `i` of sequence `s` while the creature moves,
+    /// at frame `j` of movement sequence `m`, as the original client draws
+    /// them. See [`Creature::posed_moving`].
+    pub fn posed_moving(&self, s: usize, i: usize, m: usize, j: usize) -> Option<Vec<[i32; 3]>> {
+        self.creature
+            .posed_moving(s, i, m, j)
+            .map(|v| self.finish(v))
+    }
+
     /// The index of sequence `id` among the creature's sequences.
     pub fn sequence(&self, id: u16) -> Option<usize> {
         self.creature
@@ -228,7 +237,9 @@ fn with_sequences(
         .chain(extra.iter().copied())
         .collect();
     let (sequences, packs) = creature::sequences(records, index, &ids)?;
-    Ok(Creature::new(c.name, c.model, c.scale, sequences, packs))
+    let mut out = Creature::new(c.name, c.model, c.scale, sequences, packs);
+    out.moving = c.moving;
+    Ok(out)
 }
 
 /// The sequence a record plays by itself: an NPC's stand sequence, a spot

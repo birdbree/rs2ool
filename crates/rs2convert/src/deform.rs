@@ -16,6 +16,11 @@
 //!
 //! The origin starts at (0, 0, 0) for each frame and carries over from one
 //! op to the next until another origin op replaces it.
+//!
+//! [`apply_interleaved`] is the mix the original client draws when a
+//! creature plays a sequence with an interleave list while it moves: the
+//! moving sequence's frame drives the listed slots, the action's frame the
+//! rest.
 
 use std::sync::OnceLock;
 
@@ -115,6 +120,65 @@ pub fn rotate(v: [i32; 3], rx: i32, ry: i32, rz: i32) -> [i32; 3] {
         x = nx;
     }
     [x, y, z]
+}
+
+/// Mix two frames as the original client does for a creature playing an
+/// action sequence with an interleave list while it moves: the action
+/// frame's [part](interleave_part) without the listed slots, then the
+/// moving frame's part with only them.
+///
+/// Both frames' slots are looked up in `base`, the action frame's base,
+/// even if the moving frame comes from a pack with another one. Each part
+/// starts from a zero origin, as any frame does.
+pub fn apply_interleaved(
+    vertices: &mut [[i32; 3]],
+    groups: &Groups,
+    base: &[BaseTransform],
+    action: &Frame,
+    moving: &Frame,
+    slots: &[u8],
+) {
+    apply_frame(
+        vertices,
+        groups,
+        base,
+        &interleave_part(base, action, slots, false),
+    );
+    apply_frame(
+        vertices,
+        groups,
+        base,
+        &interleave_part(base, moving, slots, true),
+    );
+}
+
+/// The transforms of `frame` one side of an interleave applies: with
+/// `listed`, those whose slot is in `slots` (the moving frame's share),
+/// otherwise the rest (the action frame's). Origin transforms are kept
+/// either way, and transforms past the end of `base` dropped.
+///
+/// `slots` is matched the way the original client walks it: one pass
+/// through the list in step with the frame's ascending slots, so a value
+/// smaller than one before it is never matched.
+pub fn interleave_part(base: &[BaseTransform], frame: &Frame, slots: &[u8], listed: bool) -> Frame {
+    let mut at = 0;
+    let transforms = frame
+        .transforms
+        .iter()
+        .filter(|t| {
+            while slots.get(at).is_some_and(|&v| t.transform > v) {
+                at += 1;
+            }
+            let hit = slots.get(at) == Some(&t.transform);
+            base.get(usize::from(t.transform))
+                .is_some_and(|b| hit == listed || b.kind == kind::ORIGIN)
+        })
+        .copied()
+        .collect();
+    Frame {
+        transforms,
+        ..frame.clone()
+    }
 }
 
 /// Apply one frame to `vertices` in place, exactly as the original client
@@ -283,5 +347,70 @@ mod tests {
         // Label 0 translates by (5,6,7), then scales x by 2 about the origin
         // the last ORIGIN set: (20,0,0).
         assert_eq!(v[0], [(5 - 20) * 2 + 20, 6, 7]);
+    }
+
+    #[test]
+    fn interleaving_takes_listed_slots_from_the_moving_frame() {
+        // Slot 0 an origin over label 1, 1 moves the "legs" (label 0),
+        // 2 the "arms" (label 1), 3 rotates the arms.
+        let base = vec![
+            BaseTransform {
+                kind: kind::ORIGIN,
+                labels: vec![1],
+            },
+            BaseTransform {
+                kind: kind::TRANSLATE,
+                labels: vec![0],
+            },
+            BaseTransform {
+                kind: kind::TRANSLATE,
+                labels: vec![1],
+            },
+            BaseTransform {
+                kind: kind::ROTATE,
+                labels: vec![1],
+            },
+        ];
+        let t = |transform, dx, dy, dz| FrameTransform {
+            transform,
+            dx,
+            dy,
+            dz,
+        };
+        let frame = |transforms| Frame {
+            id: 0,
+            delay: 1,
+            alpha: false,
+            transforms,
+        };
+        let groups = Groups::new(&[0, 1]);
+        let action = frame(vec![t(1, 5, 0, 0), t(2, 0, 7, 0)]);
+        let moving = frame(vec![t(1, 0, 0, 3), t(2, 100, 100, 100)]);
+        let mut v = vec![[0, 0, 0], [10, 0, 0]];
+        apply_interleaved(&mut v, &groups, &base, &action, &moving, &[1]);
+        assert_eq!(v, [[0, 0, 3], [10, 7, 0]]);
+
+        // The list is walked once, forwards: after 2, slot 1 can't match.
+        let mut v = vec![[0, 0, 0], [10, 0, 0]];
+        apply_interleaved(&mut v, &groups, &base, &action, &moving, &[2, 1]);
+        assert_eq!(v, [[5, 0, 0], [110, 100, 100]]);
+
+        // No slots listed: the action alone. Every slot listed: the moving
+        // frame alone.
+        for (slots, alone) in [(&[][..], &action), (&[0, 1, 2, 3][..], &moving)] {
+            let mut mixed = vec![[0, 0, 0], [10, 0, 0]];
+            apply_interleaved(&mut mixed, &groups, &base, &action, &moving, slots);
+            let mut v = vec![[0, 0, 0], [10, 0, 0]];
+            apply_frame(&mut v, &groups, &base, alone);
+            assert_eq!(mixed, v, "{slots:?}");
+        }
+
+        // Each frame starts from a zero origin: the action's origin op
+        // doesn't carry over into the moving frame's rotation.
+        let action = frame(vec![t(0, 0, 0, 0)]);
+        let moving = frame(vec![t(3, 0, 0, 128)]);
+        let mut v = vec![[0, 0, 0], [10, 0, 0]];
+        apply_interleaved(&mut v, &groups, &base, &action, &moving, &[3]);
+        assert!((v[1][0] + 10).abs() <= 1, "{v:?}");
     }
 }

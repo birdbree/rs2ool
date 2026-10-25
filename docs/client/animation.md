@@ -92,7 +92,7 @@ NPC definitions carry a scale. The original client animates the model first and 
 
 ## Sequence timing
 
-A sequence (`seq.dat`, see [Sequences](../records/seq.md)) lists frames, each with a global frame id, an optional secondary frame id and a delay in cycles of the original client. One cycle is 20 ms.
+A sequence (`seq.dat`, see [Sequences](../records/seq.md)) lists frames, each with a global frame id, an optional secondary frame id (see [Secondary frames](#secondary-frames)) and a delay in cycles of the original client. One cycle is 20 ms.
 
 A frame's length is:
 
@@ -108,11 +108,25 @@ The explorer's clock also treats any remaining 0 as 1, so every frame lasts at l
 
 The other sequence fields (priority, maximum loops, precedences, the hand overrides) are decoded and stored and don't affect playback.
 
+## Secondary frames
+
+Each sequence frame can name a secondary frame (65535 in the stream meaning none). The original client only applies it to models drawn in interfaces, such as chat heads: the frame first, in full, then the secondary frame, in full, each from a zero origin and through its own frame base. The reference deformation does the same whenever a sequence has secondary frames (`Creature::frames`, `Creature::posed`): the sequences that have them only ever play in interfaces. Clips hold both, one key per bone for the pair ([Clips](../conversion/clips.md#secondary-frames)). The `npc:` and `player-kit` dump groups include the frame packs that secondary frames live in.
+
 ## Interleaving
 
-Opcode 3 reads a count byte and that many bytes, and the decoder keeps them as `interleave_labels`, in the order read, with nothing appended. Each sequence frame's secondary frame id (65535 meaning none) is stored beside it. When interleave labels are present and the sequence doesn't set its precedences (opcodes 9 and 10), both default to 2 instead of 0.
+Opcode 3 reads a count byte and that many bytes, and the decoder keeps them as `interleave_labels`, in the order read, with nothing appended. When they're present and the sequence doesn't set its precedences (opcodes 9 and 10), both default to 2 instead of 0.
 
-How the original client mixes a primary and a secondary frame through these values is on [Sequences](../records/seq.md#interleave-labels). That's as far as the tools go: the reference deformation and the explorer's playback apply the primary frames only. The `npc:` and `player-kit` dump groups do include the frame packs that secondary frames live in.
+A creature can play an action sequence while it moves. With walking precedence 2, the default for a sequence with interleave labels, it keeps moving and the original client mixes the two frames each time it draws the creature, as long as the movement sequence isn't the creature's stand:
+
+1. The action frame's transforms, except those whose slot is in the list, are applied from a zero origin.
+2. The movement frame's transforms whose slot is in the list are applied, again from a zero origin.
+3. Origin transforms are applied from both, whatever the list says.
+4. Both frames' slots are looked up in the action frame's base, even if the movement frame comes from a pack with a different one. When the two bases differ, the movement frame's slots mean other things and the mix is garbled.
+5. The list is walked once, forwards, in step with each frame's ascending slots, so a value smaller than one before it never matches.
+
+Each sequence runs on its own clock, so the movement keeps its own pace under the action. Without a list, the action's frame is drawn alone whether the creature moves or not.
+
+[`deform::apply_interleaved`](../../crates/rs2convert/src/deform.rs) does exactly this, and `Creature::posed_moving` gives the mixed, scaled vertices. The explorer and `rs2ool cache render --moving` play actions over a movement sequence this way. Converted clips carry the mix as moving bones and mix keys ([Anims](../pack/anims.md#moving-bones-and-mix-keys)).
 
 ## See also
 
