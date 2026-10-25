@@ -45,6 +45,8 @@ pub enum Origin {
     Review,
     /// The labels file.
     Labels,
+    /// An unreviewed label from a labeller the run was told to trust.
+    Trusted,
     /// An unreviewed caption's own class: a weak label.
     Caption,
 }
@@ -86,10 +88,16 @@ pub fn read_labels(path: &Path) -> Result<Vec<Label>> {
 }
 
 /// Every label, one per NPC and sequence: reviewed captions first, then
-/// the labels file, then (if `weak`) unreviewed captions' own classes.
-/// Returns them, and how many labels-file entries a review overrode with a
-/// different class.
-pub fn gather(store: &Store, file: &[Label], weak: bool) -> (Vec<Label>, usize) {
+/// the labels file, then unreviewed captions by a `trusted` model, then
+/// (if `weak`) any other unreviewed captions' own classes. Returns them,
+/// and how many labels-file entries a review overrode with a different
+/// class.
+pub fn gather(
+    store: &Store,
+    file: &[Label],
+    trusted: &[String],
+    weak: bool,
+) -> (Vec<Label>, usize) {
     let mut out: BTreeMap<(u32, u32), Label> = BTreeMap::new();
     for e in store.entries() {
         if let Some(class) = e.reviewed_class() {
@@ -108,6 +116,16 @@ pub fn gather(store: &Store, file: &[Label], weak: bool) -> (Vec<Label>, usize) 
             None => {
                 out.insert((l.npc, l.seq), l.clone());
             }
+        }
+    }
+    for e in store.entries() {
+        if let (None, Some(class), true) = (&e.review, &e.class, trusted.contains(&e.model)) {
+            out.entry((e.npc, e.seq)).or_insert(Label {
+                npc: e.npc,
+                seq: e.seq,
+                class: class.clone(),
+                from: Origin::Trusted,
+            });
         }
     }
     if weak {
@@ -151,7 +169,8 @@ pub struct Report {
 }
 
 impl Report {
-    /// The checked sequences: reviewed or from the labels file.
+    /// The checked sequences: reviewed, from the labels file, or from a
+    /// trusted labeller.
     pub fn checked(&self) -> impl Iterator<Item = &Judged> {
         self.judged
             .iter()
@@ -286,7 +305,8 @@ mod tests {
             class: class.into(),
             from: Origin::Labels,
         };
-        let (labels, overridden) = gather(&store, &[file(10, "vanish"), file(11, "land")], false);
+        let (labels, overridden) =
+            gather(&store, &[file(10, "vanish"), file(11, "land")], &[], false);
         let got: Vec<(u32, &str, Origin)> = labels
             .iter()
             .map(|l| (l.seq, l.class.as_str(), l.from))
@@ -296,8 +316,12 @@ mod tests {
             [(10, "death", Origin::Review), (11, "land", Origin::Labels)]
         );
         assert_eq!(overridden, 1);
-        let (labels, _) = gather(&store, &[], true);
+        let (labels, _) = gather(&store, &[], &[], true);
         assert_eq!(labels.len(), 3);
         assert_eq!(labels[2].from, Origin::Caption);
+        // A trusted model's captions are checked labels; others stay weak.
+        let (labels, _) = gather(&store, &[], &["m".into()], false);
+        let got: Vec<Origin> = labels.iter().map(|l| l.from).collect();
+        assert_eq!(got, [Origin::Review, Origin::Trusted, Origin::Trusted]);
     }
 }

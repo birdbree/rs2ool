@@ -57,6 +57,7 @@ Command-line flags override them for one run without saving anything: `--enable`
 rs2ool cache caption --npc 1 [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER FLAGS]
 rs2ool cache caption --all   [the same]
 rs2ool cache caption --check [SERVER FLAGS]
+rs2ool cache caption --import FILE --model NAME
 ```
 
 - `--npc N` captions every candidate of NPC `N`, in the order the explorer's picker gives them.
@@ -129,6 +130,16 @@ The data directory is the platform's, for example `~/Library/Application Support
 
 Captions are keyed by NPC, sequence and vision model, and written sorted by that key. The file is rewritten through a temporary file after every caption and every review, so stopping a run part way keeps everything captioned so far. Captioning a sequence again with `--redo` replaces its caption, review and all.
 
+## Importing labels
+
+Labels from another labeller, a person or a program, can go into the caption file too:
+
+```text
+rs2ool cache caption --import labels.json --model <labeller>
+```
+
+The file is a list of `{"npc", "seq", "class", "text"}` objects, plus an optional `"frames"`. Every class has to be one from the list above (or `null`); one that isn't stops the import (exit 1) before anything is written. Each label becomes a caption by `<labeller>`, so it shows in the explorer's picker and can be reviewed like any other. Importing a label again replaces the caption but keeps its review. `--dry-run --images DIR` draws the frame grids such a labeller would look at.
+
 ## In the explorer
 
 The explorer's **Captions** window holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
@@ -138,10 +149,10 @@ The explorer's **Captions** window holds the same settings with a connection tes
 Reviewed captions are labels. `rs2ool cache classify` learns a small role tree from them and compares it with the hand-tuned motion rules:
 
 ```text
-rs2ool cache classify [--labels FILE] [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
+rs2ool cache classify [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
 ```
 
-It prints how many labelled sequences each gets right, a confusion table for each (labelled role against what it said), and the tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--weak W` also learns from unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the tree, and the explorer's sequence picker then uses it for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
+It prints how many labelled sequences each gets right, a confusion table for each (labelled role against what it said), and the tree. `--labels` adds a local labels file (`[{"npc": 1, "seq": 2820, "class": "death"}, …]`, defaulting to `RS2_SEQUENCE_LABELS`), though reviews win. `--trust <model>` (repeatable) counts that model's unreviewed captions as checked labels, scored like reviews; meant for imported labels you've spot-checked and found good. `--weak W` also learns from any other unreviewed captions' own classes, each counting `W`; they're never scored. `--verbose` lists every sequence with its three roles. `--save` keeps the tree, and the explorer's sequence picker then uses it for roles. See [Learning roles from labels](../conversion/inference.md#learning-roles-from-labels) for how it works and how it compares.
 
 ## See also
 

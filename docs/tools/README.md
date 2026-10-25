@@ -14,8 +14,8 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
                          decode    TYPE IDS -o DIR [OUTPUT]
                          info      --type TYPE --id N
                          verify
-                         caption   (--npc N | --all | --check) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
-                         classify  [--labels FILE] [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
+                         caption   (--npc N | --all | --check | --import FILE --model NAME) [--dry-run] [--limit N] [--seq A,B,…] [--images DIR] [--redo] [SERVER]
+                         classify  [--labels FILE] [--trust MODEL]… [--weak W] [--depth N] [--min-leaf W] [--verbose] [--save]
                          explorer  [--select TYPE:ID|kit] [--compare] [--classic] [--pack FILE]…
 
 rs2ool [--cache DIR] pack  materials   -o DIR

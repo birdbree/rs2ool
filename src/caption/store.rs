@@ -66,6 +66,24 @@ impl Entry {
     }
 }
 
+/// A label from another labeller, as `cache caption --import` reads it:
+/// `[{"npc": 1, "seq": 2820, "class": "death", "text": "…"}, …]`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Imported {
+    /// The NPC it was judged on.
+    pub npc: u32,
+    /// The sequence.
+    pub seq: u32,
+    /// The class, from [`super::CLASSES`], if one was given.
+    pub class: Option<String>,
+    /// A description.
+    #[serde(default)]
+    pub text: String,
+    /// How many frames the labeller saw, if it says.
+    #[serde(default)]
+    pub frames: u32,
+}
+
 /// Locks a shared store. A thread that panicked holding it can't have left
 /// it half-changed (every change is one map operation), so a poisoned lock
 /// is taken anyway.
@@ -169,6 +187,30 @@ impl Store {
         }
     }
 
+    /// Adds labels from another labeller as captions by `model`. A label
+    /// for a caption already there replaces it but keeps its review, so
+    /// importing again doesn't undo checking. Returns how many there were.
+    pub fn import(&mut self, model: &str, rows: Vec<Imported>) -> usize {
+        let n = rows.len();
+        for r in rows {
+            let review = self
+                .entries
+                .get(&(r.npc, r.seq, model.to_owned()))
+                .and_then(|e| e.review.clone());
+            self.insert(Entry {
+                npc: r.npc,
+                seq: r.seq,
+                model: model.to_owned(),
+                frames: r.frames,
+                reply: r.text.clone(),
+                text: r.text,
+                class: r.class,
+                review,
+            });
+        }
+        n
+    }
+
     /// Adds a caption, replacing any with the same key, review and all.
     pub fn insert(&mut self, e: Entry) {
         self.by_seq
@@ -240,6 +282,31 @@ mod tests {
         // Another cache's captions are a different file.
         assert_eq!(Store::open(&dir, 1).unwrap().entries().count(), 0);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn imports_keep_reviews() {
+        let dir = std::env::temp_dir().join(format!("rs2ool-import-{}", std::process::id()));
+        let mut s = Store::open(&dir, 1).unwrap();
+        let row = |class: &str| Imported {
+            npc: 1,
+            seq: 2,
+            class: Some(class.into()),
+            text: "sinks".into(),
+            frames: 9,
+        };
+        assert_eq!(s.import("labeller", vec![row("vanish")]), 1);
+        let right = Review {
+            right: true,
+            class: None,
+        };
+        assert!(s.review(1, 2, "labeller", Some(right.clone())));
+        s.import("labeller", vec![row("fall away")]);
+        let e = s.lookup(1, 2, "labeller").unwrap();
+        assert_eq!(
+            (e.class.as_deref(), e.frames, &e.review),
+            (Some("fall away"), 9, &Some(right))
+        );
     }
 
     #[test]

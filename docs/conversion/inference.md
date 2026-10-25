@@ -117,7 +117,7 @@ The rules above were tuned by hand. `rs2ool cache classify` learns roles from se
 | `vanish` | vanish |
 | `land`, `other` | other: a landing starts in the air |
 
-Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+Labels [imported](../tools/captions.md#importing-labels) from another labeller count once you pass `--trust <labeller>`; reviews still win over them. Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
 
 On 54 labelled sequences (38 reviewed captions and 16 from the labels file), the rules got 34 right (63%) and the tree 39 (72%). Two cautions:
 
