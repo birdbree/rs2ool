@@ -7,8 +7,8 @@
 //!          GET  {endpoint}/v1/models              data[].id
 //! ```
 //!
-//! Requests ask for a deterministic reply (temperature 0) and no
-//! streaming. An endpoint that already ends in `/v1` isn't given another.
+//! Requests ask for a deterministic reply (temperature 0), no streaming
+//! and, from Ollama, no thinking. An empty reply is an error. An endpoint that already ends in `/v1` isn't given another.
 
 use std::time::Duration;
 
@@ -99,6 +99,9 @@ impl Client {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt, "images": [b64]}],
                 "stream": false,
+                // A thinking model would otherwise reason at length first,
+                // and may leave no answer at all.
+                "think": false,
                 "options": {"temperature": 0},
             }),
             Backend::OpenAi => json!({
@@ -152,9 +155,12 @@ impl Client {
             Backend::Ollama => &reply["message"]["content"],
             Backend::OpenAi => &reply["choices"][0]["message"]["content"],
         };
-        text.as_str()
-            .map(str::to_owned)
-            .with_context(|| format!("{url}'s reply has no message text"))
+        match text.as_str().map(str::trim) {
+            Some(t) if !t.is_empty() => Ok(t.to_owned()),
+            _ => bail!(
+                "{url}'s reply has no message text (a thinking model may have spent it all thinking: try a non-thinking one)"
+            ),
+        }
     }
 
     /// The models the server offers: a connection test.
@@ -250,6 +256,7 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], "what?");
         assert_eq!(body["messages"][0]["images"][0], "cG5n");
         assert_eq!(body["stream"], false);
+        assert_eq!(body["think"], false);
     }
 
     #[test]
@@ -263,6 +270,13 @@ mod tests {
         let content = &body["messages"][0]["content"];
         assert_eq!(content[0]["text"], "what?");
         assert_eq!(content[1]["image_url"]["url"], "data:image/png;base64,cG5n");
+    }
+
+    #[test]
+    fn an_empty_reply_is_an_error() {
+        let (url, _got) = serve(r#"{"message": {"content": "", "thinking": "hmm"}}"#);
+        let c = Client::new(&settings(Backend::Ollama, url)).unwrap();
+        assert!(c.caption(b"png", "what?").is_err());
     }
 
     #[test]

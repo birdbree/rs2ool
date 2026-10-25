@@ -506,11 +506,13 @@ mod caption {
             Event::Captioned(e) => {
                 bar.inc(1);
                 let class = e.class.as_deref().unwrap_or("?");
-                bar.println(format!("npc {} seq {}: [{class}] {}", e.npc, e.seq, e.text));
+                // Printed past the bar rather than through it, so the
+                // lines show when the output isn't a terminal too.
+                bar.suspend(|| println!("npc {} seq {}: [{class}] {}", e.npc, e.seq, e.text));
             }
             Event::Failed { npc, seq, error } => {
                 bar.inc(1);
-                bar.println(format!("npc {npc} seq {seq}: failed: {error:#}"));
+                bar.suspend(|| eprintln!("npc {npc} seq {seq}: failed: {error:#}"));
             }
         })?;
         bar.finish_and_clear();
