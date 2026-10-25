@@ -36,9 +36,11 @@ pub enum ConvertTarget {
     Textures,
     /// One model, or every model.
     Models(Option<u32>),
-    /// `npc --id N --with-anims --infer`.
+    /// `npc --id N --with-anims --infer`, plus `--describe` with the
+    /// `caption` feature.
     Npc(u32),
-    /// `player-kit --with-anims`.
+    /// `player-kit --with-anims`, plus `--describe` with the `caption`
+    /// feature.
     PlayerKit,
     /// `sprites`: every sprite archive, and the fonts.
     Sprites,
@@ -111,6 +113,31 @@ pub fn png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// `outcome` with its clips' captions when `target` is an NPC or the
+/// player kit, as `--describe` writes them (with the `caption` feature).
+fn described(
+    outcome: run::Outcome,
+    records: &Records,
+    target: &ConvertTarget,
+) -> anyhow::Result<run::Outcome> {
+    #[cfg(feature = "caption")]
+    {
+        let npc = match target {
+            ConvertTarget::Npc(id) => Some(Some(*id)),
+            ConvertTarget::PlayerKit => Some(None),
+            _ => None,
+        };
+        if let Some(npc) = npc {
+            let mut outcome = outcome;
+            let store = crate::caption::describe::store_for(records.cache())?;
+            crate::caption::describe::describe(&mut outcome, &store, npc);
+            return Ok(outcome);
+        }
+    }
+    let _ = (records, target);
+    Ok(outcome)
+}
+
 /// Runs a conversion into `dir` exactly as `rs2ool pack` would: the same
 /// source cache CRC, the same `rs2convert::run` call and the same writer.
 /// Each written pack is offered as a source.
@@ -132,6 +159,7 @@ pub fn convert(records: &Records, target: &ConvertTarget, dir: &Path) -> anyhow:
         ConvertTarget::Objects(id) => run::objects(records, crc, *id),
         ConvertTarget::Items(id) => run::items(records, crc, *id),
     }?;
+    let outcome = described(outcome, records, target)?;
     let written = run::write(&outcome, dir, png)?;
     let mut message = written
         .iter()

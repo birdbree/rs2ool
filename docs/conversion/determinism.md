@@ -26,7 +26,9 @@ k-means is deterministic by construction: the first centre is the heaviest point
 
 ## Same code path from the explorer
 
-The explorer's convert action ([`explorer/actions.rs`](../../src/explorer/actions.rs)) computes the same source cache CRC, calls the same [`rs2convert::run`](../../crates/rs2convert/src/run.rs) function, and writes through the same `run::write` as `rs2ool pack`. Its packs are therefore byte-identical to the command line's. It doesn't take every command-line option. NPC and player-kit conversions always include animations, use no extra sequences and no overrides, and sprites always cover both archives.
+The explorer's convert action ([`explorer/actions.rs`](../../src/explorer/actions.rs)) computes the same source cache CRC, calls the same [`rs2convert::run`](../../crates/rs2convert/src/run.rs) function, and writes through the same `run::write` as `rs2ool pack`. Its packs are therefore byte-identical to the command line's. It doesn't take every command-line option. NPC and player-kit conversions always include animations, use no extra sequences and no overrides, and sprites always cover both archives. With the `caption` feature they also describe their clips, as `--describe` does.
+
+`--describe` is the one input that isn't the cache: it reads the local [caption file](../tools/captions.md#where-captions-go). Two runs with the same cache and the same caption file write the same packs, and with no captions for the clips the packs are exactly what they'd be without the flag.
 
 ## How it's checked
 

@@ -83,6 +83,16 @@ The decoder also rejects a bad magic, a version other than 2, a record that ends
 
 Clip `rig << 16 | seq` is sequence `seq` converted for rig `rig`, and its `rig` field holds the same rig id ([Record ids](record-ids.md#rigs-and-anims)).
 
+## Descriptions
+
+With `--describe`, the anims pack's manifest carries a `descriptions` table in its `extra` object, saying what each described clip shows:
+
+```text
+"descriptions": { "<clip id>": { "seq": <n>, "class": <class or null>, "role": <role or null>, "text": "…", "by": "<labeller>", "reviewed": <bool> } }
+```
+
+The key is the clip id in decimal. `class` is one of the [caption classes](../tools/captions.md#the-question-and-the-classes), and `role` the [role](../conversion/inference.md#learning-roles-from-labels) it amounts to. `text` is a short description, `by` names who labelled it, and `reviewed` says whether someone checked it by eye. A clip without a caption has no entry, and with no captions at all there's no table. The clip records don't change, so a reader that doesn't know the table loses nothing.
+
 ## See also
 
 - [Clips](../conversion/clips.md): how cache frames become keys, and how angles are quantised.

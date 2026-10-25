@@ -5,8 +5,9 @@
 //! the NPC's model as a grid of frames ([`frames`]), sent to a model server
 //! with a question ([`client`]), and the reply is kept in a local file
 //! ([`store`]): a short description, and one class from [`CLASSES`].
-//! Captions are evidence for labelling sequences; they're never written
-//! into a pack. Reviewed captions train a role tree ([`classify`]).
+//! Captions are evidence for labelling sequences. Reviewed captions train
+//! role trees ([`classify`]), and `pack … --describe` writes them into
+//! the anims pack ([`describe`]).
 //!
 //! Nothing is contacted unless captioning is enabled in the
 //! [settings](crate::settings::Caption), and the default endpoint is on
@@ -14,6 +15,7 @@
 
 pub mod classify;
 pub mod client;
+pub mod describe;
 pub mod frames;
 pub mod store;
 

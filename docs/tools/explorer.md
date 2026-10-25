@@ -220,7 +220,7 @@ It draws cache models, assembled definitions, NPCs (relit at every animation fra
 | Export TYPE ID (decoded) | `rs2ool cache dump --type TYPE --id ID --meta` |
 | Export TYPE ID (file bytes) | `rs2ool cache dump --index N --id ID --meta`, for `model`, `anim` and `midi` |
 | Dump every TYPE | `rs2ool cache dump --type TYPE --all --meta` |
-| Convert … | the `rs2ool pack` command for the selection: a model, an NPC (with animations and its inferred sequences, `--with-anims --infer`) or the player kit (with animations), an object, the textures, the sprites, the floors |
+| Convert … | the `rs2ool pack` command for the selection: a model, an NPC (with animations and its inferred sequences, `--with-anims --infer`, and with the `caption` feature its clips' captions, `--describe`) or the player kit (with animations, and captions likewise), an object, the textures, the sprites, the floors |
 | Convert every model / object | `rs2ool pack models --all`, `rs2ool pack objects --all` |
 | Convert materials (palette) | `rs2ool pack materials` |
 | Bake a loose directory… | `rs2ool pack build`, into the output folder |

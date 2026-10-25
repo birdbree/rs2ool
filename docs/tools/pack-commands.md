@@ -64,6 +64,7 @@ rs2ool pack npc --id 1 --with-anims --seq 100,101 --override parents.json -o pac
 | `--seq A,B,…` | extra sequence ids to convert (comma-separated, or repeat the flag), since an NPC definition only names its stand and walk sequences |
 | `--infer` | also convert the NPC's inferred sequences, every one the explorer offers (see [Inference](../conversion/inference.md)); some may exceed the validation threshold |
 | `--override FILE` | a parent table that replaces rig inference's parent choice |
+| `--describe` | with `--with-anims`, write each clip's caption into the anims pack manifest (see [Descriptions](../pack/anims.md#descriptions)); needs the `caption` feature |
 
 The merged model goes in as model record `0x10000000 | N`, the rig as rig `N`, and each clip as anim `N << 16 | seq` (see [Record ids](../pack/record-ids.md)).
 
@@ -73,7 +74,7 @@ The merged model goes in as model record `0x10000000 | N`, the rig as rig `N`, a
 rs2ool pack player-kit --with-anims -o packs/
 ```
 
-Takes `--with-anims` and `--override` like `npc`. Each identity-kit part is model `0x20000000 | idk`; the default male body is model `0x30000000` with rig `0xFFFF`, and the default female body model `0x30000001` with rig `0xFFFE`. `--override` applies to both bodies. The models pack's manifest lists each part's identity-kit id, body part, body type and whether it's selectable under `kit_parts`.
+Takes `--with-anims`, `--override` and `--describe` like `npc`. Each identity-kit part is model `0x20000000 | idk`; the default male body is model `0x30000000` with rig `0xFFFF`, and the default female body model `0x30000001` with rig `0xFFFE`. `--override` applies to both bodies. The models pack's manifest lists each part's identity-kit id, body part, body type and whether it's selectable under `kit_parts`.
 
 ### sprites
 

@@ -175,6 +175,34 @@ impl Store {
         self.entries.get(&(key.0, seq, key.1.clone()))
     }
 
+    /// The caption that best describes sequence `seq` on NPC `npc` (or on
+    /// any NPC, for `None`): a reviewed one first, then one drawn on this
+    /// NPC, then by model name and NPC. A caption marked wrong with no
+    /// class given says nothing usable, so it's left out.
+    pub fn best(&self, npc: Option<u32>, seq: u32) -> Option<&Entry> {
+        self.by_seq
+            .get(&seq)?
+            .iter()
+            .filter_map(|(n, m)| self.entries.get(&(*n, seq, m.clone())))
+            .filter(|e| {
+                !matches!(
+                    e.review,
+                    Some(Review {
+                        right: false,
+                        class: None
+                    })
+                )
+            })
+            .min_by_key(|e| {
+                (
+                    e.review.is_none(),
+                    Some(e.npc) != npc,
+                    e.model.clone(),
+                    e.npc,
+                )
+            })
+    }
+
     /// Sets or clears the review of a caption; `false` if there's no such
     /// caption.
     pub fn review(&mut self, npc: u32, seq: u32, model: &str, review: Option<Review>) -> bool {
@@ -282,6 +310,46 @@ mod tests {
         // Another cache's captions are a different file.
         assert_eq!(Store::open(&dir, 1).unwrap().entries().count(), 0);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_best_caption_is_reviewed_then_on_this_npc() {
+        let dir = std::env::temp_dir().join(format!("rs2ool-best-{}", std::process::id()));
+        let mut s = Store::open(&dir, 1).unwrap();
+        let by = |npc, model: &str| Entry {
+            model: model.into(),
+            ..entry(npc, 7)
+        };
+        s.insert(by(1, "b"));
+        s.insert(by(2, "a"));
+        let best = |s: &Store, npc| s.best(npc, 7).map(|e| (e.npc, e.model.clone()));
+        // This NPC's, then by model name.
+        assert_eq!(best(&s, Some(1)), Some((1, "b".into())));
+        assert_eq!(best(&s, None), Some((2, "a".into())));
+        // A reviewed one beats both.
+        s.insert(by(3, "c"));
+        s.review(
+            3,
+            7,
+            "c",
+            Some(Review {
+                right: true,
+                class: None,
+            }),
+        );
+        assert_eq!(best(&s, Some(1)), Some((3, "c".into())));
+        // Marked wrong with no class: says nothing, so skipped.
+        s.review(
+            3,
+            7,
+            "c",
+            Some(Review {
+                right: false,
+                class: None,
+            }),
+        );
+        assert_eq!(best(&s, Some(1)), Some((1, "b".into())));
+        assert!(s.best(Some(1), 8).is_none());
     }
 
     #[test]

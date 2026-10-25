@@ -4,7 +4,7 @@
 
 `rs2ool cache caption` draws an NPC's candidate sequences on its model and asks a vision model running on your own machine what each one shows. It keeps the answers in a local file: a short description, plus one class from a fixed list. The captions are cheap and roughly right, and they're quick to check by eye, which makes them a practical way to build a labelled set of sequences. The cache doesn't name its deaths, attacks or jumps, so [role inference](../conversion/inference.md#roles) has to go on motion alone.
 
-Captioning is opt-in and only adds evidence. Candidate inference and the motion roles work the same with or without it, and nothing a caption says goes into a pack.
+Captioning is opt-in and only adds evidence. Candidate inference and the motion roles work the same with or without it. A caption reaches a pack only when you ask for it with `--describe` ([Into the packs](#into-the-packs)).
 
 Implemented in [`rs2ool::caption`](../../src/caption/mod.rs), with the settings in [`rs2ool::settings`](../../src/settings.rs). It needs the `caption` cargo feature, which is on by default.
 
@@ -140,6 +140,16 @@ rs2ool cache caption --import labels.json --model <labeller>
 ```
 
 The file is a list of `{"npc", "seq", "class", "text"}` objects, plus an optional `"frames"`. Every class has to be one from the list above (or `null`); one that isn't stops the import (exit 1) before anything is written. Each label becomes a caption by `<labeller>`, so it shows in the explorer's picker and can be reviewed like any other. Importing a label again replaces the caption but keeps its review. `--dry-run --images DIR` draws the frame grids such a labeller would look at.
+
+## Into the packs
+
+`rs2ool pack npc … --with-anims --describe` and `pack player-kit --with-anims --describe` write each clip's caption into the anims pack's manifest, as a `descriptions` table ([Descriptions](../pack/anims.md#descriptions)). For each clip they take the best caption of its sequence:
+
+1. a reviewed caption first;
+2. then one drawn on this NPC (for the player kit, any NPC);
+3. then by labeller name.
+
+A caption marked wrong with no class given is left out. A reviewed caption gives its checked class. The explorer's Convert action describes too, so its packs match the command line's.
 
 ## In the explorer
 

@@ -21,8 +21,8 @@ rs2ool [--cache DIR] cache list      [--index N | --archive NAME | --type TYPE]
 rs2ool [--cache DIR] pack  materials   -o DIR
                          textures    -o DIR
                          models      (--id N | --all) -o DIR
-                         npc         --id N [--with-anims] [--seq A,B,…] [--override FILE] -o DIR
-                         player-kit  [--with-anims] [--override FILE] -o DIR
+                         npc         --id N [--with-anims] [--seq A,B,…] [--infer] [--describe] [--override FILE] -o DIR
+                         player-kit  [--with-anims] [--describe] [--override FILE] -o DIR
                          sprites     [--archive media|title] [--all] -o DIR
                          floors      -o DIR
                          objects     (--id N | --all) -o DIR
