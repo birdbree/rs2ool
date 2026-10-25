@@ -179,21 +179,25 @@ fn with_inferred(
     }
 }
 
-/// The role trees `rs2ool cache classify --save` learned on this cache,
-/// if there are any. Read on every NPC load, so newly saved trees show on
-/// the next. Trees learned on another cache are ignored, since their
-/// family numbers don't carry over.
+/// The role trees to judge roles by: the ones `rs2ool cache classify
+/// --save` saved, if there are any and they parse, else the built-in ones.
+/// Read on every NPC load, so newly saved trees show on the next. On a
+/// cache other than the one they were learned on, only the global tree
+/// counts, since family numbers don't carry over (see
+/// [`RoleTrees::for_cache`](rs2convert::classify::RoleTrees::for_cache)).
 fn role_trees(records: &Records) -> Option<rs2convert::classify::RoleTrees> {
-    let bytes = std::fs::read(crate::settings::role_tree_path()?).ok()?;
-    let trees: rs2convert::classify::RoleTrees = match serde_json::from_slice(&bytes) {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!("role trees: {e}");
-            return None;
-        }
-    };
+    let saved = crate::settings::role_tree_path()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|bytes| match serde_json::from_slice(&bytes) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::warn!("role trees: {e}");
+                None
+            }
+        });
+    let trees = saved.unwrap_or_else(rs2convert::classify::RoleTrees::built_in);
     let crc = rs2convert::source_cache_crc(records.cache()).ok()?;
-    (trees.cache_crc == crc).then_some(trees)
+    Some(trees.for_cache(crc))
 }
 
 /// The renderable a selection resolves to, if it has one.

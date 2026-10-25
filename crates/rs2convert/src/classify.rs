@@ -274,7 +274,27 @@ pub struct RoleTrees {
     pub families: BTreeMap<usize, Tree>,
 }
 
+/// The trees the tools come with, learned on the maintainer's cache with
+/// `rs2ool cache classify --save` (see `docs/conversion/inference.md`).
+pub const BUILT_IN: &str = include_str!("../data/role-tree.json");
+
 impl RoleTrees {
+    /// [`BUILT_IN`], parsed.
+    pub fn built_in() -> Self {
+        serde_json::from_str(BUILT_IN).expect("the built-in role trees parse")
+    }
+
+    /// These trees for the cache whose CRC is `crc`: as they are on the
+    /// cache they were learned on, else the global tree alone, since the
+    /// family numbers don't carry over to another cache but the measures
+    /// the global tree splits on do.
+    pub fn for_cache(mut self, crc: u32) -> Self {
+        if self.cache_crc != crc {
+            self.families.clear();
+        }
+        self
+    }
+
     /// The tree for an NPC on skeleton family `family`: its own if it has
     /// one, else the global one.
     pub fn for_family(&self, family: Option<usize>) -> &Tree {
@@ -387,5 +407,34 @@ mod tests {
         );
         // The same samples always grow the same tree.
         assert_eq!(Tree::train(&s, p), Tree::train(&s, p));
+    }
+
+    #[test]
+    fn the_built_in_trees_load_and_keep_to_their_cache() {
+        let t = RoleTrees::built_in();
+        // Every split names a measure there is.
+        fn features_ok(t: &Tree) -> bool {
+            match t {
+                Tree::Leaf { .. } => true,
+                Tree::Split {
+                    feature,
+                    below,
+                    above,
+                    ..
+                } => *feature < FEATURE_COUNT && features_ok(below) && features_ok(above),
+            }
+        }
+        assert!(features_ok(&t.global));
+        assert!(t.families.values().all(features_ok));
+        assert!(!t.families.is_empty());
+        // On their own cache they're whole; on another, the global tree
+        // alone.
+        let crc = t.cache_crc;
+        assert_eq!(t.clone().for_cache(crc), t);
+        let other = t.clone().for_cache(crc.wrapping_add(1));
+        assert!(other.families.is_empty());
+        assert_eq!(other.global, t.global);
+        let family = *t.families.keys().next().unwrap();
+        assert_eq!(other.for_family(Some(family)), &t.global);
     }
 }

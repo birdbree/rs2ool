@@ -79,11 +79,12 @@ The first frame is the reference, not the rest pose, because some models are ani
 | drop | `base_drop ≥ 0.3` | the whole body goes down: a fall, or a jump down into a gap |
 | death | `drop ≥ 0.3`, `end_height ≤ 0.75`, and `hold ≥ 50` (1 s) or `end_visible < 0.1` | goes down and stays down, or goes down and fades away |
 | down | `drop ≥ 0.3` and `end_height ≤ 0.75` | goes down without staying: falls over, kneels, sits, floats down |
+| vanish | `end_visible < 0.1` | fades away where it stands |
 | idle | `peak < 0.06` | barely moves |
 | action | `returns ≤ 0.15` | moves and comes back: an attack, a block or a gait, which motion alone can't tell apart |
 | other | anything else | such as a sequence that ends somewhere new |
 
-The hold is the strongest death signal. Last frames are held either briefly (2–50 cycles) or for a very long time (10,000–20,000), with little in between, and a death holds. A death can also go down and fade away instead of holding; on the labels below, counting those gained three deaths (455 to 458 right) and lost nothing. Fading away without going down isn't a vanish rule: as many sequences labelled as actions or others fade out as vanishes do, so that rule made things worse (441). Vanish comes first because a model shrinking about its centre also lifts its lowest point and lowers its top, which would otherwise read as a jump or a death.
+The hold is the strongest death signal. Last frames are held either briefly (2–50 cycles) or for a very long time (10,000–20,000), with little in between, and a death holds. A death can also go down and fade away instead of holding, and a model that fades away without going down has vanished. Measured on 2784 sequences labelled from frame grids that show fades, the fade rules take the rules from 1789 to 1811 right, finding 53 of 118 vanishes instead of 23. (On the earlier labels, drawn without fades, the vanish rule looked harmful: their labellers couldn't see a model fade, so fading sequences carried the labels of whatever else they did.) Vanish comes first because a model shrinking about its centre also lifts its lowest point and lowers its top, which would otherwise read as a jump or a death.
 
 **Checked against what is named.** Over 250 creatures, their stand sequences come out idle 172 times, action 64 (bobbing or flapping idles), other 8 and drop once. Their walk sequences come out action 201 times, idle 19, other 24 and down once. 120 of the 250 creatures have a death among their candidates, and 125 a death or a vanish (some creatures die by shrinking or sinking away). `crates/rs2convert/tests/infer_sequences.rs` checks these rates. `with_roles` fills in the `role` of a list of candidates for a creature.
 
@@ -127,6 +128,8 @@ On 756 labelled sequences, the rules got 457 right (60%) and the tree 534 (71%).
 - The depth and leaf size were picked by trying several on earlier labels, which flatters the tree a little.
 - Most of the labels weren't checked one by one.
 
+**Relabelled with fades.** Once frame grids drew fades, 2784 sequences were labelled again: everything above, a second NPC with a different model for each skeleton family that has one, 600 more from the humanoid pool across three humanoid models, and every candidate that fades. On those, the rules get 1811 right (65%), the tree 2039 (73%) and the family trees 2094 (75%). The tree splits on `end_visible` and `min_visible`: without the visibility measures it finds 27 of the 118 vanishes, with them 61. As before, the depths were picked on earlier labels and the imported labels weren't checked one by one.
+
 The second round showed what the rules' rarer roles really are:
 
 - Of 47 sequences the rules call downs, 25 stay down for good: 15 collapses and 10 flattened deaths. Only 7 are downs as labelled (5 descents, 2 falls).
@@ -157,7 +160,9 @@ With a few dozen labels, a family tree usually does worse than the global one, w
 
 Unreviewed captions' own classes can be added as weak labels (`--weak W`, each counting `W`). With the 2B captioning model they don't help: its classes are mostly wrong.
 
-`--save` writes the trees to `role-tree.json` in the data directory: the global tree, the kept family trees, and the CRC of the cache they were learned on. When the file is there and matches the open cache, the explorer's sequence picker uses the NPC's family tree, or else the global one, to group its candidates, marking each group "learned". Conversion always uses the rules, so packs don't depend on a local file. The trees are only ever learned locally; none is shipped.
+`--save` writes the trees to `role-tree.json` in the data directory: the global tree, the kept family trees, and the CRC of the cache they were learned on. The explorer's sequence picker uses the NPC's family tree, or else the global one, to group its candidates, marking each group "learned". It takes the saved trees when there are any, and otherwise the built-in ones ([`classify::BUILT_IN`](../../crates/rs2convert/src/classify.rs), from `crates/rs2convert/data/role-tree.json`): the trees learned on the 2784 relabelled sequences above. Family numbers belong to one cache, so on a cache with another CRC only the global tree applies (`RoleTrees::for_cache`); its splits are on the measures alone, which mean the same on any cache. The file holds thresholds and roles, nothing from the cache itself. Conversion always uses the rules, so packs don't depend on any trees.
+
+To update the built-in trees, learn and save them, check the scores, and copy the saved `role-tree.json` over `crates/rs2convert/data/role-tree.json`. The labels stay local; only the trees are committed.
 
 ### Sequences that tear the model
 
