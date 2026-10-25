@@ -1,4 +1,4 @@
-//! Captions in the explorer: the caption settings, a job that captions the
+//! Captions in the explorer: the Captions window with the caption settings, a job that captions the
 //! selected NPC's candidate sequences, and each caption beside its
 //! sequence in the picker, with a way to check it by eye.
 //!
@@ -43,6 +43,8 @@ pub struct Captions {
     pub test: Option<Result<Vec<String>, String>>,
     testing: Option<Task<Result<Vec<String>, String>>>,
     run: Option<Run>,
+    /// Whether the Captions window is open.
+    pub open: bool,
     /// At most this many images per run; 0 for every candidate.
     pub limit: usize,
 }
@@ -179,18 +181,24 @@ fn selected_npc(selected: &Selected, sources: &Sources) -> Option<(u32, Arc<Reco
     }
 }
 
-/// The Captions menu: the settings, a connection test, and the caption
-/// action for the selected NPC. Saves the settings when they change.
-pub fn captions_menu(
-    ui: &mut egui::Ui,
+/// The Captions window: the settings, a connection test, and the caption
+/// action for the selected NPC. Saves the settings when they change. A
+/// window rather than a menu, since a menu closes on the first click
+/// inside it.
+pub fn captions_window(
+    ctx: &egui::Context,
     captions: &mut Captions,
     settings: &mut Settings,
     selected: &Selected,
     sources: &Sources,
     jobs: &mut Jobs,
 ) {
-    ui.menu_button("Captions", |ui| {
-        ui.set_min_width(380.0);
+    let mut open = captions.open;
+    egui::Window::new("Captions")
+        .open(&mut open)
+        .default_width(420.0)
+        .resizable(true)
+        .show(ctx, |ui| {
         let before = settings.caption.clone();
         let c = &mut settings.caption;
         ui.checkbox(&mut c.enabled, "Captioning on")
@@ -316,7 +324,6 @@ pub fn captions_menu(
 
         ui.separator();
         let npc = selected_npc(selected, sources);
-        let ready = c.enabled && captions.connected() && !c.model.trim().is_empty();
         ui.horizontal(|ui| {
             ui.label("At most");
             ui.add(egui::DragValue::new(&mut captions.limit).range(0..=100_000));
@@ -327,17 +334,20 @@ pub fn captions_menu(
             .map_or("Caption the selected NPC's candidates".into(), |(id, _)| {
                 format!("Caption npc {id}'s candidates")
             });
-        let enabled = ready && npc.is_some() && captions.store.is_some() && !captions.running();
-        let why = if !ready {
-            "Turn captioning on, choose a model and test the connection first."
-        } else if npc.is_none() {
-            "Select an NPC in a cache."
-        } else {
-            "A caption job is already running."
-        };
+        // Everything still in the way, in the order to do it.
+        let missing: Vec<&str> = [
+            (!c.enabled, "turn captioning on"),
+            (c.model.trim().is_empty(), "choose a model"),
+            (!captions.connected(), "pass a connection test"),
+            (npc.is_none(), "select an NPC in a cache"),
+            (captions.store.is_none(), "wait for the caption file to open"),
+            (captions.running(), "wait for the running job"),
+        ]
+        .into_iter()
+        .filter_map(|(blocked, what)| blocked.then_some(what))
+        .collect();
         if ui
-            .add_enabled(enabled, egui::Button::new(&label))
-            .on_disabled_hover_text(why)
+            .add_enabled(missing.is_empty(), egui::Button::new(&label))
             .clicked()
             && let (Some((id, records)), Some(store)) = (npc, captions.store.clone())
         {
@@ -353,7 +363,9 @@ pub fn captions_menu(
                 finished.store(true, Ordering::Relaxed);
                 r
             });
-            ui.close();
+        }
+        if !missing.is_empty() {
+            ui.weak(format!("To caption: {}.", missing.join(", ")));
         }
         if let Some(run) = captions.run.as_ref().filter(|_| captions.running())
             && ui.button("Stop captioning").clicked()
@@ -369,6 +381,7 @@ pub fn captions_menu(
             ));
         }
     });
+    captions.open = open;
 }
 
 /// The chosen sequence's caption under the playback bar, with buttons to

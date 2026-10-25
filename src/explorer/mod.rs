@@ -30,7 +30,7 @@
 //! - [`actions`]: the Actions menu, which calls the same library code as
 //!   the CLI.
 //! - [`jobs`]: background jobs and their progress.
-//! - `captions`: the Captions menu, the caption job, and captions in the
+//! - `captions`: the Captions window, the caption job, and captions in the
 //!   sequence picker (with the `caption` feature).
 //!
 //! Drawing:

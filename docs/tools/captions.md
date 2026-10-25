@@ -129,7 +129,7 @@ Captions are keyed by NPC, sequence and vision model, and written sorted by that
 
 ## In the explorer
 
-The explorer's **Captions** menu holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
+The explorer's **Captions** window holds the same settings with a connection test, and runs the caption job for the selected NPC. Captions show in the sequence picker, and the chosen sequence's caption can be marked right or wrong, or corrected to another class, as it plays. See [Explorer](explorer.md#captions).
 
 ## What's next
 

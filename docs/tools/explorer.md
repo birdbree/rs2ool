@@ -163,7 +163,7 @@ Under the playback bar, the chosen sequence's caption shows its class and descri
 
 Reviews are saved in the caption file straight away. Reviewed captions are the trusted sample.
 
-The **Captions** menu in the menu bar holds the [caption settings](captions.md#settings), saved to `settings.json` as you change them:
+**Captions** in the menu bar opens the Captions window, which holds the [caption settings](captions.md#settings), saved to `settings.json` as you change them:
 
 - **Captioning on**: nothing is sent anywhere until this is ticked.
 - **API**: Ollama or OpenAI-compatible.
@@ -172,7 +172,7 @@ The **Captions** menu in the menu bar holds the [caption settings](captions.md#s
 
 A warning shows when the server isn't this machine. **Test connection** asks the server for its models and says whether the chosen one is there. Changing the API, server or key clears the result.
 
-**Caption npc N's candidates** runs the caption job for the NPC selected in a cache, with progress in the bottom panel. It's greyed out until captioning is on, a model is chosen and the connection test has passed. **At most** limits a run to that many images (0 for every candidate; a humanoid has about 1200, at several seconds each). **Stop captioning** stops after the image in hand. A run skips what's already captioned, so running it again carries on. The job and the window share the caption file, so you can review while it runs.
+**Caption npc N's candidates** runs the caption job for the NPC selected in a cache, with progress in the bottom panel. It's greyed out until captioning is on, a model is chosen and the connection test has passed; a line under it lists whatever is still in the way. **At most** limits a run to that many images (0 for every candidate; a humanoid has about 1200, at several seconds each). **Stop captioning** stops after the image in hand. A run skips what's already captioned, so running it again carries on. The job and the window share the caption file, so you can review while it runs.
 
 ## Object states
 
