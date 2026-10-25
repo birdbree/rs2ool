@@ -207,6 +207,29 @@ A sequence without an interleave list plays alone, and the command says so.
 
 A record type with no model, a record without one, a missing or unwanted `--id`, a bare `--seq` on a record with no sequence of its own, and a frame past the end are usage errors (exit 1).
 
+## structures
+
+Finds whole structures in the map, with their rooms, doors, openings, walls, roofs and contents, and lists them or writes them as JSON:
+
+```text
+rs2ool cache structures --region 50_50
+rs2ool cache structures --all -o out/
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--region RX_RY` | search that region and its eight neighbours, and keep the structures whose south-west corner is in it |
+| `--all` | search the whole map at once |
+| `-o DIR` | write `DIR/structures/RX_RY.json` for each region with structures, instead of listing them |
+
+Without `-o`, each structure prints as one line: its region, origin, size, planes, rooms, doors (and how many lead outside), open edges, and its objects with the commonest named ones:
+
+```text
+50_50  at 3238,3204  10×12  plane 0  1 rooms  3 doors (3 to outside)  0 open edges  82 objects (69 unnamed): Church pew ×6, Candles ×4, Altar, Church organ, Stool
+```
+
+Each file holds `region` (`RX_RY`) and `structures`, the blueprints of the structures whose origin is in it, with every field described on [Structures](../conversion/structures.md#the-blueprint). A structure belongs to the region its south-west corner is in, so each comes out once, whole, even when it crosses into a neighbour. One that goes on past the regions searched is marked `clipped`. The whole map takes under a second in a release build. Regions that won't decode are reported on stderr and skipped, and the exit code is then 3.
+
 ## caption
 
 Draws an NPC's candidate sequences and asks a vision model on a server you run what each one shows, keeping the answers locally:

@@ -78,6 +78,12 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Clip.** One converted sequence: pose keys per bone per frame. See [Anims](pack/anims.md).
 
+**Structure.** A building found in the map: rooms joined by doors and stacked floors, with its walls, roofs and contents. See [Structures](conversion/structures.md).
+
+**Room.** Roofed tiles on one plane that reach each other without crossing a wall; the roof flag is tile flag 4. See [Structures](conversion/structures.md#finding-rooms).
+
+**Opening.** An edge where a room meets the outside with no wall: an open doorway, an archway, a stall's open front.
+
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).
 
 ## See also

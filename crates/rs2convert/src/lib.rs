@@ -38,6 +38,8 @@
 //!   strings.
 //! - [`item`]: item definitions to items records, their inventory and
 //!   wear models, and strings, with inferred slots.
+//! - [`structure`]: whole structures found in the map, with their rooms,
+//!   doors, walls, roofs and contents.
 //! - [`preview`]: the model a record describes, put together for viewing.
 //! - [`space`]: cache space to pack space (y and z negated).
 //!
@@ -80,6 +82,7 @@ pub mod run;
 pub mod slot;
 pub mod space;
 pub mod sprite;
+pub mod structure;
 pub mod texture;
 pub mod validate;
 
