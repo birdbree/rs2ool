@@ -10,6 +10,11 @@
 //! sheet shows a strip of the original's frames over a strip of the
 //! converted ones.
 //!
+//! With `moving`, a sequence the original client mixes with movement plays
+//! over one of the creature's movement sequences, each on its own clock,
+//! as the original client draws a creature acting while it walks; the
+//! converted side mixes the two clips through the moving bones.
+//!
 //! The file's extension picks the format: `.gif` writes a GIF, anything
 //! else a PNG, animated (APNG) when there's more than one frame.
 
@@ -80,6 +85,8 @@ pub struct RenderArgs {
     pub frames: Frames,
     /// Draw the converted rig and clip beside the original.
     pub compare: bool,
+    /// A movement sequence to play under the sequence.
+    pub moving: Option<u16>,
     /// The image size (of each tile of a sheet) and camera.
     pub view: View,
     /// The file to write.
@@ -131,40 +138,58 @@ pub fn run(records: &Records, a: &RenderArgs, report: &mut impl Write) -> Result
         return Ok(Outcome::Ok);
     };
 
+    let seqs: Vec<u16> = std::iter::once(seq).chain(a.moving).collect();
     let subject = match a.target {
         Target::Record(kind, id) => {
             let index = records.cache().frame_index()?;
-            preview::animated(records, &index, kind, id, &[seq])?
+            preview::animated(records, &index, kind, id, &seqs)?
                 .ok_or_else(|| usage(format!("{kind} {id} has no model")))?
         }
-        Target::Kit { female } => body(records, female, &[seq])?,
+        Target::Kit { female } => body(records, female, &seqs)?,
     };
     let s = subject.sequence(seq).expect("the sequence was loaded");
+    let m = a
+        .moving
+        .map(|m| subject.sequence(m).expect("the sequence was loaded"));
     let c = &subject.creature;
-    let delays = c.delays(s);
-    let shown: Vec<usize> = match a.frames {
-        Frames::All => (0..delays.len()).collect(),
-        Frames::Sheet(n) => render::sample(&delays, n),
-        Frames::One(f) if f < delays.len() => vec![f],
-        Frames::One(f) => {
-            return Err(usage(format!(
-                "sequence {seq} has {} frames; there's no frame {f}",
-                delays.len()
-            )));
-        }
-    };
-    let reference: Vec<Vec<[i32; 3]>> = shown
+    if m.is_some() && c.sequences[s].interleave().is_none() {
+        writeln!(
+            report,
+            "sequence {seq} doesn't mix with movement; it plays alone"
+        )?;
+    }
+    let m = m.filter(|_| c.sequences[s].interleave().is_some());
+    let steps = steps(&subject, s, m, a.frames).map_err(|f| {
+        usage(format!(
+            "sequence {seq} has {} frames; there's no frame {f}",
+            c.sequences[s].def.frames.len()
+        ))
+    })?;
+    let reference: Vec<Vec<[i32; 3]>> = steps
         .iter()
-        .map(|&i| subject.posed(s, i))
+        .map(|st| match (m, st.moving) {
+            (Some(m), Some(j)) => subject.posed_moving(s, st.frame, m, j),
+            _ => subject.posed(s, st.frame),
+        })
         .collect::<Option<_>>()
         .with_context(|| format!("sequence {seq} won't pose {}", c.name))?;
     let converted = if a.compare {
-        let (rig, clip, clip_report) = convert(&subject, s)?;
-        let poses: Vec<Vec<[i32; 3]>> = shown
+        let (rig, clips, reports) = convert(&subject, s, m)?;
+        let poses: Vec<Vec<[i32; 3]>> = steps
             .iter()
-            .map(|&i| subject.finish(validate::converted(c, &rig, &clip, i as u8)))
+            .map(|st| {
+                let t = st.frame as u8;
+                subject.finish(match &clips[..] {
+                    [clip, moving, ..] => {
+                        let tm = st.moving.unwrap_or(0) as u8;
+                        validate::converted_moving(c, &rig, clip, t, moving, tm)
+                    }
+                    [clip] => validate::converted(c, &rig, clip, t),
+                    [] => unreachable!("convert gives the sequence's clip"),
+                })
+            })
             .collect();
-        Some((poses, clip_report))
+        Some((poses, reports))
     } else {
         None
     };
@@ -205,26 +230,130 @@ pub fn run(records: &Records, a: &RenderArgs, report: &mut impl Write) -> Result
                 .collect(),
             None => images,
         };
-        let delays: Vec<u32> = shown.iter().map(|&i| delays[i]).collect();
+        let delays: Vec<u32> = steps.iter().map(|st| st.delay).collect();
         save(a, gif, &frames, &delays, report)?;
     }
-    Ok(match converted {
-        Some((_, r)) => {
-            writeln!(
-                report,
-                "sequence {seq}: max error {:.2}, mean {:.2}{}",
-                r.max,
-                r.mean,
-                if r.flagged { "\tFLAGGED" } else { "" }
-            )?;
-            if r.flagged {
-                Outcome::Partial
-            } else {
-                Outcome::Ok
-            }
-        }
-        None => Outcome::Ok,
+    let Some((_, reports)) = converted else {
+        return Ok(Outcome::Ok);
+    };
+    let mut flagged = false;
+    for (name, max, mean, over) in reports {
+        writeln!(
+            report,
+            "{name}: max error {max:.2}, mean {mean:.2}{}",
+            if over { "\tFLAGGED" } else { "" }
+        )?;
+        flagged |= over;
+    }
+    Ok(if flagged {
+        Outcome::Partial
+    } else {
+        Outcome::Ok
     })
+}
+
+/// One drawn frame: the sequence's frame, the movement sequence's frame
+/// under it if one plays, and how long it shows, in client cycles.
+struct Step {
+    frame: usize,
+    moving: Option<usize>,
+    delay: u32,
+}
+
+/// What to draw of sequence `s`, with movement sequence `m` under it.
+///
+/// Alone, it's the frames `frames` picks, each for its own delay. With a
+/// movement sequence, the two run on their own clocks from the sequence's
+/// start, the movement looping as the original client loops it: a sheet
+/// or a single frame pairs each of the sequence's frames with the movement
+/// frame showing when it starts, and an animation steps whenever either
+/// changes frame, over one run of the sequence. `Err` names a frame past
+/// the end.
+fn steps(
+    subject: &Subject,
+    s: usize,
+    m: Option<usize>,
+    frames: Frames,
+) -> Result<Vec<Step>, usize> {
+    let c = &subject.creature;
+    let delays = c.delays(s);
+    let starts: Vec<u64> = delays
+        .iter()
+        .scan(0u64, |t, &d| {
+            let start = *t;
+            *t += u64::from(d);
+            Some(start)
+        })
+        .collect();
+    let end: u64 = delays.iter().map(|&d| u64::from(d)).sum();
+    let moving = m.map(|m| (c.delays(m), c.sequences[m].def.loop_offset));
+    let moving_at = |t: u64| moving.as_ref().map(|(d, lo)| frame_at(d, *lo, t));
+    let shown = match frames {
+        Frames::All => None,
+        Frames::Sheet(n) => Some(render::sample(&delays, n)),
+        Frames::One(f) if f < delays.len() => Some(vec![f]),
+        Frames::One(f) => return Err(f),
+    };
+    if let Some(shown) = shown {
+        return Ok(shown
+            .into_iter()
+            .map(|i| Step {
+                frame: i,
+                moving: moving_at(starts[i]),
+                delay: delays[i],
+            })
+            .collect());
+    }
+    // Every moment either sequence changes frame, over one run of this one.
+    let mut times: Vec<u64> = starts.clone();
+    if let Some((d, lo)) = &moving {
+        let mut t = 0u64;
+        let mut j = 0usize;
+        while t < end && !d.is_empty() {
+            times.push(t);
+            t += u64::from(d[j].max(1));
+            j = next_frame(j, d.len(), *lo);
+        }
+    }
+    times.sort_unstable();
+    times.dedup();
+    Ok(times
+        .iter()
+        .enumerate()
+        .map(|(k, &t)| Step {
+            frame: starts.partition_point(|&st| st <= t) - 1,
+            moving: moving_at(t),
+            delay: (times.get(k + 1).copied().unwrap_or(end) - t) as u32,
+        })
+        .collect())
+}
+
+/// The frame after `j` of a looping sequence of `n` frames: past the end,
+/// back `loop_offset` frames from the end, or to the start.
+fn next_frame(j: usize, n: usize, loop_offset: Option<u16>) -> usize {
+    if j + 1 < n {
+        return j + 1;
+    }
+    match loop_offset {
+        Some(o) if o > 0 && usize::from(o) <= n => n - usize::from(o),
+        _ => 0,
+    }
+}
+
+/// The frame a looping sequence with these delays shows `t` cycles in.
+fn frame_at(delays: &[u32], loop_offset: Option<u16>, t: u64) -> usize {
+    let (mut at, mut j) = (0u64, 0usize);
+    if delays.is_empty() {
+        return 0;
+    }
+    loop {
+        let d = u64::from(delays[j].max(1));
+        if t < at + d {
+            return j;
+        }
+        at += d;
+        j = next_frame(j, delays.len(), loop_offset);
+    }
 }
 
 /// The default player body with the stance sequences and `seqs`.
@@ -233,19 +362,45 @@ fn body(records: &Records, female: bool, seqs: &[u16]) -> Result<Subject> {
     Ok(preview::player_body(records, &index, female, seqs)?)
 }
 
+/// What a comparison reports for one clip: a name, the worst and mean
+/// errors, and whether that's over the threshold.
+type Report = (String, f64, f64, bool);
+
 /// Convert the subject's creature as `rs2ool pack` would and return the
-/// rig and sequence `s`'s clip, both through an encode and decode round
-/// trip, and the clip's validation.
-fn convert(subject: &Subject, s: usize) -> Result<(Rig, Clip, ClipReport)> {
+/// rig, sequence `s`'s clip (and movement sequence `m`'s after it), all
+/// through an encode and decode round trip, and the validation: the clip
+/// alone, and mixed with the movement clip when their frames share a
+/// base.
+fn convert(subject: &Subject, s: usize, m: Option<usize>) -> Result<(Rig, Vec<Clip>, Vec<Report>)> {
     let c = &subject.creature;
     // The rig and clip don't depend on the colours, so any palette will do.
     let palette = Palette::from_rgb(vec![[0, 0, 0]]);
     let out = pipeline::convert(c.clone(), &palette, 0, false, None)?;
-    let seq = &c.sequences[s];
-    let clip = rs2convert::clip::convert(c, &out.inferred, seq, 0)?;
-    let clip = Clip::decode(&clip.encode()?)?;
-    let report = validate::validate(c, &out.rig, &clip, seq);
-    Ok((out.rig, clip, report))
+    let clip = |i: usize| -> Result<Clip> {
+        let clip = rs2convert::clip::convert(c, &out.inferred, &c.sequences[i], 0)?;
+        Ok(Clip::decode(&clip.encode()?)?)
+    };
+    let mut clips = vec![clip(s)?];
+    let r: ClipReport = validate::validate(c, &out.rig, &clips[0], &c.sequences[s]);
+    let id = c.sequences[s].def.id;
+    let mut reports = vec![(format!("sequence {id}"), r.max, r.mean, r.flagged)];
+    if let Some(m) = m {
+        clips.push(clip(m)?);
+        let base = |i: usize| c.frame(&c.sequences[i], 0).map(|(p, _)| &p.base);
+        if base(s) == base(m) {
+            let r = validate::validate_moving(
+                c,
+                &out.rig,
+                &clips[0],
+                &c.sequences[s],
+                &clips[1],
+                &c.sequences[m],
+            );
+            let name = format!("sequence {id} while moving (seq {})", r.sequence);
+            reports.push((name, r.max, r.mean, r.flagged));
+        }
+    }
+    Ok((out.rig, clips, reports))
 }
 
 /// Write `frames` to the output file, as a GIF or a PNG (an APNG when
@@ -281,4 +436,26 @@ fn save(
     }
     writeln!(report)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn looping_sequences_step_back_by_their_offset() {
+        assert_eq!(next_frame(0, 3, None), 1);
+        assert_eq!(next_frame(2, 3, None), 0);
+        assert_eq!(next_frame(2, 3, Some(2)), 1);
+        assert_eq!(
+            next_frame(2, 3, Some(9)),
+            0,
+            "an offset past the start restarts"
+        );
+        let delays = [2, 3, 1];
+        let at: Vec<usize> = (0..9).map(|t| frame_at(&delays, None, t)).collect();
+        assert_eq!(at, [0, 0, 1, 1, 1, 2, 0, 0, 1]);
+        let at: Vec<usize> = (6..10).map(|t| frame_at(&delays, Some(2), t)).collect();
+        assert_eq!(at, [1, 1, 1, 2], "after the end it loops from frame 1");
+    }
 }

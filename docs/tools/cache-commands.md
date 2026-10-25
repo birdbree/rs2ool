@@ -168,6 +168,7 @@ rs2ool cache render kit --seq 819 --sheet 6 --compare -o walk.png
 | `--frame N` | draw just frame `N` of the sequence (its index, from 0) |
 | `--sheet [N]` | draw a grid of `N` frames (9 with no `N`) spaced evenly in time, first and last included |
 | `--compare` | draw the converted rig and clip beside the original, and print the clip's validation |
+| `--moving SEQ` | play the sequence over movement sequence `SEQ`, as the creature acts while it moves |
 | `--size N` or `--size WxH` | the image size, or each tile's with `--sheet`, 1–4096; default 512, or 256 with `--sheet` |
 | `--yaw A` | the camera's turn about the model, 2048 a turn; default 256, three-quarters on |
 | `--pitch A` | the camera's tilt, 2048 a turn, positive looking down; default 48 |
@@ -175,7 +176,7 @@ rs2ool cache render kit --seq 819 --sheet 6 --compare -o walk.png
 | `--background RRGGBB` | the background colour; default `8a9ba8` |
 | `-o, --out FILE` | the file to write (required) |
 
-`--frame`, `--sheet` and `--compare` need `--seq`. Without `--frame` or `--sheet`, a sequence is drawn as an animation, every frame shown for its own delay at 20 ms a client cycle, looping forever.
+`--frame`, `--sheet`, `--compare` and `--moving` need `--seq`. Without `--frame` or `--sheet`, a sequence is drawn as an animation, every frame shown for its own delay at 20 ms a client cycle, looping forever.
 
 **The file.** The extension picks the format: `.gif` writes a GIF, anything else a PNG. A PNG with more than one frame is an animated PNG (APNG), lossless; viewers that don't play APNG show its first frame. A GIF holds 256 colours per frame. The command prints one line saying what it wrote:
 
@@ -193,6 +194,16 @@ stand.gif	512×512 GIF, 12 frames, 1.44 s
 ```text
 sequence 819: max error 2.08, mean 0.66
 ```
+
+**`--moving SEQ`** plays a sequence with an interleave list over a movement sequence (walk, run or turn) the way the original client draws a creature acting while it moves ([Animation](../client/animation.md#interleaving)): the movement drives the legs and the body's travel, the sequence the rest, each on its own clock from the start, the movement looping. An animation steps whenever either sequence changes frame, over one run of the sequence; a sheet or a single frame pairs each frame with the movement frame showing when it starts. With `--compare`, the converted side mixes the two clips through the clip's moving bones, and a second line gives the mix's validation (flagged over 8.0, [Mixes](../conversion/validation.md#mixes)):
+
+```text
+rs2ool cache render kit --seq 439 --moving 819 --sheet 6 --compare -o spin-walk.png
+sequence 439: max error 2.07, mean 0.75
+sequence 439 while moving (seq 819): max error 1.77, mean 0.65
+```
+
+A sequence without an interleave list plays alone, and the command says so.
 
 A record type with no model, a record without one, a missing or unwanted `--id`, a bare `--seq` on a record with no sequence of its own, and a frame past the end are usage errors (exit 1).
 

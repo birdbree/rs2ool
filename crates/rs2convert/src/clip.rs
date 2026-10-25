@@ -16,9 +16,9 @@
 //! A key's scale is per pack-space axis, about the bone's pivot and before
 //! its rotation, so a scale op followed by a rotation of the same bone is
 //! exact, but a non-uniform scale that's turned before it's scaled leaves a
-//! shear no key can hold, and that shows up as validation error. Only each
-//! sequence frame's primary frame is converted; secondary frames are
-//! ignored.
+//! shear no key can hold, and that shows up as validation error. A
+//! sequence frame with a secondary frame converts to one key per bone for
+//! both, applied one after the other, as the original client draws them.
 
 use std::f64::consts::TAU;
 
@@ -92,7 +92,9 @@ pub fn key_rotation(rot: [u8; 3]) -> DMat3 {
 }
 
 /// Per-bone cache-space transforms from the scaled rest mesh to the
-/// deformed (then scaled) mesh, for one frame. Bone 0 (root) is identity.
+/// deformed (then scaled) mesh, for one sequence frame: its frames applied
+/// one after another (see [`Creature::frames`]), each starting from a zero
+/// origin. Bone 0 (root) is identity.
 ///
 /// An op counts towards a bone only when its slot moves every one of the
 /// bone's labels. Origins come from the integer reference, advanced one op
@@ -101,84 +103,85 @@ pub fn bone_transforms(
     creature: &Creature,
     rig: &InferredRig,
     groups: &Groups,
-    pack: &FramePack,
-    frame: &Frame,
+    frames: &[(&FramePack, &Frame)],
 ) -> Vec<DAffine3> {
     let mesh = creature.mesh_labels();
     // verts: the integer reference, advanced op by op. world[b]: bone b's
     // accumulated transform so far.
     let mut verts = creature.model.vertices.clone();
     let mut world = vec![DAffine3::IDENTITY; rig.bones.len()];
-    let mut origin = [0i32; 3];
-    for t in &frame.transforms {
-        let Some(b) = pack.base.get(usize::from(t.transform)) else {
-            continue;
-        };
-        let d = [t.dx, t.dy, t.dz];
-        // The slot's labels the mesh actually has.
-        let set: std::collections::BTreeSet<u8> = b
-            .labels
-            .iter()
-            .copied()
-            .filter(|l| mesh.contains(l))
-            .collect();
-        // The op as an affine map. Rotate and scale go about the current
-        // origin: move it to (0, 0, 0), apply, move back.
-        let op = match b.kind {
-            kind::ORIGIN => None,
-            kind::TRANSLATE => Some(DAffine3::from_translation(v3(d))),
-            kind::ROTATE => {
-                let o = v3(origin);
-                Some(
-                    DAffine3::from_translation(o)
-                        * DAffine3::from_mat3(rotation_317(d[0], d[1], d[2]))
-                        * DAffine3::from_translation(-o),
-                )
-            }
-            kind::SCALE => {
-                let o = v3(origin);
-                Some(
-                    DAffine3::from_translation(o)
-                        * DAffine3::from_scale(v3(d) / 128.0)
-                        * DAffine3::from_translation(-o),
-                )
-            }
-            _ => None,
-        };
-        if let Some(op) = op {
-            for (i, bone) in rig.bones.iter().enumerate().skip(1) {
-                if !bone.labels.is_empty() && bone.labels.is_subset(&set) {
-                    world[i] = op * world[i];
-                }
-            }
-        }
-        // Advance the integer reference by this one op, for later origins.
-        let single = Frame {
-            id: frame.id,
-            delay: frame.delay,
-            alpha: false,
-            transforms: vec![*t],
-        };
-        if b.kind == kind::ORIGIN {
-            // Same integer centroid plus offset as deform::apply_frame.
-            let (mut sum, mut n) = ([0i32; 3], 0i32);
-            for &l in &b.labels {
-                for &v in groups.0.get(usize::from(l)).into_iter().flatten() {
-                    for a in 0..3 {
-                        sum[a] += verts[v][a];
-                    }
-                    n += 1;
-                }
-            }
-            origin = if n > 0 {
-                [sum[0] / n + d[0], sum[1] / n + d[1], sum[2] / n + d[2]]
-            } else {
-                d
+    for (pack, frame) in frames {
+        let mut origin = [0i32; 3];
+        for t in &frame.transforms {
+            let Some(b) = pack.base.get(usize::from(t.transform)) else {
+                continue;
             };
-        } else {
-            // apply_frame starts each frame with a zero origin, so feed it
-            // the current one along with the op.
-            apply_with_origin(&mut verts, groups, &pack.base, &single, origin);
+            let d = [t.dx, t.dy, t.dz];
+            // The slot's labels the mesh actually has.
+            let set: std::collections::BTreeSet<u8> = b
+                .labels
+                .iter()
+                .copied()
+                .filter(|l| mesh.contains(l))
+                .collect();
+            // The op as an affine map. Rotate and scale go about the current
+            // origin: move it to (0, 0, 0), apply, move back.
+            let op = match b.kind {
+                kind::ORIGIN => None,
+                kind::TRANSLATE => Some(DAffine3::from_translation(v3(d))),
+                kind::ROTATE => {
+                    let o = v3(origin);
+                    Some(
+                        DAffine3::from_translation(o)
+                            * DAffine3::from_mat3(rotation_317(d[0], d[1], d[2]))
+                            * DAffine3::from_translation(-o),
+                    )
+                }
+                kind::SCALE => {
+                    let o = v3(origin);
+                    Some(
+                        DAffine3::from_translation(o)
+                            * DAffine3::from_scale(v3(d) / 128.0)
+                            * DAffine3::from_translation(-o),
+                    )
+                }
+                _ => None,
+            };
+            if let Some(op) = op {
+                for (i, bone) in rig.bones.iter().enumerate().skip(1) {
+                    if !bone.labels.is_empty() && bone.labels.is_subset(&set) {
+                        world[i] = op * world[i];
+                    }
+                }
+            }
+            // Advance the integer reference by this one op, for later origins.
+            let single = Frame {
+                id: frame.id,
+                delay: frame.delay,
+                alpha: false,
+                transforms: vec![*t],
+            };
+            if b.kind == kind::ORIGIN {
+                // Same integer centroid plus offset as deform::apply_frame.
+                let (mut sum, mut n) = ([0i32; 3], 0i32);
+                for &l in &b.labels {
+                    for &v in groups.0.get(usize::from(l)).into_iter().flatten() {
+                        for a in 0..3 {
+                            sum[a] += verts[v][a];
+                        }
+                        n += 1;
+                    }
+                }
+                origin = if n > 0 {
+                    [sum[0] / n + d[0], sum[1] / n + d[1], sum[2] / n + d[2]]
+                } else {
+                    d
+                };
+            } else {
+                // apply_frame starts each frame with a zero origin, so feed it
+                // the current one along with the op.
+                apply_with_origin(&mut verts, groups, &pack.base, &single, origin);
+            }
         }
     }
     // The rest mesh has the scale baked in, so conjugate: S · A · S⁻¹.
@@ -357,6 +360,102 @@ pub fn local_from_key(rest: DVec3, rot: [u8; 3], pos: [i16; 3], scale: [u16; 3])
         * DAffine3::from_mat3(key_rotation(rot) * DMat3::from_diagonal(scale_of(scale)))
 }
 
+/// Keys for the bones not in `moving`, for playing over a movement clip:
+/// each frame converted from only the transforms the original client keeps
+/// of it when it mixes (its [part](deform::interleave_part) without the
+/// listed slots), so they hold the pose under the movement's share.
+fn mix_keys(
+    creature: &Creature,
+    rig: &InferredRig,
+    groups: &Groups,
+    s: &Sequence,
+    slots: &[u8],
+    moving: &[u8],
+) -> Result<Vec<Key>, ConvertError> {
+    let mut out = Vec::new();
+    for i in 0..s.def.frames.len() {
+        let (pack, frame) = creature.frame(s, i).ok_or_else(|| {
+            ConvertError::Invalid(format!("sequence {} frame {i} not found", s.def.id))
+        })?;
+        let part = deform::interleave_part(&pack.base, frame, slots, false);
+        let world = bone_transforms(creature, rig, groups, &[(pack, &part)]);
+        let mut reference = creature.model.vertices.clone();
+        deform::apply_frame(&mut reference, groups, &pack.base, &part);
+        deform::apply_scale(&mut reference, creature.scale);
+        out.extend(
+            frame_keys(rig, &world, &bound(creature, rig, &reference), i as u8)
+                .into_iter()
+                .filter(|k| !moving.contains(&k.bone)),
+        );
+    }
+    Ok(out)
+}
+
+/// The bones a movement clip drives while sequence `s` plays as the
+/// creature moves: none unless the sequence has an interleave list.
+///
+/// The original client takes the listed frame-base slots from the movement
+/// sequence's frame and the rest from the action's. A bone goes to the
+/// movement clip when the slots that move it and not its parent (its own
+/// slots, the ones a local transform holds) include a listed one and no
+/// unlisted one the action actually moves; an unlisted slot whose every
+/// transform in the action is the identity doesn't count. A bone with no
+/// own slots follows its parent. Slots are looked up in the base of the
+/// sequence's first frame, as every frame of a sequence shares one in
+/// practice.
+pub fn moving_bones(creature: &Creature, rig: &InferredRig, s: &Sequence) -> Vec<u8> {
+    let Some(slots) = s.interleave() else {
+        return Vec::new();
+    };
+    let Some((pack, _)) = creature.frame(s, 0) else {
+        return Vec::new();
+    };
+    let mesh = creature.mesh_labels();
+    // Slots the action moves by something other than the identity.
+    let mut used = std::collections::BTreeSet::new();
+    for i in 0..s.def.frames.len() {
+        for t in creature.frame(s, i).map_or(&[][..], |(_, f)| &f.transforms) {
+            let identity = match pack.base.get(usize::from(t.transform)).map(|b| b.kind) {
+                Some(kind::SCALE) => (t.dx, t.dy, t.dz) == (128, 128, 128),
+                _ => (t.dx, t.dy, t.dz) == (0, 0, 0),
+            };
+            if !identity {
+                used.insert(t.transform);
+            }
+        }
+    }
+    // Whether slot `i` moves every one of bone `b`'s labels, as
+    // bone_transforms counts it.
+    let moves = |i: usize, b: usize| {
+        let (Some(slot), Some(bone)) = (pack.base.get(i), rig.bones.get(b)) else {
+            return false;
+        };
+        matches!(slot.kind, kind::TRANSLATE | kind::ROTATE | kind::SCALE)
+            && !bone.labels.is_empty()
+            && bone
+                .labels
+                .iter()
+                .all(|l| slot.labels.contains(l) || !mesh.contains(l))
+    };
+    let mut out = vec![false; rig.bones.len()];
+    for b in 1..rig.bones.len() {
+        let parent = rig.bones[b].parent.unwrap_or(0);
+        let own: Vec<usize> = (0..pack.base.len())
+            .filter(|&i| moves(i, b) && !moves(i, parent))
+            .collect();
+        let listed = |i: &usize| slots.contains(&(*i as u8));
+        out[b] = if own.is_empty() {
+            out[parent]
+        } else {
+            own.iter().any(listed) && !own.iter().any(|i| !listed(i) && used.contains(&(*i as u8)))
+        };
+    }
+    (0..rig.bones.len())
+        .filter(|&b| out[b])
+        .map(|b| b as u8)
+        .collect()
+}
+
 /// Frame lengths in original-client cycles: the sequence's delay, else the
 /// frame's own, else 1. That's the same fallback the original client uses.
 pub fn delays(creature: &Creature, s: &Sequence) -> Vec<u16> {
@@ -394,12 +493,11 @@ pub fn convert(
     }
     let mut keys = Vec::new();
     for i in 0..n {
-        let (pack, frame) = creature.frame(s, i).ok_or_else(|| {
-            ConvertError::Invalid(format!("sequence {} frame {i} not found", s.def.id))
-        })?;
-        let world = bone_transforms(creature, rig, &groups, pack, frame);
-        let reference =
-            deform::deformed(&creature.model, &groups, &pack.base, frame, creature.scale);
+        let missing =
+            || ConvertError::Invalid(format!("sequence {} frame {i} not found", s.def.id));
+        let frames = creature.frames(s, i).ok_or_else(missing)?;
+        let world = bone_transforms(creature, rig, &groups, &frames);
+        let reference = creature.reference(s, i).ok_or_else(missing)?;
         keys.extend(frame_keys(
             rig,
             &world,
@@ -407,6 +505,11 @@ pub fn convert(
             i as u8,
         ));
     }
+    let moving = moving_bones(creature, rig, s);
+    let mix_keys = match s.interleave() {
+        Some(slots) if !moving.is_empty() => mix_keys(creature, rig, &groups, s, slots, &moving)?,
+        _ => Vec::new(),
+    };
     let lengths = delays(creature, s);
     // Running sum of frame lengths; `at` ends up as the clip's duration.
     let mut frame_start = Vec::with_capacity(n);
@@ -416,6 +519,8 @@ pub fn convert(
         at += u32::from(d);
     }
     Ok(Clip {
+        moving,
+        mix_keys,
         rig: rig_id,
         frame_start,
         duration: at.min(u32::from(u16::MAX)) as u16,

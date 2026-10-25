@@ -90,10 +90,27 @@ A frame's length is the sequence's delay for it, or the frame's own delay from i
 
 A sequence with more than 255 frames is an error, since `frameCount` is a `u8`. So is a frame that can't be found in its pack.
 
+## Secondary frames
+
+A sequence frame with a secondary frame becomes one key per bone for both: [`bone_transforms`](../../crates/rs2convert/src/clip.rs) replays the frame's ops, then the secondary frame's through its own base, each from a zero origin, and the keys are fitted to the reference after both, as the original client draws them in an interface ([Animation](../client/animation.md#secondary-frames)). Rig inference counts the secondary frames' label sets too. Only chat-head sequences have secondary frames, and no pack command converts chat heads, so this matters for completeness more than for any pack written today.
+
+## Moving bones and mix keys
+
+A sequence with interleave labels gets two more things, for playing over a movement clip the way the original client [mixes](../client/animation.md#interleaving) the two sequences.
+
+**Moving bones** (`clip::moving_bones`) are the bones whose local transform comes from the movement clip. Each bone is judged by its own slots, the frame base slots that move all of its labels but not all of its parent's (the ones a local transform holds):
+
+- a bone goes to the movement when its own slots include a listed one and no unlisted one the sequence actually moves (an unlisted slot whose every transform in the sequence is the identity doesn't count);
+- a bone with no own slots follows its parent.
+
+Slots come from the base of the sequence's first frame. On the player skeleton this gives the pelvis, thighs, shins and feet for every one of the 135 actions that share the walk's base.
+
+**Mix keys** are keys for every other bone, fitted to the sequence's frames with the listed slots removed ([`deform::interleave_part`](../../crates/rs2convert/src/deform.rs)): the part the original client applies when it mixes. They can't be the clip's own keys. A sequence that turns or leans the whole body does so through listed slots, which the mix drops, so its upper body has to be posed again without them. Mixed through its own keys, a spin attack (sequence 439) was up to 136 units out over the walk and run; through its mix keys it's under 2 over the walk.
+
 ## What isn't carried
 
 - **Shear.** A key scales along the bone's own axes before turning it. A scale op followed by a rotation is exact. A non-uniform scale applied after a rotation shears the bone, which no key can hold, and that shows up as [validation](validation.md) error. Of the 592 spot animation clips, which scale a lot, 33 are flagged that way.
-- **Secondary frames.** Only each sequence frame's primary frame is converted. Secondary frames and the sequence's interleave labels are ignored.
+- **The movement's own share of a mix.** A movement clip's keys are fitted to its whole frames, but a mix only takes its listed slots. Where the movement also moves unlisted slots that reach vertices its moving bones carry (walking sideways and running swing the arms harder), some of that leaks into the mix. That's why the [mix threshold](validation.md#mixes) is twice the clip threshold.
 - **Alpha.** Alpha ops change face transparency, not positions, and keys have nowhere to put them.
 
 ## See also

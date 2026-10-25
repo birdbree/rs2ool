@@ -38,7 +38,7 @@ Any other opcode is logged at `warn`, recorded in `unknown_opcodes`, and skipped
 | --- | --- | --- |
 | `frames` | empty | one `SeqFrame` per frame |
 | `loop_offset` | none | frames from the end to replay when looping |
-| `interleave_labels` | none | which parts of the pose the secondary frames drive (see below) |
+| `interleave_labels` | none | which parts of the pose the creature's movement drives while this plays as it moves (see below) |
 | `stretches` | false | |
 | `priority` | 5 | |
 | `offhand_override` | none | stored as read |
@@ -53,15 +53,21 @@ Each `SeqFrame` is:
 ```text
 SeqFrame
   frame      u16           global frame id
-  secondary  optional u16  frame mixed in through interleave_labels
+  secondary  optional u16  a second frame applied after `frame`, in interfaces
   delay      u16           length in client cycles of 20 ms; 0 = use the frame's own delay
 ```
 
 `frame` and `secondary` are global frame ids, found through the [frame index](frame-pack.md#global-frame-ids), not index-2 file ids.
 
+## Secondary frames
+
+The original client only uses a secondary frame for a model drawn in an interface, which in practice means a chat head: it applies the frame in full, then the secondary frame in full. Creatures in the world play the primary frames only. In this cache 68 sequences have secondary frames, all of them chat-head expressions, and none of them has interleave labels. See [animation](../client/animation.md#secondary-frames).
+
 ## Interleave labels
 
-Despite the name, the original client compares these values with the frame base's *slot numbers*, not with vertex labels: when a sequence frame has a secondary frame, the listed slots take their transforms from the secondary frame and the rest from the primary, with origin slots applied from both. The original client walks the list in step with the slots, so it only works when the values are ascending. The decoder stores the bytes in the order read and doesn't interpret them. See [animation](../client/animation.md).
+These belong to a different feature from secondary frames, whatever the field names suggest. When a creature plays a sequence with interleave labels while it moves, the original client mixes the sequence's frame with the frame its movement sequence (walk, run or turn) is on: the movement drives the listed slots, the sequence the rest. Despite the name, the values are frame base *slot numbers*, not vertex labels. The original client walks the list in step with the slots, so it only works when the values are ascending. The decoder stores the bytes in the order read and doesn't interpret them.
+
+In this cache 177 sequences have interleave labels, all with the same list: the player skeleton's whole-body translate and rotate and its leg rotations, so the walk carries the body and moves the legs while the sequence moves the rest. See [animation](../client/animation.md#interleaving).
 
 ## Derived precedences
 

@@ -148,7 +148,7 @@ impl KitBase {
             }
         }
         let merged = creature::merge(&models);
-        let c = Creature::new(
+        let mut c = Creature::new(
             "player".into(),
             merged,
             // Scale 128 = 1.0 on every axis.
@@ -156,6 +156,7 @@ impl KitBase {
             self.creature.sequences.clone(),
             self.creature.packs.clone(),
         );
+        c.moving = self.creature.moving.clone();
         let model = c.rest_model();
         let rig = rs2convert::rig::infer(&c, None).ok().map(Arc::new);
         Ok(Renderable::Creature {

@@ -119,6 +119,17 @@ pub struct Sequence {
     pub def: SeqDef,
     /// The pack holding each frame (index matches `def.frames`).
     pub packs: Vec<u32>,
+    /// The pack holding each frame's secondary frame, if it has one and a
+    /// pack defines it (index matches `def.frames`).
+    pub secondary: Vec<Option<u32>>,
+}
+
+impl Sequence {
+    /// The frame-base slots this sequence leaves to the movement sequence
+    /// when it plays while its creature moves, if it lists any.
+    pub fn interleave(&self) -> Option<&[u8]> {
+        self.def.interleave_labels.as_deref()
+    }
 }
 
 /// A creature ready for rig inference: the merged mesh, its sequences and
@@ -140,6 +151,10 @@ pub struct Creature {
     pub sequences: Vec<Sequence>,
     /// Every frame pack those sequences use, by pack id.
     pub packs: BTreeMap<u32, FramePack>,
+    /// The sequences an action with an interleave list mixes with while
+    /// the creature moves: the ids of its walk and turn sequences (not its
+    /// stand). Empty when it has none, or [`Creature::new`] built it.
+    pub moving: Vec<u16>,
 }
 
 impl Creature {
@@ -160,6 +175,7 @@ impl Creature {
             rest,
             sequences,
             packs,
+            moving: Vec::new(),
         }
     }
 
@@ -178,21 +194,74 @@ impl Creature {
         Some((pack, pack.frames.iter().find(|f| f.id == id)?))
     }
 
+    /// Everything frame `i` of sequence `s` applies, in order: its frame,
+    /// then its secondary frame if it has one. A secondary frame that no
+    /// pack defines is left out, as the original client skips it.
+    ///
+    /// Only models drawn in interfaces (chat heads) use secondary frames,
+    /// each frame applied in full after the other; no sequence that plays
+    /// in the world has them.
+    pub fn frames(&self, s: &Sequence, i: usize) -> Option<Vec<(&FramePack, &Frame)>> {
+        let mut out = vec![self.frame(s, i)?];
+        let second = s.def.frames.get(i).and_then(|f| f.secondary);
+        if let (Some(id), Some(Some(p))) = (second, s.secondary.get(i)) {
+            let pack = self.packs.get(p)?;
+            out.extend(pack.frames.iter().find(|f| f.id == id).map(|f| (pack, f)));
+        }
+        Some(out)
+    }
+
     /// The vertices at frame `i` of sequence `s`, deformed exactly as the
-    /// original client deforms them, then scaled. This is validation's
-    /// reference. `None` when the sequence or frame isn't there.
+    /// original client deforms them (secondary frame included), then
+    /// scaled. This is validation's reference. `None` when the sequence or
+    /// frame isn't there.
     pub fn posed(&self, s: usize, i: usize) -> Option<Vec<[i32; 3]>> {
-        let seq = self.sequences.get(s)?;
-        let (pack, frame) = self.frame(seq, i)?;
-        let groups =
-            crate::deform::Groups::new(self.model.vertex_labels.as_deref().unwrap_or_default());
-        Some(crate::deform::deformed(
-            &self.model,
-            &groups,
-            &pack.base,
-            frame,
-            self.scale,
-        ))
+        self.reference(self.sequences.get(s)?, i)
+    }
+
+    /// [`Creature::posed`] for a sequence given by itself.
+    pub fn reference(&self, s: &Sequence, i: usize) -> Option<Vec<[i32; 3]>> {
+        let groups = self.groups();
+        let mut v = self.model.vertices.clone();
+        for (pack, frame) in self.frames(s, i)? {
+            crate::deform::apply_frame(&mut v, &groups, &pack.base, frame);
+        }
+        crate::deform::apply_scale(&mut v, self.scale);
+        Some(v)
+    }
+
+    /// The vertices at frame `i` of action sequence `s` while the creature
+    /// moves, at frame `j` of movement sequence `m`: the two mixed through
+    /// the action's interleave list (see
+    /// [`deform::apply_interleaved`](crate::deform::apply_interleaved)),
+    /// then scaled. An action without a list plays alone, as in the
+    /// original client. `None` when a sequence or frame isn't there.
+    pub fn posed_moving(&self, s: usize, i: usize, m: usize, j: usize) -> Option<Vec<[i32; 3]>> {
+        self.reference_moving(self.sequences.get(s)?, i, self.sequences.get(m)?, j)
+    }
+
+    /// [`Creature::posed_moving`] for sequences given by themselves.
+    pub fn reference_moving(
+        &self,
+        s: &Sequence,
+        i: usize,
+        m: &Sequence,
+        j: usize,
+    ) -> Option<Vec<[i32; 3]>> {
+        let Some(slots) = s.interleave() else {
+            return self.reference(s, i);
+        };
+        let (pack, action) = self.frame(s, i)?;
+        let (_, moving) = self.frame(m, j)?;
+        let mut v = self.model.vertices.clone();
+        crate::deform::apply_interleaved(&mut v, &self.groups(), &pack.base, action, moving, slots);
+        crate::deform::apply_scale(&mut v, self.scale);
+        Some(v)
+    }
+
+    /// The mesh's vertices grouped by label.
+    pub fn groups(&self) -> crate::deform::Groups {
+        crate::deform::Groups::new(self.model.vertex_labels.as_deref().unwrap_or_default())
     }
 
     /// How long each frame of sequence `s` shows, in client cycles
@@ -253,7 +322,15 @@ pub fn sequences(
             unreachable!()
         };
         let mut pack_ids = Vec::with_capacity(def.frames.len());
+        let mut secondary = Vec::with_capacity(def.frames.len());
         for f in &def.frames {
+            let second = f.secondary.and_then(|g| index.pack_for(g));
+            secondary.push(second);
+            if let Some(p) = second
+                && let std::collections::btree_map::Entry::Vacant(e) = packs.entry(p)
+            {
+                e.insert(records.cache().frame_pack(p)?);
+            }
             let p = index.pack_for(f.frame).ok_or_else(|| {
                 ConvertError::Invalid(format!("sequence {id} frame {} is in no pack", f.frame))
             })?;
@@ -265,6 +342,7 @@ pub fn sequences(
         seqs.push(Sequence {
             def,
             packs: pack_ids,
+            secondary,
         });
     }
     Ok((seqs, packs))
@@ -340,7 +418,8 @@ pub fn spotanim(records: &Records, index: &FrameIndex, id: u32) -> Result<Creatu
 
 /// Assemble NPC `id`: its models merged and recoloured, its stand and walk
 /// sequences (plus `extra` sequence ids, since 317 `npc.dat` names no combat
-/// animations) and their frame packs.
+/// animations) and their frame packs. Its walk and turn sequences are the
+/// ones it [moves with](Creature::moving).
 pub fn npc(
     records: &Records,
     index: &FrameIndex,
@@ -367,9 +446,16 @@ pub fn npc(
     .into_iter()
     .flatten()
     .collect();
+    // What it plays while it moves: everything but its stand.
+    let mut moving: Vec<u16> = ids[..]
+        .iter()
+        .copied()
+        .filter(|&s| Some(s) != d.stand_anim)
+        .collect();
+    moving.dedup();
     ids.extend_from_slice(extra);
     let (sequences, packs) = sequences(records, index, &ids)?;
-    Ok(Creature::new(
+    let mut c = Creature::new(
         d.name.unwrap_or_else(|| format!("npc {id}")),
         merged,
         [
@@ -379,7 +465,9 @@ pub fn npc(
         ],
         sequences,
         packs,
-    ))
+    );
+    c.moving = moving;
+    Ok(c)
 }
 
 #[cfg(test)]

@@ -48,25 +48,38 @@ pub struct Skeleton {
 impl Skeleton {
     /// The bones at frame `t` of `clip`, or at rest without one.
     pub fn new(rig: &Rig, clip: Option<(&Clip, u8)>) -> Self {
-        let f = |x: f64, y: f64, z: f64| Vec3::new(x as f32, y as f32, z as f32);
-        let pivots = match clip {
-            // A bone's world transform takes its own pivot to the
-            // translation part.
-            Some((c, t)) => rs2convert::validate::pose(rig, c, t)
-                .iter()
-                .map(|w| f(w.translation.x, w.translation.y, w.translation.z))
-                .collect(),
-            None => rs2convert::validate::rest_pivots(rig)
-                .iter()
-                .map(|p| f(p.x, p.y, p.z))
-                .collect(),
-        };
-        let parents = rig
-            .bones
-            .iter()
-            .map(|b| (b.parent != NO_PARENT).then_some(usize::from(b.parent)))
+        match clip {
+            Some((c, t)) => Self::from_world(
+                rig,
+                rs2convert::validate::pose(rig, c, t)
+                    .iter()
+                    .map(|w| w.translation.to_array()),
+            ),
+            None => {
+                let pivots = rs2convert::validate::rest_pivots(rig)
+                    .iter()
+                    .map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32))
+                    .collect();
+                Self {
+                    pivots,
+                    parents: parents(rig),
+                }
+            }
+        }
+    }
+
+    /// The bones posed by the translation parts of their world transforms
+    /// (from [`rs2convert::validate::pose`] or its kin): a bone's world
+    /// transform takes its own pivot there.
+    pub fn from_world(rig: &Rig, translations: impl IntoIterator<Item = [f64; 3]>) -> Self {
+        let pivots = translations
+            .into_iter()
+            .map(|[x, y, z]| Vec3::new(x as f32, y as f32, z as f32))
             .collect();
-        Self { pivots, parents }
+        Self {
+            pivots,
+            parents: parents(rig),
+        }
     }
 
     /// Draws the pivots and parent lines.
@@ -83,23 +96,29 @@ impl Skeleton {
     }
 }
 
-/// A renderable's skeleton at frame `frame` of sequence `seq`, matching
-/// what [`posed`](crate::explorer::playback::posed) draws: the frame is
-/// clamped to the sequence, and a sequence it doesn't have (or none) gives
-/// the rest pose.
+/// A renderable's skeleton at frame `frame` of sequence `seq`, over
+/// `moving` if a movement sequence plays, matching what
+/// [`posed_moving`](crate::explorer::playback::posed_moving) draws: the
+/// frame is clamped to the sequence, and a sequence it doesn't have (or
+/// none) gives the rest pose.
 ///
 /// A converted creature's bones come from its rig and clip. A cache
 /// creature's come from the rig inferred from it: its animation moves
 /// vertices rather than bones, so each bone's pivot is the centroid of the
 /// vertices it stands for in the posed frame. `None` for anything else.
-pub fn skeleton(r: &Renderable, seq: Option<u32>, frame: usize) -> Option<Skeleton> {
+pub fn skeleton(
+    r: &Renderable,
+    seq: Option<u32>,
+    frame: usize,
+    moving: Option<(u32, usize)>,
+) -> Option<Skeleton> {
     if let Renderable::Creature {
         creature,
         rig: Some(rig),
         ..
     } = r
     {
-        let posed = seq.and_then(|s| crate::explorer::playback::posed(r, s, frame));
+        let posed = seq.and_then(|s| crate::explorer::playback::posed_moving(r, s, frame, moving));
         let vertices = match &posed {
             Some(crate::explorer::playback::Posed::Cache(v)) => v.as_slice(),
             _ => creature.rest.as_slice(),
@@ -116,13 +135,36 @@ pub fn skeleton(r: &Renderable, seq: Option<u32>, frame: usize) -> Option<Skelet
     let Renderable::PackCreature { rig, clips, .. } = r else {
         return None;
     };
-    let clip = seq
-        .and_then(|s| clips.iter().find(|(id, _)| id & 0xffff == s))
-        .map(|(_, c)| {
-            // Clips hold at most 255 frames, so the index fits a u8.
-            (c, frame.min(c.frame_start.len().saturating_sub(1)) as u8)
-        });
-    Some(Skeleton::new(rig, clip))
+    // Clips hold at most 255 frames, so an index fits a u8.
+    let at = |s: u32, f: usize| {
+        clips
+            .iter()
+            .find(|(id, _)| id & 0xffff == s)
+            .map(|(_, c)| (c, f.min(c.frame_start.len().saturating_sub(1)) as u8))
+    };
+    let Some((c, t)) = seq.and_then(|s| at(s, frame)) else {
+        return Some(Skeleton::new(rig, None));
+    };
+    let mixed = moving
+        .filter(|_| !c.moving.is_empty())
+        .and_then(|(m, j)| at(m, j));
+    Some(match mixed {
+        Some((mc, tm)) => Skeleton::from_world(
+            rig,
+            rs2convert::validate::pose_moving(rig, c, t, mc, tm)
+                .iter()
+                .map(|w| w.translation.to_array()),
+        ),
+        None => Skeleton::new(rig, Some((c, t))),
+    })
+}
+
+/// Each bone's parent, `None` for a root.
+fn parents(rig: &Rig) -> Vec<Option<usize>> {
+    rig.bones
+        .iter()
+        .map(|b| (b.parent != NO_PARENT).then_some(usize::from(b.parent)))
+        .collect()
 }
 
 /// What [`draw`] reads.
@@ -146,8 +188,8 @@ fn draw(
     if !input.overlays.bones || input.classic.active() {
         return;
     }
-    let (seq, frame) = (input.pb.seq(), input.pb.clock.frame);
-    let of = |r: Option<&Renderable>| r.and_then(|r| skeleton(r, seq, frame));
+    let (seq, frame, moving) = (input.pb.seq(), input.pb.clock.frame, input.pb.moving_at());
+    let of = |r: Option<&Renderable>| r.and_then(|r| skeleton(r, seq, frame, moving));
     if let Some(s) = of(input.loaded.renderable.as_deref()) {
         s.draw(&mut left_gizmos);
     }
@@ -210,6 +252,7 @@ mod tests {
             loop_offset: NO_LOOP,
             priority: 0,
             replay_mode: 0,
+            moving: Vec::new(),
             keys: vec![Key {
                 t: 1,
                 bone: 0,
@@ -217,6 +260,7 @@ mod tests {
                 pos: [0, -4, 0],
                 scale: [contentpack::records::anim::SCALE_ONE; 3],
             }],
+            mix_keys: Vec::new(),
         };
         let rig = rig();
         assert_eq!(

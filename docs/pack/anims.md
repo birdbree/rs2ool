@@ -10,7 +10,7 @@ Implemented in [`contentpack::records::anim`](../../crates/contentpack/src/recor
 
 ```text
 magic        4 bytes   "RANM"
-version      u8        3
+version      u8        4
 rig          u32       id of the rigs record this clip drives
 frameCount   u8
 frameStart   frameCount × u16   start of each frame, in 20 ms cycles
@@ -18,6 +18,8 @@ duration     u16       total length, in 20 ms cycles
 loopOffset   u16       frames from the end to replay; 65535 = none
 priority     u8
 replayMode   u8
+movingCount  u8
+moving       movingCount × u8   bones a movement clip drives, ascending
 keyCount     u32
 keys         keyCount × {
                bone   u8        bone index in the rig
@@ -26,6 +28,8 @@ keys         keyCount × {
                pos    i16 × 3   translation, pack space
                scale  u16 × 3   scale per pack-space axis, 256 = 1.0
              }
+mixKeyCount  u32
+mixKeys      mixKeyCount × key  the same 17 bytes as a key
 ```
 
 Each key is 17 bytes. A key's bytes put `bone` before `t`, but keys are sorted by `t` first. Don't let the byte order fool you into sorting the other way.
@@ -48,11 +52,24 @@ L = T(restPos[bone] + pos) · R(rot) · S(scale / 256)
 
 where `restPos` comes from the rig. A bone with no key at a frame keeps its rest transform, `T(restPos[bone])`. The world transforms and skinning that follow are on [Rigs](rigs.md#pose-formulas).
 
-`S` scales each pack-space axis about the bone's pivot, before the rotation; children inherit it through their parent's world transform. Keys sit on frame indices only; the format has no keys between frames. The tools write one key for every bone at every frame, root included, so `keyCount` is `frameCount × boneCount` in their output.
+`S` scales each pack-space axis about the bone's pivot, before the rotation; children inherit it through their parent's world transform. Keys sit on frame indices only; the format has no keys between frames. The tools write one key for every bone at every frame, root included, so `keyCount` is `frameCount × boneCount` in their output, and one mix key for every bone not in `moving` at every frame.
 
-## Version 2
+## Moving bones and mix keys
 
-Version 2 is the same record without `scale`, so each key is 11 bytes. Decoders still read it, with every key at scale 1.0 (256), and the encoder always writes version 3. Version 3 added scale for sequences that grow or shrink a model: most spot animations, and some NPC vanishes and deaths.
+A creature can play some clips while it moves: an attack while walking, say. Such a clip lists `moving` bones, and while it plays over the creature's movement clip (walk, run or turn) each bone's local transform comes from:
+
+```text
+L_b = movement clip's key for b at the movement clip's own frame   if b is in moving
+    = this clip's mix key for b at this clip's frame               otherwise
+```
+
+and world transforms and skinning follow as usual, each child under its parent's mixed transform. The two clips keep their own clocks. Mix keys aren't the clip's keys: they hold the pose the clip leaves once the movement has taken its share, which differs whenever the clip moves the whole body itself. A clip with no moving bones has no mix keys and always plays alone; so does any clip while its creature stands still. On the player skeleton, the moving bones are the pelvis and legs.
+
+The tools fill these in for sequences with interleave labels ([Clips](../conversion/clips.md#moving-bones-and-mix-keys)), and check the mix against the original client's ([Validation](../conversion/validation.md#mixes)). Which clips are a creature's movement clips isn't in the record: for NPCs it's their walk and turn sequences, and for the player 819–824.
+
+## Versions 2 and 3
+
+Version 3 is the record without `movingCount`, `moving`, `mixKeyCount` and `mixKeys`, and version 2 is version 3 without `scale`, so each key is 11 bytes. Decoders still read both, with no moving bones and, for version 2, every key at scale 1.0 (256). The encoder always writes version 4. Version 3 added scale for sequences that grow or shrink a model (most spot animations, and some NPC vanishes and deaths), and version 4 the moving bones and mix keys.
 
 ## Rotation
 
@@ -81,8 +98,11 @@ The encoder checks these before writing and the decoder after reading; a failure
 - At most 255 frames.
 - Keys are sorted by `(t, bone)`, strictly: no two keys share a `(t, bone)` pair.
 - Every key's `t` is below `frameCount`.
+- The same two rules for `mixKeys`.
+- `moving` is ascending with no repeats.
+- No mix key is for a bone in `moving`, and there are no mix keys without moving bones.
 
-The decoder also rejects a bad magic, a version other than 2, a record that ends early, and trailing bytes. A clip doesn't carry its rig's bone count, so nothing checks `bone` against the rig, and nothing checks that `frameStart` is increasing or that `loopOffset` is in range.
+The decoder also rejects a bad magic, a version other than 2, 3 or 4, a record that ends early, and trailing bytes. A clip doesn't carry its rig's bone count, so nothing checks `bone` against the rig, and nothing checks that `frameStart` is increasing or that `loopOffset` is in range.
 
 ## Ids
 
