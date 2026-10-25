@@ -371,3 +371,45 @@ fn sequences_rarely_tear_their_own_models() {
     assert!(torn_named * 100 < named * 2, "{torn_named} of {named}");
     assert!(torn_cands > 0);
 }
+
+#[test]
+fn ghostly_sequences_go_after_the_rest_on_solid_models() {
+    use rs2convert::creature;
+    use rs2convert::infer::npc_candidates;
+
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let frames = cache.frame_index().unwrap();
+    let index = SequenceIndex::build(&cache, &records, &frames).unwrap();
+    let candidates = |id| {
+        let c = creature::npc(&records, &frames, id, &[]).unwrap();
+        npc_candidates(&index, &records, &frames, id, c).1
+    };
+    // A skeleton (NPC 90) is offered the sequences of the see-through
+    // skeletons on its skeleton (936–938, which name 264 and 267).
+    let solid = candidates(90);
+    let ghostly: BTreeSet<u32> = solid
+        .iter()
+        .filter(|c| c.see_through)
+        .map(|c| c.seq)
+        .collect();
+    assert!(
+        ghostly.is_superset(&BTreeSet::from([264, 265, 266, 267, 268])),
+        "{ghostly:?}"
+    );
+    // Each comes after the candidates that fit, in its role group.
+    for (i, c) in solid.iter().enumerate() {
+        if c.see_through {
+            assert!(
+                solid[i..]
+                    .iter()
+                    .filter(|d| d.role == c.role)
+                    .all(|d| !d.fits())
+            );
+        }
+    }
+    // On a see-through skeleton they fit.
+    let ghost = candidates(936);
+    assert!(!ghost.is_empty());
+    assert!(ghost.iter().all(|c| !c.see_through));
+}
