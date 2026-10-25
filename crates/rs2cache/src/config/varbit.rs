@@ -71,4 +71,11 @@ mod tests {
         assert_eq!((d.op3, d.op4), (Some(1), Some(2)));
         assert_eq!(d.op10.as_deref(), Some("name"));
     }
+
+    #[test]
+    fn the_varp_keeps_65535() {
+        let data = Ops::default().op(1).u16(65535).u8(0).u8(31).end();
+        let d = Varbit::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.varp, 65535);
+    }
 }

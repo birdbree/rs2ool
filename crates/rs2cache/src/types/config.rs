@@ -5,6 +5,17 @@
 //! where it would use -1. Anything a decoder couldn't make sense of lands in
 //! `unknown_opcodes`, which is left out of the JSON when it's empty.
 //!
+//! A reference to another record or sprite (a model, a sequence, an obj,
+//! a varp, a sprite index) keeps 65535 as an id, because the original
+//! client does: it reads these fields as plain numbers and looks 65535 up
+//! like any other id. No table in a 317 cache is that long, so the lookup
+//! finds nothing and fails, or for a head icon draws none. Following such
+//! a reference here fails the same way, as any id with no record does.
+//! The fields where the original client turns 65535 into "none" decode it
+//! to `None` and say so: a morph's varbit, varp and children, a loc's
+//! animation and a sequence frame's secondary frame. Each reference field
+//! notes which it is.
+//!
 //! Colours in [`Recolour`] are 16-bit HSL (hue 6 bits, saturation 3,
 //! lightness 7), the same encoding as model face colours. Scales are in
 //! 1/128 units, so 128 means 1.0.
@@ -44,7 +55,7 @@ fn is_false(b: &bool) -> bool {
 /// One model of a location, with the placement type it's drawn for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocModel {
-    /// Model id (index 1).
+    /// Model id (index 1). 65535 stays an id.
     pub model: u16,
     /// The 317 location type (0–22) this model is drawn for. `None` when
     /// the definition lists models without types (op 5), which means
@@ -97,7 +108,7 @@ pub struct LocDef {
     /// Op 40, applied in order.
     pub recolours: Vec<Recolour>,
     /// Op 60: which minimap function icon to draw, as an index into the
-    /// `mapfunction` sprites.
+    /// `mapfunction` sprites. 65535 stays an id.
     pub minimap_function: Option<u16>,
     /// Op 62: the model is mirrored (z negated) before placement.
     pub mirrored: bool,
@@ -109,7 +120,8 @@ pub struct LocDef {
     pub scale_y: u16,
     /// Z scale (op 67), 1/128 units.
     pub scale_z: u16,
-    /// Op 68: which `mapscene` sprite the minimap draws for it.
+    /// Op 68: which `mapscene` sprite the minimap draws for it. 65535
+    /// stays an id.
     pub mapscene: Option<u16>,
     /// Op 69: a bit mask of sides, one bit per direction in the low four
     /// bits. Kept as read.
@@ -139,7 +151,7 @@ pub struct LocDef {
 pub struct NpcDef {
     /// Definition id: its position in `npc.idx`.
     pub id: u32,
-    /// Body models (op 1), merged into one mesh to draw.
+    /// Body models (op 1), merged into one mesh to draw. 65535 stays an id.
     pub models: Vec<u16>,
     /// Op 2.
     pub name: Option<String>,
@@ -147,23 +159,23 @@ pub struct NpcDef {
     pub examine: Option<String>,
     /// Footprint in tiles (op 12); default 1.
     pub size: i8,
-    /// Standing sequence (op 13). Kept as read, so 65535 stays 65535.
+    /// Standing sequence (op 13). 65535 stays an id.
     pub stand_anim: Option<u16>,
-    /// Walking sequence (op 14, or op 17's first value).
+    /// Walking sequence (op 14, or op 17's first value). 65535 stays an id.
     pub walk_anim: Option<u16>,
     /// Op 17's second value: played when walking away from the facing
-    /// direction.
+    /// direction. 65535 stays an id.
     pub walk_back_anim: Option<u16>,
     /// Op 17's third value: played when walking sideways, facing a quarter
-    /// turn one way.
+    /// turn one way. 65535 stays an id.
     pub walk_left_anim: Option<u16>,
-    /// Op 17's fourth value: the same for the other side.
+    /// Op 17's fourth value: the same for the other side. 65535 stays an id.
     pub walk_right_anim: Option<u16>,
     /// Ops 30–34.
     pub actions: Actions,
     /// Op 40, applied in order.
     pub recolours: Vec<Recolour>,
-    /// Models for the dialogue head (op 60).
+    /// Models for the dialogue head (op 60). 65535 stays an id.
     pub chat_head_models: Vec<u16>,
     /// Op 93 clears it; default true.
     pub draw_minimap_dot: bool,
@@ -181,7 +193,8 @@ pub struct NpcDef {
     /// Lighting contrast offset (op 101), already multiplied by 5 as the
     /// original client does, so −640 to 635.
     pub contrast: i16,
-    /// Head icon index (op 102).
+    /// Head icon index (op 102). 65535 stays an index; like any index past
+    /// the head icon sprites, it draws no icon.
     pub head_icon: Option<u16>,
     /// Op 103; default 32.
     pub turn_speed: u16,
@@ -199,7 +212,7 @@ pub struct NpcDef {
 pub struct StackVariant {
     /// Slot 0–9, from `op − 100`.
     pub slot: u8,
-    /// The obj id shown for this variant.
+    /// The obj id shown for this variant. 65535 stays an id.
     pub item: u16,
     /// The stack count the variant applies from.
     pub count: u16,
@@ -210,7 +223,8 @@ pub struct StackVariant {
 pub struct ObjDef {
     /// Definition id: its position in `obj.idx`.
     pub id: u32,
-    /// Model used for the inventory icon and on the ground (op 1); default 0.
+    /// Model used for the inventory icon and on the ground (op 1); default
+    /// 0. 65535 stays an id.
     pub inventory_model: u16,
     /// Op 2.
     pub name: Option<String>,
@@ -234,31 +248,31 @@ pub struct ObjDef {
     pub value: i32,
     /// Op 16.
     pub members: bool,
-    /// First worn model for the male body (op 23).
+    /// First worn model for the male body (op 23). 65535 stays an id.
     pub male_equip1: Option<u16>,
     /// Added to every vertex's y of the male worn model (op 23).
     pub male_offset: i8,
-    /// Second worn model for the male body (op 24).
+    /// Second worn model for the male body (op 24). 65535 stays an id.
     pub male_equip2: Option<u16>,
     /// Third worn model for the male body (op 78); only used when there's
-    /// a second.
+    /// a second. 65535 stays an id.
     pub male_equip3: Option<u16>,
-    /// First worn model for the female body (op 25).
+    /// First worn model for the female body (op 25). 65535 stays an id.
     pub female_equip1: Option<u16>,
     /// Added to every vertex's y of the female worn model (op 25).
     pub female_offset: i8,
-    /// Second worn model for the female body (op 26).
+    /// Second worn model for the female body (op 26). 65535 stays an id.
     pub female_equip2: Option<u16>,
     /// Third worn model for the female body (op 79); only used when
-    /// there's a second.
+    /// there's a second. 65535 stays an id.
     pub female_equip3: Option<u16>,
-    /// First male dialogue-head model (op 90).
+    /// First male dialogue-head model (op 90). 65535 stays an id.
     pub male_chat_head1: Option<u16>,
-    /// Second male dialogue-head model (op 92).
+    /// Second male dialogue-head model (op 92). 65535 stays an id.
     pub male_chat_head2: Option<u16>,
-    /// First female dialogue-head model (op 91).
+    /// First female dialogue-head model (op 91). 65535 stays an id.
     pub female_chat_head1: Option<u16>,
-    /// Second female dialogue-head model (op 93).
+    /// Second female dialogue-head model (op 93). 65535 stays an id.
     pub female_chat_head2: Option<u16>,
     /// Options when it's on the ground (ops 30–34).
     pub ground_actions: Actions,
@@ -268,8 +282,9 @@ pub struct ObjDef {
     /// Op 40, applied in order.
     pub recolours: Vec<Recolour>,
     /// Op 97: the obj id of this item's noted (or unnoted) counterpart.
+    /// 65535 stays an id.
     pub noted_id: Option<u16>,
-    /// Op 98: the obj id of the note template.
+    /// Op 98: the obj id of the note template. 65535 stays an id.
     pub noted_template: Option<u16>,
     /// Ops 100–109, sorted by slot; a repeated slot keeps the later value.
     pub stack_variants: Vec<StackVariant>,
@@ -299,14 +314,14 @@ pub struct IdkDef {
     /// Op 1: 0–6 are the male slots, 7–13 the same slots for the female
     /// body. So `slot = body_part % 7`, `body_type = body_part / 7`.
     pub body_part: Option<u8>,
-    /// Op 2; merged into one mesh to draw.
+    /// Op 2; merged into one mesh to draw. 65535 stays an id.
     pub models: Vec<u16>,
     /// Offered in character design; op 3 clears it.
     pub selectable: bool,
     /// Ops 40–45 and 50–55, paired slot by slot up to the first zero
     /// `from`.
     pub recolours: Vec<Recolour>,
-    /// Dialogue-head models (ops 60–64), one per slot.
+    /// Dialogue-head models (ops 60–64), one per slot. 65535 stays an id.
     pub chat_head_models: [Option<u16>; 5],
     /// Opcodes the decoder didn't recognise, in the order met.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -349,9 +364,10 @@ pub struct SeqDef {
     /// playing if its priority is at least as high.
     pub priority: u8,
     /// Op 6: replaces the player's off-hand (shield slot) equipment while
-    /// this plays, in the equipment slot's own encoding.
+    /// this plays, in the equipment slot's own encoding. 65535 stays an id.
     pub offhand_override: Option<u16>,
-    /// Op 7: the same for the main-hand (weapon slot) equipment.
+    /// Op 7: the same for the main-hand (weapon slot) equipment. 65535
+    /// stays an id.
     pub mainhand_override: Option<u16>,
     /// Op 8: how many times it loops before stopping; default 99.
     pub max_loops: u8,
@@ -374,9 +390,9 @@ pub struct SeqDef {
 pub struct SpotAnimDef {
     /// Definition id: its position in `spotanim.dat`.
     pub id: u32,
-    /// Op 1.
+    /// Op 1. 65535 stays an id.
     pub model: Option<u16>,
-    /// The sequence that animates the model (op 2).
+    /// The sequence that animates the model (op 2). 65535 stays an id.
     pub sequence: Option<u16>,
     /// Horizontal scale (op 4), applied to x and z, 1/128 units. Don't read
     /// the name as axes.
@@ -462,7 +478,7 @@ pub struct VarpDef {
 pub struct VarbitDef {
     /// Definition id: its position in `varbit.dat`.
     pub id: u32,
-    /// The varp this varbit lives in (op 1).
+    /// The varp this varbit lives in (op 1). 65535 stays an id.
     pub varp: u16,
     /// Lowest bit, 0–31 (op 1).
     pub lsb: u8,

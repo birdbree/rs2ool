@@ -58,6 +58,8 @@ Any other opcode is logged, recorded in `unknown_opcodes`, and skipped without r
 
 A varbit's value is the run of bits `lsb` through `msb` of its varp's 32-bit value, both ends included. The cache-gated tests check that every varbit has `lsb ≤ msb < 32` and names a varp that exists.
 
+A varbit's `varp` keeps 65535 as an id, as the original client does; see [65535 as none](../cache/config.md#65535-as-none).
+
 ## Use in the tools
 
 The tools decode, dump and inspect both types. In the explorer's inspector, a varbit's `varp` field links to that varp. A [morph table](../cache/config.md#morph-tables) names a varbit or a varp (65535 meaning none in either slot). Object conversion turns every child of a loc's morph table into a state rather than choosing one; see [Loc](loc.md) and [Object conversion](../conversion/objects.md). The explorer evaluates them: set a varp's contents beside a morph table and it shows the child the original client would pick ([Object states](../tools/explorer.md#object-states)).

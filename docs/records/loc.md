@@ -55,6 +55,8 @@ Each definition is an opcode stream ending with opcode 0. An opcode not listed h
 | 75 | `u8` | `support_items` |
 | 77 | morph table (see [Config archive](../cache/config.md)) | `morph` |
 
+Only the animation (opcode 24) and the morph table turn 65535 into none; the models, minimap function and mapscene keep it as an id, as the original client does. See [65535 as none](../cache/config.md#65535-as-none).
+
 ## Defaults
 
 Before the first opcode the decoder starts from the original client's values:

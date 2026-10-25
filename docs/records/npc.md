@@ -43,7 +43,7 @@ Each definition ends with opcode 0. An opcode not listed is logged, added to `un
 | 106 | morph table (see [Config archive](../cache/config.md)) | `morph`: children are npc ids |
 | 107 | nothing | `clickable = false` |
 
-The sequence ids from opcodes 13, 14 and 17 are kept exactly as read; unlike the loc animation field, 65535 isn't turned into none here.
+The sequence ids from opcodes 13, 14 and 17 are kept exactly as read; unlike the loc animation field, 65535 isn't turned into none here, as the original client doesn't either. The same goes for the models and the head icon. See [65535 as none](../cache/config.md#65535-as-none) for which `u16` references keep 65535 as an id.
 
 ## Defaults
 

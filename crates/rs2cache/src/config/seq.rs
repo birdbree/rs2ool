@@ -146,4 +146,23 @@ mod tests {
         assert_eq!((d.priority, d.max_loops, d.replay_mode), (5, 99, 2));
         assert_eq!((d.animating_precedence, d.walking_precedence), (0, 0));
     }
+
+    #[test]
+    fn overrides_keep_65535_and_secondary_frames_drop_it() {
+        let data = Ops::default()
+            .op(1)
+            .u8(1)
+            .u16(10)
+            .u16(65535)
+            .u16(3)
+            .op(6)
+            .u16(65535)
+            .op(7)
+            .u16(65535)
+            .end();
+        let d = Seq::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.frames[0].secondary, None);
+        assert_eq!(d.offhand_override, Some(65535));
+        assert_eq!(d.mainhand_override, Some(65535));
+    }
 }

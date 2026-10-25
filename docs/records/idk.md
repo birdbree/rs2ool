@@ -32,6 +32,8 @@ Any other opcode is logged, added to `unknown_opcodes`, and skipped without read
 
 The opcodes in the last row are odd ones. The original client's opcode tests take whole ranges of ten (40–49, 50–59, 60–69), but its arrays have only six recolour slots and five chat-head slots. So these opcodes sit inside a range the client accepts, past the end of the array it would write to. The decoder consumes their `u16` so the stream stays aligned, then logs them and adds them to `unknown_opcodes` like any other unknown opcode.
 
+The models and chat-head models keep 65535 as an id, as the original client does; see [65535 as none](../cache/config.md#65535-as-none).
+
 ## Defaults
 
 `selectable` starts true. `body_part` is none, `models` is empty, every chat-head slot is none, and all twelve recolour slots are 0.

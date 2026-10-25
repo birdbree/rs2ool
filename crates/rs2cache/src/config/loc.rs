@@ -304,4 +304,27 @@ mod tests {
         assert!(Loc::decode(0, &mut Cursor::new(&data)).is_err());
         assert!(Loc::decode(0, &mut Cursor::new(&[1, 2, 0])).is_err());
     }
+
+    #[test]
+    fn references_keep_65535_but_the_animation_drops_it() {
+        let data = Ops::default()
+            .op(1)
+            .u8(1)
+            .u16(65535)
+            .u8(10)
+            .op(24)
+            .u16(65535)
+            .op(60)
+            .u16(65535)
+            .op(68)
+            .u16(65535)
+            .end();
+        let d = Loc::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.models[0].model, 65535);
+        assert_eq!(d.animation, None);
+        assert_eq!((d.minimap_function, d.mapscene), (Some(65535), Some(65535)));
+        let data = Ops::default().op(5).u8(1).u16(65535).end();
+        let d = Loc::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.models[0].model, 65535);
+    }
 }
