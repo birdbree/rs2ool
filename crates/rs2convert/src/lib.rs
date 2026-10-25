@@ -25,6 +25,8 @@
 //!   error against [`deform`].
 //! - [`infer`]: links the cache doesn't store, such as which sequences
 //!   could animate an NPC, inferred from frame-base families.
+//! - [`slot`]: an item's equipment slot, inferred from its wear models'
+//!   vertex labels.
 //! - [`texture`]: the texture atlas and texture materials.
 //! - [`sprite`]: media and title sprites, and fonts.
 //! - [`floor`]: floor materials and their names.
@@ -66,6 +68,7 @@ pub mod pipeline;
 pub mod preview;
 pub mod rig;
 pub mod run;
+pub mod slot;
 pub mod space;
 pub mod sprite;
 pub mod texture;

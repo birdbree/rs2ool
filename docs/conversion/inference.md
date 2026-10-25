@@ -4,7 +4,7 @@
 
 The cache links surprisingly little together. This page covers what it states outright, and how the tools can infer the rest from structure: which sequences animate which NPCs and locations, and which equipment slot an item goes in. Read it to know which links you can rely on and which are educated guesses.
 
-**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Each candidate's role (death, action, down, drop, vanish, idle or other) is worked out from its motion. Equipment slots aren't inferred yet ([#60](https://github.com/birdbree/rs2ool/issues/60)). Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
+**Status:** sequence candidates are implemented in [`rs2convert::infer`](../../crates/rs2convert/src/infer.rs) and shown in the explorer's [playback bar](../tools/explorer.md#playback). Each candidate's role (death, action, down, drop, vanish, idle or other) is worked out from its motion. Equipment slots are inferred from wear models in [`rs2convert::slot`](../../crates/rs2convert/src/slot.rs) and used by the explorer's player kit. Anything inferred is shown as a ranked candidate with its score and evidence, never as a cache fact.
 
 ## What the cache states
 
@@ -142,12 +142,68 @@ Locations work the same way: their named animation fixes a family, and other can
 
 ## Equipment slots
 
-Item definitions have no slot field, which is why the explorer's [player kit](../tools/explorer.md#the-player-kit) makes you put each item in its slot yourself. The evidence:
+Item definitions have no slot field. Wear models are built on the player's skeleton, though, so their vertex labels say where they attach. [`rs2convert::slot`](../../crates/rs2convert/src/slot.rs) reads the slot from them.
 
-1. **Labels to body regions.** Wear models are built on the player's skeleton, so their vertex labels say where they attach. [Rig inference](rig-inference.md#naming) already maps labels to body regions. Head labels mean a helmet; neck an amulet; the back of the upper torso a cape; torso and arms a body; legs; hands gloves; feet boots. Right-hand labels alone mean a weapon, left-hand alone a shield, both hands a two-handed weapon.
-2. **Overlap with the default body.** Comparing a wear model with each default [identity-kit](../records/idk.md) part confirms the slot, and says which kit parts the item covers, which is what hiding body parts needs.
-3. **Options and fields.** "Wield" against "Wear"; an item that can be worn but has no wear model is probably a ring; one that stacks and can be wielded is probably ammunition.
-4. **NPC outfits.** Humanoid NPCs reuse item wear models in their model lists. Looking those up in reverse confirms slots (an NPC never wears two helmets) and gives each NPC's outfit.
+### Label groups
+
+These come from the wear models themselves and match the default body's [identity-kit](../records/idk.md) parts:
+
+| Labels | Where |
+| --- | --- |
+| 1, 3, 49 | the head (skull and face) |
+| 2, 8 | the neck and upper chest |
+| 4 | the waist |
+| 9–16 | where a cape hangs from |
+| 17–26 | the arms, shoulder to wrist (19 and 22 the forearms) |
+| 27, 28 | the right and left hands |
+| 29–44 | the legs, hip to ankle |
+| 45–48 | the feet |
+| 50 and up | the held-object point a weapon hangs from |
+| 255 | unassigned vertices, ignored |
+
+### Rules
+
+`slot_for` takes the labels of an item's male wear models (the female ones are built on the same skeleton) and picks the first that fits:
+
+1. any cape label: **cape**;
+2. any foot label: **feet**;
+3. any leg label: **legs**;
+4. both hands and a forearm, but no upper arm: **hands**;
+5. any arm label or the waist: **body**;
+6. any head label: **head**;
+7. nothing but the neck and upper chest: **amulet**;
+8. the left hand only: **shield**;
+9. the right hand, both hands, or the held-object point: **weapon**.
+
+The order settles overlaps: leg armour often reaches the waist, and a full helm reaches the neck. Alongside the slot, a guess records whether the item has an option that puts it on ("Wear", "Wield" or "Equip"). Many items have wear models but no such option: tools and the like, whose models are only shown in the hand during an animation. Those are flagged as held only. `both_hands` marks a weapon drawn on both hands, like claws. Two-handed weapons that hang from the held-object point, as most do, aren't detected.
+
+`covers` says which default body parts an item covers: each kit part whose own labels the item has at least 80% of. Body armour with sleeves covers the torso and arms; boots cover the feet. That's what hiding body parts under an item needs ([#40](https://github.com/birdbree/rs2ool/issues/40)), but it isn't applied yet. The 80% line is a guess, and some cases need more than labels: a medium helmet and a full helm cover the same head labels, but only one of them hides a beard.
+
+### How well it does
+
+On the test cache, 1586 items have a wear model:
+
+| Slot | Items | Held only |
+| --- | --- | --- |
+| weapon | 648 | 190 |
+| head | 222 | 7 |
+| legs | 162 | 6 |
+| body | 139 | 7 |
+| shield | 133 | 25 |
+| cape | 82 | 0 |
+| amulet | 79 | 0 |
+| feet | 54 | 1 |
+| hands | 53 | 0 |
+
+14 items stay unplaced, all with nothing but unassigned vertices. Three checks back the rule up:
+
+- **Hand-checked items:** 57 items across every slot, checked by name, all get the right slot.
+- **Body-part overlap:** for the 441 wearable items that cover a default body part, the part they cover points at the same slot 436 times.
+- **NPC outfits:** NPCs are often dressed in item wear models. Leaving out identity-kit body-part models (which some items reuse as their wear model), 713 NPCs wear two or more items and only 34 of them would be wearing two in one slot. Most of those 34 are a hat worn with a hair-like model.
+
+Like the sequence labels, the hand-checked list stays local: `crates/rs2convert/tests/infer_slots.rs` reads it from the JSON file `RS2_ITEM_SLOTS` names (`[{"item": 1153, "slot": "head"}, …]`) and skips that part without it.
+
+The explorer's [player kit](../tools/explorer.md#the-player-kit) uses the guesses to put an item in its slot for you. Rings and ammunition have no wear model, so there's nothing to read for them. Captioning ([#72](https://github.com/birdbree/rs2ool/issues/72)) could check slots by eye too.
 
 ## Measuring it yourself
 

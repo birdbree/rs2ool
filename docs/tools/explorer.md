@@ -165,7 +165,8 @@ A state that draws nothing says so.
 Select **player kit** under a cache source to dress a player. The kit parts load once, in the background, and the inspector shows the controls:
 
 - **male** / **female**, and **Reset** to go back to the default appearance;
-- one row per equipment slot: its name; for slots an identity-kit part fills by default, a picker with "none" and every selectable part of that body part and body type; and an **item** id (0 for none).
+- **Wear in its slot**: type an item id and click, and the item goes in the slot its wear models point at ([equipment slots](../conversion/inference.md#equipment-slots)), with a line saying which slot, from which labels, and whether it's only ever held;
+- one row per equipment slot: its name; for slots an identity-kit part fills by default, a picker with "none" and every selectable part of that body part and body type; and an **item** id (0 for none), whose tooltip shows the slot its wear models point at.
 
 An item id wins over the slot's kit part: the slot then shows the item's equipment model for the chosen body type. The dressed model rebuilds in the background after every change and plays the player stance sequences. The slots and their default kit parts are listed on [Assembly](../client/assembly.md#equipment-slots).
 

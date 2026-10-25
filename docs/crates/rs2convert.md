@@ -16,6 +16,7 @@ Entry point: [`crates/rs2convert/src/lib.rs`](../../crates/rs2convert/src/lib.rs
 | [`rig`](../../crates/rs2convert/src/rig.rs) | Rig inference from frame-base label sets. |
 | [`clip`](../../crates/rs2convert/src/clip.rs) | Converts each frame of a sequence into pose keys per bone. |
 | [`infer`](../../crates/rs2convert/src/infer.rs) | Links the cache doesn't store: candidate sequences for a model from frame-base families, label coverage and id distance, and each one's role (death, action, down, drop, vanish, idle or other) from its motion. See [inference](../conversion/inference.md). |
+| [`slot`](../../crates/rs2convert/src/slot.rs) | An item's equipment slot from its wear models' vertex labels, and which default body parts it covers. See [inference](../conversion/inference.md#equipment-slots). |
 | [`validate`](../../crates/rs2convert/src/validate.rs) | Re-skins the creature's rest mesh with the encoded rig and clip records and compares it with the reference deformation. |
 | [`deform`](../../crates/rs2convert/src/deform.rs) | The original client's frame application in integer arithmetic: the reference deformation. |
 | [`space`](../../crates/rs2convert/src/space.rs) | Cache space to pack space. |

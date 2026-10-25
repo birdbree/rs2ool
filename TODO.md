@@ -50,7 +50,7 @@ Rough edges, gaps against the original client, and features we don't have yet, r
 - [ ] [#41](https://github.com/birdbree/rs2ool/issues/41) Compare two caches
 - [ ] [#55](https://github.com/birdbree/rs2ool/issues/55) Fly the camera across the whole map
 - [x] [#59](https://github.com/birdbree/rs2ool/issues/59) Infer which sequences belong to which NPCs and objects
-- [ ] [#60](https://github.com/birdbree/rs2ool/issues/60) Infer an item's equipment slot from its wear models
+- [x] [#60](https://github.com/birdbree/rs2ool/issues/60) Infer an item's equipment slot from its wear models
 - [x] [#65](https://github.com/birdbree/rs2ool/issues/65) Pick humanoid candidate sequences by role, not id distance
 - [x] [#67](https://github.com/birdbree/rs2ool/issues/67) Converted NPCs don't play their inferred sequences in compare view
 - [x] [#68](https://github.com/birdbree/rs2ool/issues/68) Label each "Open as source" button with what it opens
