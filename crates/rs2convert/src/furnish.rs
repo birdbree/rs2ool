@@ -85,6 +85,42 @@ pub enum Category {
     Nature,
 }
 
+impl Category {
+    /// Every category, in declaration order.
+    pub const ALL: [Category; 30] = [
+        Category::Bank,
+        Category::Bar,
+        Category::Smithing,
+        Category::Crafting,
+        Category::Worship,
+        Category::Throne,
+        Category::Counter,
+        Category::Display,
+        Category::Military,
+        Category::Ship,
+        Category::Mill,
+        Category::Farm,
+        Category::Magic,
+        Category::Books,
+        Category::Cooking,
+        Category::Washing,
+        Category::Bed,
+        Category::Seat,
+        Category::Table,
+        Category::Storage,
+        Category::Hearth,
+        Category::Light,
+        Category::Decoration,
+        Category::Plant,
+        Category::Grave,
+        Category::Prison,
+        Category::Stairs,
+        Category::Remains,
+        Category::Fixture,
+        Category::Nature,
+    ];
+}
+
 /// The keywords of each category, in the order names are tried.
 const KEYWORDS: &[(Category, &[&str])] = &[
     (

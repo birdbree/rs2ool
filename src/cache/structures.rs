@@ -7,6 +7,11 @@
 //! a structure that crosses into a neighbour comes out whole; one that
 //! goes on past them is marked clipped. With `--all`, the whole map is
 //! searched at once.
+//!
+//! Each structure also gets what the learned trees ([`rs2convert::learn`])
+//! make of it: its class, its rooms' uses and its site. With `--learn`, the
+//! command learns those trees from a labels file instead, and reports how
+//! they do.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -18,10 +23,11 @@ use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
+use rs2convert::learn::{self, Label, Trees};
 use rs2convert::material;
-use rs2convert::purpose::{self, Class, Purpose};
+use rs2convert::purpose::{self, Class, Purpose, Use};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cache::{Outcome, plans, select};
 
@@ -38,12 +44,36 @@ pub struct StructuresArgs {
     /// Also write a floor plan and a text sheet for each structure under
     /// `out`, in `plans/<rx>_<ry>/` (see [`crate::cache::plans`]).
     pub plans: bool,
+    /// Learn the trees from this labels file and report how they do,
+    /// instead of listing or writing structures.
+    pub learn: Option<PathBuf>,
+    /// With `learn`, save the trees here.
+    pub save: Option<PathBuf>,
+    /// Use the trees in this file rather than the built-in ones.
+    pub trees: Option<PathBuf>,
 }
 
-/// How far, in tiles, a structure's sheet looks for neighbours, and how
-/// many it lists.
-const NEIGHBOUR_GAP: u32 = 24;
-const NEIGHBOURS: usize = 12;
+/// A labels file: `{"labels": […]}` with any other fields alongside, or
+/// just the list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LabelsFile {
+    Wrapped { labels: Vec<Label> },
+    Bare(Vec<Label>),
+}
+
+/// What the learned trees make of a structure.
+#[derive(Serialize)]
+struct Learned {
+    /// Its class.
+    class: Class,
+    /// Each room's use, in room order.
+    rooms: Vec<Use>,
+    /// The id of its site's first structure, when it's on a site with
+    /// others.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    site: Option<String>,
+}
 
 /// One region's file.
 #[derive(Serialize)]
@@ -54,12 +84,14 @@ struct RegionFile<'a> {
     structures: Vec<Entry<'a>>,
 }
 
-/// A structure's blueprint and what it's likely for, side by side.
+/// A structure's blueprint and what it's likely for, side by side: by the
+/// rules, with their evidence, and by the learned trees.
 #[derive(Serialize)]
 struct Entry<'a> {
     #[serde(flatten)]
     structure: &'a Structure,
     purpose: Purpose,
+    learned: Learned,
 }
 
 /// Runs the command.
@@ -100,6 +132,23 @@ pub fn run(
     let defs = definitions(records, &regions);
     let mut found = structure::find(&regions, &defs);
     material::dress(&mut found, records, &defs, &floors(records));
+    if let Some(path) = &a.learn {
+        learn_from(&found, path, a.save.as_deref(), out)?;
+        return Ok(if failed > 0 {
+            Outcome::Partial
+        } else {
+            Outcome::Ok
+        });
+    }
+    let trees = match &a.trees {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            serde_json::from_str(&text).with_context(|| format!("reading {}", path.display()))?
+        }
+        None => Trees::built_in(),
+    };
+    let learned = learned(&trees, &found);
     // Each structure under the region its origin is in.
     let mut by_region: BTreeMap<(u8, u8), Vec<&Structure>> = BTreeMap::new();
     for s in &found {
@@ -114,27 +163,18 @@ pub fn run(
     let purposes: Vec<Purpose> = found.iter().map(purpose::of).collect();
     match &a.out {
         Some(dir) if a.plans => {
-            let index: BTreeMap<*const Structure, usize> = found
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (std::ptr::from_ref(s), i))
-                .collect();
+            let neighbours = learn::neighbours(&found);
             for ((x, y), structures) in &by_region {
                 let rdir = dir.join("plans").join(format!("{x}_{y}"));
                 std::fs::create_dir_all(&rdir)
                     .with_context(|| format!("creating {}", rdir.display()))?;
                 for s in structures {
-                    let i = index[&std::ptr::from_ref(*s)];
-                    let mut near: Vec<(&Structure, &Purpose, u32)> = found
+                    let i = index_of(&found, s);
+                    let near: Vec<(&Structure, &Purpose, u32)> = neighbours[i]
                         .iter()
-                        .zip(&purposes)
-                        .filter(|(n, _)| !std::ptr::eq(*n, *s))
-                        .map(|(n, p)| (n, p, plans::gap(s, n)))
-                        .filter(|&(_, _, g)| g <= NEIGHBOUR_GAP)
+                        .map(|&n| (&found[n], &purposes[n], structure::gap(s, &found[n])))
                         .collect();
-                    near.sort_by_key(|&(n, _, g)| (g, plans::id(n)));
-                    near.truncate(NEIGHBOURS);
-                    let stem = rdir.join(plans::id(s));
+                    let stem = rdir.join(structure::id(s));
                     let png = stem.with_extension("png");
                     std::fs::write(&png, crate::render::png(&plans::plan(s)))
                         .with_context(|| format!("writing {}", png.display()))?;
@@ -143,18 +183,28 @@ pub fn run(
                         .with_context(|| format!("writing {}", md.display()))?;
                 }
             }
-            write_json(dir, &by_region, out)?;
+            write_json(dir, &by_region, &purposes, &learned, &found, out)?;
         }
-        Some(dir) => write_json(dir, &by_region, out)?,
+        Some(dir) => write_json(dir, &by_region, &purposes, &learned, &found, out)?,
         None => {
             for ((x, y), structures) in &by_region {
                 for s in structures {
-                    writeln!(
-                        out,
-                        "{x}_{y}  {:<16}  {}",
-                        class(&purpose::of(s)),
-                        summary(s)
-                    )?;
+                    let i = index_of(&found, s);
+                    let (l, p) = (&learned[i], &purposes[i]);
+                    // The learned class, with a shop's wares from the rules'
+                    // guess when they agree; the rules' guess beside it when
+                    // they don't.
+                    let guess = if l.class == p.class.what {
+                        class(p)
+                    } else {
+                        format!("{} (rules: {})", name(&l.class), class(p))
+                    };
+                    let site = l
+                        .site
+                        .as_ref()
+                        .map(|id| format!("  site {id}"))
+                        .unwrap_or_default();
+                    writeln!(out, "{x}_{y}  {guess:<28}  {}{site}", summary(s))?;
                 }
             }
         }
@@ -164,6 +214,128 @@ pub fn run(
     } else {
         Outcome::Ok
     })
+}
+
+/// What the trees make of each structure, with sites named by their first
+/// structure's id.
+struct Made {
+    class: Class,
+    rooms: Vec<Use>,
+    site: Option<String>,
+}
+
+fn learned(trees: &Trees, found: &[Structure]) -> Vec<Made> {
+    let sites = trees.sites(found);
+    let mut members: BTreeMap<usize, usize> = BTreeMap::new();
+    for &s in &sites {
+        *members.entry(s).or_default() += 1;
+    }
+    found
+        .iter()
+        .zip(&sites)
+        .map(|(s, &site)| {
+            let (class, rooms) = trees.classify(s);
+            Made {
+                class,
+                rooms,
+                site: (members[&site] > 1).then(|| structure::id(&found[site])),
+            }
+        })
+        .collect()
+}
+
+/// Where `s` is in `found`.
+fn index_of(found: &[Structure], s: &Structure) -> usize {
+    found
+        .iter()
+        .position(|f| std::ptr::eq(f, s))
+        .expect("a found structure")
+}
+
+/// A class or use by the name it has in the JSON.
+fn name(what: &impl Serialize) -> String {
+    serde_json::to_value(what)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Learns the trees from the labels at `path`, prints how they do held out
+/// against the rules, and saves them to `save` if given.
+fn learn_from(
+    found: &[Structure],
+    path: &std::path::Path,
+    save: Option<&std::path::Path>,
+    out: &mut impl Write,
+) -> Result<()> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let labels =
+        match serde_json::from_str(&text).with_context(|| format!("reading {}", path.display()))? {
+            LabelsFile::Wrapped { labels } | LabelsFile::Bare(labels) => labels,
+        };
+    let learned = learn::learn(found, &labels, learn::Sizes::default());
+    let pct = |a: usize, b: usize| 100.0 * a as f64 / b.max(1) as f64;
+    let c = learned.classes;
+    writeln!(
+        out,
+        "{} labelled structures; held out over {} folds:",
+        c.total,
+        learn::FOLDS
+    )?;
+    writeln!(
+        out,
+        "  classes  learned {}/{} ({:.0}%), rules {}/{} ({:.0}%)",
+        c.learned,
+        c.total,
+        pct(c.learned, c.total),
+        c.rules,
+        c.total,
+        pct(c.rules, c.total)
+    )?;
+    let r = learned.rooms;
+    writeln!(
+        out,
+        "  rooms    learned {}/{} ({:.0}%), rules {}/{} ({:.0}%)",
+        r.learned,
+        r.total,
+        pct(r.learned, r.total),
+        r.rules,
+        r.total,
+        pct(r.rules, r.total)
+    )?;
+    let s = learned.sites;
+    writeln!(
+        out,
+        "  sites    {} neighbouring pairs, {} labelled as one site; {} predicted so rightly, {} wrongly (precision {:.0}%, recall {:.0}%)",
+        s.pairs,
+        s.labelled,
+        s.right,
+        s.wrong,
+        pct(s.right, s.right + s.wrong),
+        pct(s.right, s.labelled)
+    )?;
+    let mut mistakes: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for (label, guess, _) in &learned.class_table {
+        if label != guess {
+            *mistakes.entry((name(label), name(guess))).or_default() += 1;
+        }
+    }
+    let mut mistakes: Vec<_> = mistakes.into_iter().collect();
+    mistakes.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let shown: Vec<String> = mistakes
+        .iter()
+        .take(10)
+        .map(|((l, g), n)| format!("{l} as {g} ×{n}"))
+        .collect();
+    writeln!(out, "  commonest class mistakes: {}", shown.join(", "))?;
+    if let Some(save) = save {
+        // Compact: forests are big.
+        let json = serde_json::to_string(&learned.trees)?;
+        std::fs::write(save, json + "\n").with_context(|| format!("writing {}", save.display()))?;
+        writeln!(out, "trees saved to {}", save.display())?;
+    }
+    Ok(())
 }
 
 /// The definition of every location placed in `regions` that decodes.
@@ -185,6 +357,9 @@ fn definitions(records: &Records, regions: &[Region]) -> BTreeMap<u16, LocDef> {
 fn write_json(
     dir: &std::path::Path,
     by_region: &BTreeMap<(u8, u8), Vec<&Structure>>,
+    purposes: &[Purpose],
+    learned: &[Made],
+    found: &[Structure],
     out: &mut impl Write,
 ) -> Result<()> {
     let dir = dir.join("structures");
@@ -195,9 +370,18 @@ fn write_json(
             region: format!("{x}_{y}"),
             structures: structures
                 .iter()
-                .map(|s| Entry {
-                    structure: s,
-                    purpose: purpose::of(s),
+                .map(|s| {
+                    let i = index_of(found, s);
+                    let l = &learned[i];
+                    Entry {
+                        structure: s,
+                        purpose: purposes[i].clone(),
+                        learned: Learned {
+                            class: l.class,
+                            rooms: l.rooms.clone(),
+                            site: l.site.clone(),
+                        },
+                    }
                 })
                 .collect(),
         };

@@ -17,7 +17,7 @@ use image::{Rgba, RgbaImage};
 use rs2convert::furnish::{self, Category};
 use rs2convert::material::{Dressing, Material};
 use rs2convert::purpose::Purpose;
-use rs2convert::structure::{Placed, Structure};
+use rs2convert::structure::{self, Placed, Structure};
 
 /// Pixels to a tile.
 pub const TILE: u32 = 16;
@@ -273,31 +273,6 @@ fn panel(c: &mut Canvas, s: &Structure, plane: u8, ox: i64, h: u32) {
     }
 }
 
-/// A structure's id in sheets and labels: `x_y_p`, its origin and lowest
-/// plane.
-pub fn id(s: &Structure) -> String {
-    format!(
-        "{}_{}_{}",
-        s.origin.0,
-        s.origin.1,
-        s.planes.first().copied().unwrap_or(0)
-    )
-}
-
-/// The gap in tiles between two structures' boxes (0 when they touch or
-/// overlap).
-pub fn gap(a: &Structure, b: &Structure) -> u32 {
-    // The space between two spans, either way round; nothing when they
-    // touch or overlap.
-    let axis = |a0: u16, an: u16, b0: u16, bn: u16| {
-        let (a0, b0) = (u32::from(a0), u32::from(b0));
-        let (a1, b1) = (a0 + u32::from(an), b0 + u32::from(bn));
-        b0.saturating_sub(a1).max(a0.saturating_sub(b1))
-    };
-    axis(a.origin.0, a.size.0, b.origin.0, b.size.0)
-        .max(axis(a.origin.1, a.size.1, b.origin.1, b.size.1))
-}
-
 /// A text sheet for `s`: its size, materials and guess, each room's
 /// contents, and its `neighbours` (each with its guess and gap in tiles).
 pub fn sheet(
@@ -308,7 +283,7 @@ pub fn sheet(
     let mut out = String::new();
     let yards = s.rooms.iter().filter(|r| !r.roofed).count();
     let planes: Vec<String> = s.planes.iter().map(u8::to_string).collect();
-    let _ = writeln!(out, "# Structure {}", id(s));
+    let _ = writeln!(out, "# Structure {}", structure::id(s));
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -368,7 +343,7 @@ pub fn sheet(
         let _ = writeln!(
             out,
             "- {}: {} × {} tiles, planes {:?}, {gap} tiles away, to the {}. Guess: {}.",
-            id(n),
+            structure::id(n),
             n.size.0,
             n.size.1,
             n.planes,

@@ -44,7 +44,11 @@
 //!   category, and what its minimap icon shows.
 //! - [`purpose`]: what a structure and its rooms are likely for, with the
 //!   evidence.
+//! - [`learn`]: learning structure classes, room uses and sites from
+//!   labelled structures.
 //! - [`material`]: what a structure's walls, roofs and floors are made of.
+//! - [`tree`]: a small decision tree over plain feature vectors, for any
+//!   label, with cross-validation.
 //! - [`preview`]: the model a record describes, put together for viewing.
 //! - [`space`]: cache space to pack space (y and z negated).
 //!
@@ -77,6 +81,7 @@ pub mod floor;
 pub mod furnish;
 pub mod infer;
 pub mod item;
+pub mod learn;
 pub mod material;
 pub mod model;
 pub mod morph;
@@ -92,6 +97,7 @@ pub mod space;
 pub mod sprite;
 pub mod structure;
 pub mod texture;
+pub mod tree;
 pub mod validate;
 
 use rs2cache::{Cache, archive};

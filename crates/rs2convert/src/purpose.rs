@@ -62,6 +62,29 @@ pub enum Class {
     Farm,
     /// A garden: a yard of plants.
     Garden,
+    /// A civic building. Labels only: no rule gives it.
+    TownHall,
+    /// An underground or natural place: a cave, a dungeon, a mine, a
+    /// tunnel. Labels only.
+    Cave,
+    /// A tower that's neither a magic tower nor part of a castle: a
+    /// watchtower, a lookout, a stair tower. Labels only.
+    Tower,
+    /// A walled or fenced open area with little built in it: a pen, a
+    /// walled plot, a compound, an arena. Labels only.
+    Enclosure,
+    /// A market stall, a tent, a booth or a small open-sided shelter.
+    /// Labels only.
+    Stall,
+    /// Sleeping quarters for many: rows of beds, a dormitory, a
+    /// guardhouse. Labels only.
+    Barracks,
+    /// A building given over to storage: a warehouse, a granary, a shed
+    /// of stores. Labels only.
+    Storehouse,
+    /// Something none of these fits, by a labeller's judgement. Labels
+    /// only.
+    Other,
     /// Nothing scored enough.
     Unknown,
 }
@@ -114,6 +137,19 @@ pub enum Use {
     Pen,
     /// Nothing in it.
     Empty,
+    /// A room for sitting and living in. Labels only: no rule gives it.
+    LivingRoom,
+    /// A study. Labels only.
+    Study,
+    /// An office. Labels only.
+    Office,
+    /// A corridor or passage. Labels only.
+    Corridor,
+    /// A cave or tunnel. Labels only.
+    Cave,
+    /// Something none of these fits, by a labeller's judgement. Labels
+    /// only.
+    Other,
     /// Something in it, but nothing that says what for.
     Unknown,
 }
@@ -257,11 +293,12 @@ impl Shape {
     }
 }
 
-/// Works out what `s` and its rooms are likely for.
-pub fn of(s: &Structure) -> Purpose {
+/// Every class the rules know, scored for `s`, in the order they're
+/// tried: from the most telling evidence to the least.
+pub fn class_scores(s: &Structure) -> Vec<Guess<Class>> {
     let t = Tally::of(s.objects.iter());
     let shape = Shape::of(s);
-    let mut guesses: Vec<Guess<Class>> = vec![
+    vec![
         bank(&t),
         church(&t),
         tavern(&t),
@@ -281,9 +318,14 @@ pub fn of(s: &Structure) -> Purpose {
         garden(&t, &shape),
         house(&t, &shape),
         shack(&t, &shape),
-    ];
-    // Best first; ties go to the earlier class in the list above, which
-    // runs from the most telling evidence to the least.
+    ]
+}
+
+/// Works out what `s` and its rooms are likely for.
+pub fn of(s: &Structure) -> Purpose {
+    let mut guesses = class_scores(s);
+    // Best first; ties go to the earlier class, which the rules try in
+    // order from the most telling evidence to the least.
     guesses.retain(|g| g.score >= MIN_SCORE);
     guesses.sort_by_key(|g| std::cmp::Reverse(g.score));
     let class = if guesses.is_empty() {
@@ -519,6 +561,24 @@ fn shack(t: &Tally, s: &Shape) -> Guess<Class> {
 
 /// The best guess for one room.
 fn room<'a>(r: &Room, objects: impl Iterator<Item = &'a Placed>) -> Guess<Use> {
+    let objects: Vec<&Placed> = objects.collect();
+    let furnished = objects.iter().any(|o| matches!(o.kind, 10 | 11));
+    let mut guesses = room_scores(r, objects.into_iter());
+    guesses.retain(|g| g.score >= MIN_SCORE || matches!(g.what, Use::Courtyard | Use::Terrace));
+    // Best first, ties to the order the rules try them: from the most
+    // telling to the least.
+    guesses.sort_by_key(|g| std::cmp::Reverse(g.score));
+    guesses.into_iter().next().unwrap_or_else(|| Guess {
+        what: if furnished { Use::Unknown } else { Use::Empty },
+        detail: None,
+        score: 0,
+        evidence: Vec::new(),
+    })
+}
+
+/// Every room use the rules give some points, scored for room `r` with
+/// `objects` in it, in the order they're tried.
+pub fn room_scores<'a>(r: &Room, objects: impl Iterator<Item = &'a Placed>) -> Vec<Guess<Use>> {
     let t = Tally::of(objects);
     let tiles = r.tiles.len() as u32;
     let n = |c| t.n(c);
@@ -683,20 +743,7 @@ fn room<'a>(r: &Room, objects: impl Iterator<Item = &'a Placed>) -> Guess<Use> {
         },
         format!("{tiles} tiles with {} furnishings", t.furnishings),
     );
-    guesses.retain(|g| g.score >= MIN_SCORE || matches!(g.what, Use::Courtyard | Use::Terrace));
-    // Best first, ties to the order added: from the most telling to the
-    // least.
-    guesses.sort_by_key(|g| std::cmp::Reverse(g.score));
-    guesses.into_iter().next().unwrap_or_else(|| Guess {
-        what: if t.furnishings == 0 {
-            Use::Empty
-        } else {
-            Use::Unknown
-        },
-        detail: None,
-        score: 0,
-        evidence: Vec::new(),
-    })
+    guesses
 }
 
 #[cfg(test)]
