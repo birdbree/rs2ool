@@ -10,11 +10,20 @@
 //! them. Corner posts (types 1 and 3) and diagonal walls (type 9) block no
 //! edge, so they don't split rooms.
 //!
+//! A yard is the same for tiles open to the sky: unroofed tiles walled in
+//! on every side, within the regions searched, with [`YARD_MIN`] to
+//! [`YARD_MAX`] tiles (above the ground, only tiles with a floor, and only
+//! where the yard joins a building). Courtyards, gardens, pens and roof
+//! terraces are yards, and so are rooms whose tiles were never flagged as
+//! roofed, as underground ones often aren't.
+//!
 //! Rooms join into a structure through the doors between them (a wall
 //! whose definition is a door or gate, or can be opened), through
-//! overlapping each other on neighbouring planes, and, for a room with no
-//! door and nothing above or below, through the wall it shares most with
-//! another room. Everything placed on a structure's tiles belongs to it:
+//! overlapping each other on neighbouring planes, through meeting a yard
+//! with no wall between, and, for a roofed room with no door, nothing above
+//! or below and no yard outside, through the wall it shares most with
+//! another roofed room. A yard with no door to anything is a structure of
+//! its own. Everything placed on a structure's tiles belongs to it:
 //! its walls, doors and wall decorations by the edges and tiles they're
 //! on, its roofs by the tiles under them, and its furnishings and floor
 //! decorations by the room they stand in.
@@ -33,6 +42,15 @@ pub const REGION_SIZE: u16 = 64;
 
 /// The tile flag for a tile under a roof.
 pub const ROOFED: u8 = 4;
+
+/// The most tiles a yard can have. A walled-in patch bigger than this is
+/// taken for open country (a walled town, a fenced-off stretch of land)
+/// rather than a yard.
+pub const YARD_MAX: usize = 4096;
+
+/// The fewest tiles a yard can have. Smaller walled-in patches are gaps
+/// between walls.
+pub const YARD_MIN: usize = 4;
 
 /// A tile in world coordinates: x east and y north from the map's
 /// south-west corner, so a region's tiles start at `region x · 64`.
@@ -53,8 +71,9 @@ pub struct Structure {
     pub rooms: Vec<Room>,
     /// Its doors, with the rooms either side.
     pub doors: Vec<Door>,
-    /// The edges where a room meets the outside with no wall: open
-    /// doorways, archways, the open front of a stall. Tiles with a corner
+    /// The edges where a roofed room meets the outside with no wall: open
+    /// doorways, archways, the open front of a stall. Where it meets a
+    /// yard instead, the two are joined, and yards have none. Tiles with a corner
     /// post or a diagonal wall have none, since a cut-off corner leaves
     /// their outer edges unwalled.
     pub openings: Vec<Opening>,
@@ -71,12 +90,17 @@ pub struct Structure {
     pub clipped: bool,
 }
 
-/// One room: roofed tiles on one plane that reach each other without
-/// crossing a wall.
+/// One room: tiles on one plane that reach each other without crossing a
+/// wall, either all under a roof or, for a yard, all open to the sky.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Room {
     /// Its plane.
     pub plane: u8,
+    /// Whether its tiles are flagged as under a roof. `false` for a yard,
+    /// walled in all round but open to the sky (a courtyard, a garden, a
+    /// pen, a roof terrace), or a room whose tiles were never flagged
+    /// (underground ones often aren't).
+    pub roofed: bool,
     /// Its tiles, sorted by x then y.
     pub tiles: Vec<RoomTile>,
 }
@@ -259,6 +283,15 @@ impl<'a> Map<'a> {
             .contains_key(&(x / REGION_SIZE, y / REGION_SIZE))
     }
 
+    /// Whether a tile has a floor: an overlay or an underlay. Plane 0
+    /// always counts, being the ground.
+    fn floored(&self, plane: u8, x: u16, y: u16) -> bool {
+        plane == 0
+            || self
+                .plane(plane, x, y)
+                .is_some_and(|(p, i)| p.overlays[i] != 0 || p.underlays[i] != 0)
+    }
+
     fn roofed(&self, plane: u8, x: u16, y: u16) -> bool {
         self.plane(plane, x, y)
             .is_some_and(|(p, i)| p.flags.get(i).is_some_and(|f| f & ROOFED != 0))
@@ -336,43 +369,58 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
     // Rooms: roofed tiles flood-filled without crossing a walled edge.
     let mut room_of: HashMap<At, usize> = HashMap::new();
     let mut rooms: Vec<(u8, Vec<Tile>)> = Vec::new();
-    for r in &regions_sorted {
-        for plane in 0..4u8 {
-            for lx in 0..REGION_SIZE {
-                for ly in 0..REGION_SIZE {
-                    let (x, y) = (
-                        u16::from(r.x) * REGION_SIZE + lx,
-                        u16::from(r.y) * REGION_SIZE + ly,
-                    );
-                    if !map.roofed(plane, x, y) || room_of.contains_key(&(plane, x, y)) {
-                        continue;
-                    }
-                    let id = rooms.len();
-                    let mut tiles = Vec::new();
-                    let mut stack = vec![(x, y)];
-                    room_of.insert((plane, x, y), id);
-                    while let Some((x, y)) = stack.pop() {
-                        tiles.push((x, y));
-                        for d in 0..4u8 {
-                            let Some(e) = edge(plane, x, y, d) else {
-                                continue;
-                            };
-                            if edges.contains_key(&e) {
-                                continue;
-                            }
-                            let [a, b] = sides(e);
-                            let (_, nx, ny) = if a == (plane, x, y) { b } else { a };
-                            if map.roofed(plane, nx, ny) && !room_of.contains_key(&(plane, nx, ny))
-                            {
-                                room_of.insert((plane, nx, ny), id);
-                                stack.push((nx, ny));
-                            }
-                        }
-                    }
-                    tiles.sort_unstable();
-                    rooms.push((plane, tiles));
-                }
+    let mut roofed: Vec<bool> = Vec::new();
+    let all_tiles = || {
+        regions_sorted.iter().flat_map(|r| {
+            (0..4u8).flat_map(move |plane| {
+                (0..REGION_SIZE).flat_map(move |lx| {
+                    (0..REGION_SIZE).map(move |ly| {
+                        (
+                            plane,
+                            u16::from(r.x) * REGION_SIZE + lx,
+                            u16::from(r.y) * REGION_SIZE + ly,
+                        )
+                    })
+                })
+            })
+        })
+    };
+    for (plane, x, y) in all_tiles() {
+        if !map.roofed(plane, x, y) || room_of.contains_key(&(plane, x, y)) {
+            continue;
+        }
+        let (tiles, _) = flood(plane, (x, y), &edges, usize::MAX, |x, y| {
+            map.roofed(plane, x, y).then_some(true)
+        });
+        for &(x, y) in &tiles {
+            room_of.insert((plane, x, y), rooms.len());
+        }
+        rooms.push((plane, tiles));
+        roofed.push(true);
+    }
+    // Yards: unroofed tiles walled in on every side, within the regions
+    // searched and under YARD_MAX tiles. Above plane 0, only tiles with a
+    // floor count: the rest is open air.
+    let mut seen: BTreeSet<At> = BTreeSet::new();
+    for (plane, x, y) in all_tiles() {
+        if map.roofed(plane, x, y) || !map.floored(plane, x, y) || seen.contains(&(plane, x, y)) {
+            continue;
+        }
+        // Inside it: a yard tile. Off the regions searched: not closed in.
+        let (tiles, closed) = flood(plane, (x, y), &edges, YARD_MAX, |x, y| {
+            if !map.loaded(x, y) {
+                None
+            } else {
+                Some(!map.roofed(plane, x, y) && map.floored(plane, x, y))
             }
+        });
+        seen.extend(tiles.iter().map(|&(x, y)| (plane, x, y)));
+        if closed && tiles.len() >= YARD_MIN {
+            for &(x, y) in &tiles {
+                room_of.insert((plane, x, y), rooms.len());
+            }
+            rooms.push((plane, tiles));
+            roofed.push(false);
         }
     }
 
@@ -399,12 +447,26 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
                 linked[i] = true;
                 linked[above] = true;
             }
+            // A roofed room opens onto a yard where no wall is between.
+            for d in 0..4u8 {
+                let Some(e) = edge(*plane, x, y, d).filter(|e| !edges.contains_key(e)) else {
+                    continue;
+                };
+                for t in sides(e) {
+                    if let Some(&r) = room_of.get(&t).filter(|&&r| r != i) {
+                        union.join(i, r);
+                        linked[i] = true;
+                        linked[r] = true;
+                    }
+                }
+            }
         }
     }
-    // A room with no door and nothing above or below joins the room it
-    // shares the most wall with.
+    // A roofed room with no door, nothing above or below and no yard
+    // outside joins the roofed room it shares the most wall with. A yard
+    // never joins that way: a fence shared with a house isn't a way in.
     for i in 0..rooms.len() {
-        if linked[i] {
+        if linked[i] || !roofed[i] {
             continue;
         }
         let mut shared: BTreeMap<usize, usize> = BTreeMap::new();
@@ -418,7 +480,7 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
                     continue;
                 }
                 for t in sides(e) {
-                    if let Some(&r) = room_of.get(&t).filter(|&&r| r != i) {
+                    if let Some(&r) = room_of.get(&t).filter(|&&r| r != i && roofed[r]) {
                         *shared.entry(r).or_default() += 1;
                     }
                 }
@@ -432,12 +494,25 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
         }
     }
 
-    // Group the rooms into structures.
+    // Group the rooms into structures. Above the ground, walled-in floor
+    // that joins no building is attic floor and the tops of walls, not a
+    // yard, so a group of nothing but such yards is dropped.
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for i in 0..rooms.len() {
         let root = union.find(i);
         groups.entry(root).or_default().push(i);
     }
+    groups.retain(|_, members| {
+        let keep = members.iter().any(|&r| roofed[r] || rooms[r].0 == 0);
+        if !keep {
+            for &r in members.iter() {
+                for &(x, y) in &rooms[r].1 {
+                    room_of.remove(&(rooms[r].0, x, y));
+                }
+            }
+        }
+        keep
+    });
     let mut structures: Vec<Building> = groups.into_values().map(Building::new).collect();
     let mut structure_of: HashMap<usize, usize> = HashMap::new();
     for (s, b) in structures.iter().enumerate() {
@@ -502,6 +577,11 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
         .map(|w| (w.loc.plane, w.x, w.y))
         .collect();
     for (r, (plane, tiles)) in rooms.iter().enumerate() {
+        // A yard is walled in all round; where its floor stops above the
+        // ground, that's a drop, not a way in.
+        if !roofed[r] {
+            continue;
+        }
         for &(x, y) in tiles {
             if cornered.contains(&(*plane, x, y)) {
                 continue;
@@ -511,8 +591,8 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
                     Some(e) if edges.contains_key(&e) => false,
                     Some(e) => {
                         let [a, b] = sides(e);
-                        let (_, nx, ny) = if a == (*plane, x, y) { b } else { a };
-                        !map.roofed(*plane, nx, ny)
+                        let n = if a == (*plane, x, y) { b } else { a };
+                        !map.roofed(n.0, n.1, n.2) && !room_of.contains_key(&n)
                     }
                     None => true,
                 };
@@ -527,12 +607,53 @@ pub fn find(regions: &[Region], defs: &BTreeMap<u16, LocDef>) -> Vec<Structure> 
 
     let mut out: Vec<Structure> = structures
         .into_iter()
-        .map(|b| b.finish(&rooms, &map, defs))
+        .map(|b| b.finish(&rooms, &roofed, &map, defs))
         .collect();
     out.sort_by(|a, b| {
         (a.origin.0, a.origin.1, a.planes.first()).cmp(&(b.origin.0, b.origin.1, b.planes.first()))
     });
     out
+}
+
+/// Flood-fills from `start` on `plane` without crossing a walled edge, over
+/// the tiles `inside` admits: `Some(true)` for a tile in the patch,
+/// `Some(false)` for one that isn't, `None` for one the patch mustn't open
+/// onto (off the regions searched). Returns the patch's tiles, sorted, and
+/// whether it's closed: it opens onto no `None` tile and no edge of the
+/// map, and has at most `cap` tiles. It fills the whole patch either way.
+fn flood(
+    plane: u8,
+    start: Tile,
+    edges: &BTreeMap<Edge, bool>,
+    cap: usize,
+    inside: impl Fn(u16, u16) -> Option<bool>,
+) -> (Vec<Tile>, bool) {
+    let mut tiles = vec![start];
+    let mut seen: BTreeSet<Tile> = BTreeSet::from([start]);
+    let mut closed = true;
+    let mut i = 0;
+    while let Some(&(x, y)) = tiles.get(i) {
+        i += 1;
+        for d in 0..4u8 {
+            let Some(e) = edge(plane, x, y, d) else {
+                closed = false;
+                continue;
+            };
+            if edges.contains_key(&e) {
+                continue;
+            }
+            let [a, b] = sides(e);
+            let (_, nx, ny) = if a == (plane, x, y) { b } else { a };
+            match inside(nx, ny) {
+                None => closed = false,
+                Some(true) if seen.insert((nx, ny)) => tiles.push((nx, ny)),
+                Some(_) => {}
+            }
+        }
+    }
+    closed &= tiles.len() <= cap;
+    tiles.sort_unstable();
+    (tiles, closed)
 }
 
 /// A tile and its eight neighbours on a plane.
@@ -613,6 +734,7 @@ impl Building {
     fn finish(
         self,
         rooms: &[(u8, Vec<Tile>)],
+        roofed: &[bool],
         map: &Map,
         defs: &BTreeMap<u16, LocDef>,
     ) -> Structure {
@@ -662,6 +784,7 @@ impl Building {
                 let (plane, ts) = &rooms[r];
                 Room {
                     plane: *plane,
+                    roofed: roofed[r],
                     tiles: ts
                         .iter()
                         .map(|&(x, y)| {
@@ -935,6 +1058,77 @@ mod tests {
         let alone = find(&[west], &defs());
         assert_eq!((alone.len(), alone[0].size), (1, (2, 3)));
         assert!(alone[0].clipped);
+    }
+
+    /// Walls in tiles `x0..=x1` × `y0..=y1` on `plane` without roofing
+    /// them, with `door` (a tile on the south side) as the gate.
+    fn fence(r: &mut Region, plane: u8, (x0, y0): (u8, u8), (x1, y1): (u8, u8), door: Option<u8>) {
+        for x in x0..=x1 {
+            put(r, WALL, plane, x, y1, 0, 1);
+            let south = if door == Some(x) { DOOR } else { WALL };
+            put(r, south, plane, x, y0, 0, 3);
+        }
+        for y in y0..=y1 {
+            put(r, WALL, plane, x0, y, 0, 0);
+            put(r, WALL, plane, x1, y, 0, 2);
+        }
+    }
+
+    /// Gives tiles a floor, so they count above the ground.
+    fn floor(r: &mut Region, plane: u8, (x0, y0): (u8, u8), (x1, y1): (u8, u8)) {
+        for x in x0..=x1 {
+            for y in y0..=y1 {
+                r.planes[usize::from(plane)].underlays[usize::from(x) * 64 + usize::from(y)] = 1;
+            }
+        }
+    }
+
+    #[test]
+    fn a_walled_garden_through_a_door_is_the_houses_yard() {
+        let mut r = region();
+        house(&mut r, 0, (10, 10), (12, 12), Some(11));
+        // The garden north of the house: its south side is the house's
+        // north wall, with a back door in it.
+        fence(&mut r, 0, (10, 13), (12, 16), None);
+        r.locations
+            .retain(|l| !(l.y == 12 && l.kind == 0 && l.rotation == 1 && l.x == 11));
+        put(&mut r, DOOR, 0, 11, 12, 0, 1);
+        let s = find(&[r], &defs());
+        assert_eq!(s.len(), 1);
+        let roofed: Vec<bool> = s[0].rooms.iter().map(|r| r.roofed).collect();
+        assert_eq!(roofed, [true, false]);
+        assert_eq!(s[0].rooms[1].tiles.len(), 12);
+        // Its walls are the structure's; the yard has no openings.
+        assert!(s[0].openings.iter().all(|o| o.room == 0));
+    }
+
+    #[test]
+    fn a_pen_stands_alone_and_a_gap_is_nothing() {
+        let mut r = region();
+        fence(&mut r, 0, (20, 20), (23, 22), Some(21));
+        // A one-tile gap walled in on every side.
+        fence(&mut r, 0, (30, 30), (30, 30), None);
+        let s = find(&[r], &defs());
+        assert_eq!(s.len(), 1);
+        assert!(!s[0].rooms[0].roofed);
+        assert_eq!(s[0].rooms[0].tiles.len(), 12);
+        assert_eq!(s[0].doors[0].rooms, [None, Some(0)]);
+    }
+
+    #[test]
+    fn upper_floor_yards_count_only_on_a_building() {
+        let mut r = region();
+        // A roof terrace on top of a house, walled round, over its rooms.
+        house(&mut r, 0, (10, 10), (13, 13), Some(11));
+        floor(&mut r, 1, (10, 10), (13, 13));
+        fence(&mut r, 1, (10, 10), (13, 13), None);
+        // Walled floor up in the air over nothing.
+        floor(&mut r, 1, (30, 30), (33, 33));
+        fence(&mut r, 1, (30, 30), (33, 33), None);
+        let s = find(&[r], &defs());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].planes, [0, 1]);
+        assert!(!s[0].rooms[1].roofed);
     }
 
     #[test]

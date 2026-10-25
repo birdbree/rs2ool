@@ -145,8 +145,9 @@ fn region_of(s: &Structure) -> (u8, u8) {
     (r(s.origin.0), r(s.origin.1))
 }
 
-/// One line about a structure: where it is, its size, its rooms and ways
-/// in, and its named objects, the commonest first.
+/// One line about a structure: where it is, its size, its rooms (and how
+/// many are yards) and ways in, and its named objects, the commonest
+/// first.
 fn summary(s: &Structure) -> String {
     let planes = match (s.planes.first(), s.planes.last()) {
         (Some(a), Some(b)) if a != b => format!("planes {a}–{b}"),
@@ -182,13 +183,18 @@ fn summary(s: &Structure) -> String {
     if names.len() > 8 {
         shown.push("…".into());
     }
+    let yards = s.rooms.iter().filter(|r| !r.roofed).count();
+    let rooms = if yards > 0 {
+        format!("{} rooms ({yards} yards)", s.rooms.len())
+    } else {
+        format!("{} rooms", s.rooms.len())
+    };
     let mut line = format!(
-        "at {},{}  {}×{}  {planes}  {} rooms  {} doors ({entrances} to outside)  {} open edges  {} objects ({unnamed} unnamed)",
+        "at {},{}  {}×{}  {planes}  {rooms}  {} doors ({entrances} to outside)  {} open edges  {} objects ({unnamed} unnamed)",
         s.origin.0,
         s.origin.1,
         s.size.0,
         s.size.1,
-        s.rooms.len(),
         s.doors.len(),
         s.openings.len(),
         s.objects.len(),
