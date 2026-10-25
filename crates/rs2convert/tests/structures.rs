@@ -14,6 +14,7 @@ use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
 use rs2convert::learn::Trees;
 use rs2convert::material::{self, Material};
+use rs2convert::profile::{self, Via};
 use rs2convert::purpose::{self, Class};
 use rs2convert::structure::{self, Structure};
 
@@ -283,4 +284,35 @@ fn the_learned_trees_read_a_region_and_group_its_castle() {
     // The blocks are one site; the church is on its own.
     assert_eq!(sites[keep], sites[tower]);
     assert!(sites.iter().filter(|&&s| s == sites[church]).count() == 1);
+}
+
+#[test]
+fn a_regions_profiles_cover_its_structures() {
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let (regions, defs) = load(&cache, |x, y| {
+        (49..=51).contains(&x) && (49..=51).contains(&y)
+    });
+    let mut found = structure::find(&regions, &defs);
+    material::dress(&mut found, &records, &defs, &BTreeMap::new());
+    let trees = Trees::built_in();
+    let guesses: Vec<_> = found.iter().map(|s| trees.classify(s)).collect();
+    let sites = trees.sites(&found);
+    let profiles = profile::profiles(&found, &guesses, &sites);
+    assert_eq!(
+        profiles.iter().map(|p| p.structures).sum::<usize>(),
+        found.len()
+    );
+    // The castle's two blocks share a site, and its floors stack.
+    let castle = profiles.iter().find(|p| p.class == Class::Castle).unwrap();
+    assert!(castle.on_sites >= 2);
+    assert_eq!(castle.site_classes[0].what, Class::Castle);
+    assert!(castle.planes.max >= 3);
+    assert!(castle.links.iter().any(|l| l.via == Via::Above));
+    // The same every time.
+    let again = profile::profiles(&found, &guesses, &sites);
+    assert_eq!(
+        serde_json::to_string(&profiles).unwrap(),
+        serde_json::to_string(&again).unwrap()
+    );
 }

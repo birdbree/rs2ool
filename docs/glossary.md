@@ -90,6 +90,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Site.** Neighbouring structures that belong together, such as a castle's blocks or a farm's barns, as the learned forests group them. See [Learned from labels](conversion/structure-purposes.md#forests).
 
+**Profile.** What the structures of one class are like across the map: their sizes, rooms by use, how the rooms connect, materials and furnishings. See [Structure profiles](conversion/structure-profiles.md).
+
 **Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
 
 **Reference deformation.** A frame applied to a model exactly as the original client applies it, in its integer arithmetic. Validation compares converted clips against it. See [Validation](conversion/validation.md).

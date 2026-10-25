@@ -133,6 +133,7 @@ Find the buildings in one region, then write every structure in the map as JSON 
 rs2ool cache structures --region 50_50
 rs2ool cache structures --all -o out/
 rs2ool cache structures --region 50_50 -o out/ --plans
+rs2ool cache structures --all -o out/ --profiles
 rs2ool cache structures --all --learn labels.json --save trees.json
 ```
 

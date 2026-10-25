@@ -232,6 +232,10 @@ pub struct StructuresCli {
     /// into `plans/RX_RY/` under `-o`.
     #[arg(long, requires = "out")]
     plans: bool,
+    /// Also write a profile of each class (its sizes, rooms, how they
+    /// connect, materials and furnishings) into `profiles/` under `-o`.
+    #[arg(long, requires = "out", conflicts_with = "learn")]
+    profiles: bool,
     /// Learn what structures and rooms are for, and which belong to one
     /// site, from this labels file, and report how well, held out, instead
     /// of listing structures.
@@ -563,6 +567,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 all: a.all,
                 out: a.out,
                 plans: a.plans,
+                profiles: a.profiles,
                 learn: a.learn,
                 save: a.save,
                 trees: a.trees,
