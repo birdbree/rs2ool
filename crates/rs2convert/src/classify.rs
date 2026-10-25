@@ -3,7 +3,7 @@
 //! hand-tuned rules of [`Motion::role`].
 //!
 //! It's written here rather than taken from a crate because it's tiny: a
-//! binary tree over the ten motion measures, grown greedily on weighted
+//! binary tree over the eleven motion measures, grown greedily on weighted
 //! Gini impurity, depth-limited and with a minimum leaf weight. Both keep
 //! it small enough to read, which matters more than accuracy with a few
 //! dozen labels. Growing it is deterministic: ties go to the first feature
@@ -11,7 +11,7 @@
 //! [`ROLE_ORDER`].
 //!
 //! ```text
-//! features  end_height drop returns peak duration lift rise base_drop spread hold
+//! features  end_height drop returns peak duration lift rise base_drop spread hold stretch
 //! split     feature < at  →  below, else above
 //! ```
 
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::infer::{Motion, ROLE_ORDER, Role};
 
 /// The measures the tree splits on, in [`features`] order.
-pub const FEATURES: [&str; 10] = [
+pub const FEATURES: [&str; 11] = [
     "end_height",
     "drop",
     "returns",
@@ -34,10 +34,11 @@ pub const FEATURES: [&str; 10] = [
     "base_drop",
     "spread",
     "hold",
+    "stretch",
 ];
 
 /// A motion as the tree sees it, in [`FEATURES`] order.
-pub fn features(m: &Motion) -> [f64; 10] {
+pub fn features(m: &Motion) -> [f64; 11] {
     [
         m.end_height,
         m.drop,
@@ -49,6 +50,7 @@ pub fn features(m: &Motion) -> [f64; 10] {
         m.base_drop,
         m.spread,
         f64::from(m.hold),
+        m.stretch,
     ]
 }
 
@@ -56,7 +58,7 @@ pub fn features(m: &Motion) -> [f64; 10] {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     /// Its motion, from [`features`].
-    pub x: [f64; 10],
+    pub x: [f64; 11],
     /// The role it really has.
     pub role: Role,
     /// How much it counts; 1 for a label checked by eye.
@@ -195,7 +197,7 @@ impl Tree {
     }
 
     /// The role it gives a motion's features.
-    pub fn predict(&self, x: &[f64; 10]) -> Role {
+    pub fn predict(&self, x: &[f64; 11]) -> Role {
         match self {
             Tree::Leaf { role } => *role,
             Tree::Split {
@@ -267,7 +269,7 @@ mod tests {
     use super::*;
 
     fn sample(drop: f64, hold: f64, role: Role) -> Sample {
-        let mut x = [0.0; 10];
+        let mut x = [0.0; 11];
         x[1] = drop;
         x[9] = hold;
         Sample {

@@ -151,6 +151,8 @@ The NPC definition only names its stand and walk sequences, so the explorer adds
 
 Frames last their sequence delay in 20 ms cycles, as on [Animation](../client/animation.md#sequence-timing): the sequence's delay, else the frame's own, else 1. A converted creature's frame lengths come from its clip's frame start times. At the end the loop offset decides where playback restarts; with **Loop** off it stops on the last frame, and **Play** starts again from the beginning.
 
+A candidate that tears the model, because it was made for another model on the same skeleton, says so after its name: "stretches 2.4×". It's listed after the clean ones in its group, and its tooltip explains it ([Sequences that tear the model](../conversion/inference.md#sequences-that-tear-the-model)).
+
 ### Captions
 
 If you've saved a role tree with `rs2ool cache classify --save`, the picker groups inferred sequences by the tree's roles instead of the hand-tuned rules, and says "learned" in each group's heading ([Learning roles from labels](../conversion/inference.md#learning-roles-from-labels)). It's read each time an NPC loads, so a newly saved tree shows on the next one. Conversion doesn't use it.

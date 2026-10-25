@@ -323,3 +323,51 @@ fn a_judge_changes_roles_not_candidates() {
     };
     assert_eq!(roles(&learned), roles(&rules));
 }
+
+#[test]
+fn sequences_rarely_tear_their_own_models() {
+    use rs2convert::creature;
+    use rs2convert::infer::{Motion, npc_candidates};
+
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let frames = cache.frame_index().unwrap();
+    let index = SequenceIndex::build(&cache, &records, &frames).unwrap();
+    let (mut named, mut torn_named, mut cands, mut torn_cands) = (0, 0, 0, 0);
+    let mut seen = BTreeSet::new();
+    for id in records.ids(RecordType::Npc).unwrap() {
+        let Ok(Record::Npc(d)) = records.decode(RecordType::Npc, id) else {
+            continue;
+        };
+        // Every third distinct NPC, to keep it quick.
+        if !seen.insert((d.models.clone(), d.stand_anim, d.walk_anim)) || seen.len() % 3 != 0 {
+            continue;
+        }
+        let Ok(c) = creature::npc(&records, &frames, id, &[]) else {
+            continue;
+        };
+        for s in 0..c.sequences.len() {
+            if let Some(m) = Motion::measure(&c, s) {
+                named += 1;
+                torn_named += usize::from(m.tears());
+            }
+        }
+        // Candidates on creatures only: a humanoid's are the whole shared
+        // pool, about 1200 to pose.
+        let names: Vec<u32> = c.sequences.iter().map(|s| s.def.id).collect();
+        if index.candidates(&names, &c.mesh_labels()).len() > 60 {
+            continue;
+        }
+        let (_, cs) = npc_candidates(&index, &records, &frames, id, c);
+        cands += cs.len();
+        torn_cands += cs.iter().filter(|c| c.tears()).count();
+    }
+    eprintln!(
+        "named sequences: {torn_named} of {named} tear their models; candidates: {torn_cands} of {cands}"
+    );
+    // The threshold is set so sequences made for a model rarely reach it,
+    // and some candidates made for other models on the skeleton do.
+    assert!(named > 1000);
+    assert!(torn_named * 100 < named * 2, "{torn_named} of {named}");
+    assert!(torn_cands > 0);
+}

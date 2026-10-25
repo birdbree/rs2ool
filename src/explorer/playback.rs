@@ -515,10 +515,19 @@ pub fn playback_ui(
                                 } else {
                                     format!("seq {s} · {:.2}", c.score)
                                 };
+                                if let Some(m) = c.motion.filter(|m| m.tears()) {
+                                    text.push_str(&format!(" · stretches {:.1}×", m.stretch));
+                                }
                                 if let Some(t) = tag(s) {
                                     text.push_str(&format!(" · {t}"));
                                 }
                                 let mut why = evidence(c);
+                                if let Some(m) = c.motion.filter(|m| m.tears()) {
+                                    why.push_str(&format!(
+                                        " In its worst frame, 5% of the model's face edges grow by more than {:.0}%: it tears this model, so it was probably made for another model on the same skeleton.",
+                                        (m.stretch - 1.0) * 100.0
+                                    ));
+                                }
                                 if learned {
                                     why.push_str(" The role comes from the tree learned from your labels (rs2ool cache classify --save), not the hand-tuned rules.");
                                 }
