@@ -66,6 +66,7 @@ On the test cache, anchored on each NPC's stand sequence alone, its walk sequenc
 | `peak` | the largest mean distance of the vertices from the first frame, over all frames |
 | `hold` | how long the last frame is held, in cycles |
 | `duration` | how long one run lasts, in cycles |
+| `stretch` | how much the model's faces stretch: in the worst frame, the length 95% of face edges stay within, over their rest length (against the rest pose, unlike the others) |
 
 The first frame is the reference, not the rest pose, because some models are animated in a pose quite unlike their rest pose: measured against the rest pose, a few stand sequences looked like deaths. `Motion::role` then picks the first rule that fits:
 
@@ -116,7 +117,7 @@ The rules above were tuned by hand. `rs2ool cache classify` learns roles from se
 | `vanish` | vanish |
 | `land`, `other` | other: a landing starts in the air |
 
-Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the ten measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the eleven measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
 
 On 54 labelled sequences (38 reviewed captions and 16 from the labels file), the rules got 34 right (63%) and the tree 39 (72%). Two cautions:
 
@@ -134,10 +135,21 @@ Unreviewed captions' own classes can be added as weak labels (`--weak W`, each c
 
 `--save` writes the tree to `role-tree.json` in the data directory. When it's there, the explorer's sequence picker uses it to group an NPC's candidates, marking each group "learned". Conversion always uses the rules, so packs don't depend on a local file. The tree is only ever learned locally; none is shipped. Shipping one would make sense once it beats the rules clearly on a few hundred labels.
 
+### Sequences that tear the model
+
+A candidate shares the NPC's skeleton family, but it may have been made for another model on that skeleton, labelled differently. Played on this model, it tears it apart. The red dragon is the clearest case. Its candidates rear the upper body back about 53° with a transform whose label list leaves out the chest, so the chest stays put while the neck and shoulders swing up. The original client would deform it the same way: the stretch is in the data, not the deformation.
+
+The `stretch` measure catches this. Every vertex has exactly one label, so faces that bridge two labels stretch at every bend, and a few long edges are normal: the single worst edge of the sequences NPCs name reaches 12× at the 99th percentile. So it looks at the 95th-percentile edge in the worst frame instead:
+
+On the sequences NPCs name, played on their own models, that's 1.13 at the median and 1.45 at the 99th percentile; under 1% reach `TEARS`, 1.5 (19 of 2561 on every third NPC). The red dragon's candidates 80, 81, 89 and 91 come out at 1.96–2.36, while its own stand and walk are 1.06 and 1.17.
+
+Creatures are where it matters: 618 of the 4941 candidates on those NPCs tear (12.5%). The shared humanoid pool mostly fits, so across every candidate it's only 1.7%. A candidate that tears (`Candidate::tears`) goes after the clean ones in its role group, and the picker marks it ("stretches 2.4×"). Its role still counts: the motion usually reads clearly even when the mesh tears. `crates/rs2convert/tests/infer_sequences.rs` checks that under 2% of the named sequences reach the threshold and that some creature candidates do.
+
 ### Every candidate, grouped by role
 
 There's no cap on the candidates. `npc_candidates` loads every one onto the NPC's model, gives each a role, leaves out any that won't pose, and `sort_by_role` groups them: deaths, then actions, then idles, then others.
 
+- In each group, candidates that tear the model go last.
 - **Creatures** keep score order within each group; they have a few dozen candidates at most.
 - **Humanoids** get the whole shared pool, about 1200 sequences. Id distance means almost nothing there, so within a group deaths go most collapsed first (largest `drop`), and actions go those that fit in 60 cycles first (1.2 s, `SHORT_ACTION`, since attacks are brief), then the most motion first. The rest keep score order.
 

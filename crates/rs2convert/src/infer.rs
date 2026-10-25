@@ -167,7 +167,20 @@ pub struct Motion {
     pub spread: f64,
     /// How long the last frame is held, in cycles.
     pub hold: u32,
+    /// How much the model's faces stretch: in the sequence's worst frame,
+    /// the length that 95% of face edges stay within, over their length in
+    /// the rest pose (1 when nothing stretches). Faces bridging two labels
+    /// stretch at every bend, so a few long edges are normal; a sequence
+    /// made for another labelling of the model stretches many. See
+    /// [`TEARS`].
+    pub stretch: f64,
 }
+
+/// A stretch from which a sequence counts as tearing its model: it was
+/// most likely made for another model on the same skeleton. Under 1% of
+/// the sequences NPCs name reach it on their own models, against about
+/// 12% of creatures' candidates.
+pub const TEARS: f64 = 1.5;
 
 /// How far down (as a share of height) counts as going down.
 const LOWERED: f64 = 0.3;
@@ -182,7 +195,52 @@ const IDLE_PEAK: f64 = 0.06;
 /// How far from the first frame an action may end.
 const ACTION_RETURN: f64 = 0.15;
 
+/// [`Motion::stretch`] of `c` over `frames`. Edges shorter than 2% of
+/// `height` at rest are left out, since a tiny edge's ratio says little.
+fn stretch(c: &Creature, frames: &[Vec<[i32; 3]>], height: f64) -> f64 {
+    let len = |v: &[[i32; 3]], a: usize, b: usize| {
+        let d = [0, 1, 2].map(|k| f64::from(v[a][k] - v[b][k]));
+        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+    };
+    // Every edge once, with its rest length.
+    let mut edges: Vec<(usize, usize)> = c
+        .model
+        .faces
+        .iter()
+        .flat_map(|f| {
+            let [a, b, d] = f.map(usize::from);
+            [(a, b), (b, d), (d, a)]
+        })
+        .map(|(a, b)| (a.min(b), a.max(b)))
+        .collect();
+    edges.sort_unstable();
+    edges.dedup();
+    let shortest = (height * 0.02).max(1.0);
+    let edges: Vec<(usize, usize, f64)> = edges
+        .into_iter()
+        .filter(|&(a, b)| a < c.rest.len() && b < c.rest.len())
+        .map(|(a, b)| (a, b, len(&c.rest, a, b)))
+        .filter(|&(_, _, r)| r >= shortest)
+        .collect();
+    if edges.is_empty() {
+        return 1.0;
+    }
+    frames
+        .iter()
+        .map(|v| {
+            let mut ratios: Vec<f64> = edges.iter().map(|&(a, b, r)| len(v, a, b) / r).collect();
+            let at = (ratios.len() - 1) * 95 / 100;
+            *ratios.select_nth_unstable_by(at, f64::total_cmp).1
+        })
+        .fold(1.0, f64::max)
+}
+
 impl Motion {
+    /// Whether it stretches its model past [`TEARS`].
+    pub fn tears(&self) -> bool {
+        self.stretch >= TEARS
+    }
+
     /// Measures sequence `s` of creature `c` (an index into its
     /// sequences), posed with the reference deformation. `None` when a
     /// frame won't pose or the model is empty or flat.
@@ -249,6 +307,7 @@ impl Motion {
                 .map(|f| mean_distance(f, first))
                 .fold(0.0, f64::max)
                 / height,
+            stretch: stretch(c, &frames, height),
         })
     }
 
@@ -389,10 +448,11 @@ pub const SHORT_ACTION: u32 = 60;
 /// Orders candidates with roles (see [`with_roles`]) into groups by role:
 /// deaths, actions, idles, others, then any without a role.
 ///
-/// Within a group, candidates on their own family keep score order, where
-/// the score works. On a shared pool, where it doesn't, deaths go most
-/// collapsed first, actions short ones first (see [`SHORT_ACTION`]) and
-/// then the most motion first, and the rest by score.
+/// Within a group, the ones that tear the model ([`Candidate::tears`]) go
+/// after the rest. Otherwise candidates on their own family keep score
+/// order, where the score works. On a shared pool, where it doesn't, deaths
+/// go most collapsed first, actions short ones first (see
+/// [`SHORT_ACTION`]) and then the most motion first, and the rest by score.
 pub fn sort_by_role(candidates: &mut [Candidate]) {
     let group = |c: &Candidate| c.role.map_or(ROLE_ORDER.len(), |r| r.order());
     candidates.sort_by(|a, b| {
@@ -406,7 +466,12 @@ pub fn sort_by_role(candidates: &mut [Candidate]) {
             }
             _ => b.score.total_cmp(&a.score),
         };
-        group(a).cmp(&group(b)).then(within).then(a.seq.cmp(&b.seq))
+        // Within a group, the ones that tear the model go last.
+        group(a)
+            .cmp(&group(b))
+            .then(a.tears().cmp(&b.tears()))
+            .then(within)
+            .then(a.seq.cmp(&b.seq))
     });
 }
 
@@ -415,6 +480,12 @@ impl Candidate {
     /// ranking means little.
     pub fn shared(&self) -> bool {
         self.pool > SHARED_POOL
+    }
+
+    /// Whether it tears the model (see [`TEARS`]), so it was probably made
+    /// for another model on the same skeleton.
+    pub fn tears(&self) -> bool {
+        self.motion.is_some_and(|m| m.tears())
     }
 }
 
