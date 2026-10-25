@@ -85,20 +85,22 @@ The built-in question explains the grid and asks for two lines: what the charact
 
 | Class | Gloss given |
 | --- | --- |
-| `idle` | stands, sits or hovers in place |
-| `walk` | walks, runs, flies or swims along |
-| `attack` | strikes, bites, kicks, casts or shoots |
-| `block` | blocks, flinches or recoils from a hit |
-| `death` | collapses and lies still |
-| `fall over` | topples or drops to the ground |
-| `fall away` | drops down out of sight, such as into a gap |
-| `descend` | floats or lowers itself down gently |
-| `jump` | leaps up, over or across |
-| `land` | lands from a fall or a jump |
-| `vanish` | shrinks, sinks or fades away, as in a teleport |
-| `gesture` | waves, bows, dances or makes another gesture |
-| `work` | mines, chops, fishes, cooks or uses a tool |
+| `idle` | stays where it is and barely moves |
+| `walk` | steps, runs, flies or swims in a repeating cycle, as if travelling |
+| `attack` | strikes, bites, kicks, casts or shoots at something ahead, then returns to its starting pose |
+| `block` | braces, flinches or recoils as if hit, then returns to its starting pose |
+| `gesture` | waves, bows, dances, cheers or makes another expressive movement aimed at no one |
+| `work` | repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking |
+| `death` | collapses, then squashes flat into the ground and stays there |
+| `fall over` | topples backwards, forwards or onto its knees, without squashing flat |
+| `fall away` | moves down below the ground band at full size, out of sight, as into a gap |
+| `descend` | comes down slowly from above, floating or lowering itself, and settles on the ground |
+| `jump` | pushes off and leaves the ground, leaping up, over or across |
+| `land` | arrives from the air and takes the impact, ending crouched or standing on its feet |
+| `vanish` | gets smaller or fades in place until nothing is left, as in a teleport |
 | `other` | none of these |
+
+Each gloss names the visible cue that sets its class apart, and none uses another class's name, so neither a reply nor the question can be read as naming two classes; a unit test checks that. Each pair most easily confused gets one cue that separates it: a `death` squashes flat and a `fall over` doesn't; `fall away` keeps its size as it goes below the ground band, and `vanish` gets smaller or fades in place; `land` comes down fast onto its feet, and `descend` comes down slowly.
 
 Requests ask for temperature 0, no streaming and, from Ollama, no thinking. Small models don't always follow the format, so the reply is read leniently:
 

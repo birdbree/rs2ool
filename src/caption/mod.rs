@@ -34,21 +34,58 @@ use client::Client;
 use store::{Entry, Store, lock};
 
 /// The classes a caption picks from, each with the gloss the question
-/// gives it.
+/// gives it. Each gloss names the cue that sets its class apart, in terms
+/// of what the frames show, and none uses another class's name.
 pub const CLASSES: [(&str, &str); 14] = [
-    ("idle", "stands, sits or hovers in place"),
-    ("walk", "walks, runs, flies or swims along"),
-    ("attack", "strikes, bites, kicks, casts or shoots"),
-    ("block", "blocks, flinches or recoils from a hit"),
-    ("death", "collapses and lies still"),
-    ("fall over", "topples or drops to the ground"),
-    ("fall away", "drops down out of sight, such as into a gap"),
-    ("descend", "floats or lowers itself down gently"),
-    ("jump", "leaps up, over or across"),
-    ("land", "lands from a fall or a jump"),
-    ("vanish", "shrinks, sinks or fades away, as in a teleport"),
-    ("gesture", "waves, bows, dances or makes another gesture"),
-    ("work", "mines, chops, fishes, cooks or uses a tool"),
+    ("idle", "stays where it is and barely moves"),
+    (
+        "walk",
+        "steps, runs, flies or swims in a repeating cycle, as if travelling",
+    ),
+    (
+        "attack",
+        "strikes, bites, kicks, casts or shoots at something ahead, then returns to its starting pose",
+    ),
+    (
+        "block",
+        "braces, flinches or recoils as if hit, then returns to its starting pose",
+    ),
+    (
+        "gesture",
+        "waves, bows, dances, cheers or makes another expressive movement aimed at no one",
+    ),
+    (
+        "work",
+        "repeats a task with a tool or its hands, such as mining, chopping, fishing or cooking",
+    ),
+    (
+        "death",
+        "collapses, then squashes flat into the ground and stays there",
+    ),
+    (
+        "fall over",
+        "topples backwards, forwards or onto its knees, without squashing flat",
+    ),
+    (
+        "fall away",
+        "moves down below the ground band at full size, out of sight, as into a gap",
+    ),
+    (
+        "descend",
+        "comes down slowly from above, floating or lowering itself, and settles on the ground",
+    ),
+    (
+        "jump",
+        "pushes off and leaves the ground, leaping up, over or across",
+    ),
+    (
+        "land",
+        "arrives from the air and takes the impact, ending crouched or standing on its feet",
+    ),
+    (
+        "vanish",
+        "gets smaller or fades in place until nothing is left, as in a teleport",
+    ),
     ("other", "none of these"),
 ];
 
@@ -439,10 +476,39 @@ mod tests {
     }
 
     #[test]
+    fn classes_are_distinct() {
+        let words = |s: &str| {
+            let w: Vec<String> = s
+                .to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned)
+                .collect();
+            format!(" {} ", w.join(" "))
+        };
+        for (i, (name, _)) in CLASSES.iter().enumerate() {
+            for (j, (other, gloss)) in CLASSES.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                assert_ne!(name, other);
+                // Neither a reply naming one class nor a gloss can be read
+                // as naming another.
+                let needle = words(name);
+                assert!(!words(other).contains(&needle), "{name} is inside {other}");
+                assert!(
+                    !words(gloss).contains(&needle),
+                    "{other}'s gloss says {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_prompt_fills_its_placeholders() {
         let p = prompt(&Caption::default(), 6);
         assert!(p.contains("shows 6 frames"));
-        assert!(p.contains("- fall away: drops down out of sight"));
+        assert!(p.contains("- fall away: moves down below the ground band"));
         assert!(!p.contains('{'));
         let own = Caption {
             prompt: Some("{frames}: {classes}".into()),
