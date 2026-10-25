@@ -97,4 +97,18 @@ mod tests {
         assert_eq!(d.chat_head_models, [Some(57), None, None, None, Some(58)]);
         assert_eq!(d.unknown_opcodes, [47]);
     }
+
+    #[test]
+    fn references_keep_65535() {
+        let data = Ops::default()
+            .op(2)
+            .u8(1)
+            .u16(65535)
+            .op(60)
+            .u16(65535)
+            .end();
+        let d = Idk::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.models, [65535]);
+        assert_eq!(d.chat_head_models[0], Some(65535));
+    }
 }

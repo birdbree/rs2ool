@@ -58,6 +58,8 @@ Each definition ends with opcode 0. An opcode not listed is logged, added to `un
 
 Ground actions and inventory actions treat `"hidden"` differently. That's not a typo in the table: the decoder only maps it to none for the ground options.
 
+Every model and obj reference keeps 65535 as an id, as the original client does; see [65535 as none](../cache/config.md#65535-as-none).
+
 ## Defaults
 
 | Field | Default |

@@ -51,6 +51,7 @@ impl ConfigType for Npc {
                 2 => d.name = Some(c.string()?),
                 3 => d.examine = Some(c.string()?),
                 12 => d.size = c.i8()?,
+                // References keep 65535 as an id, as the original client does.
                 13 => d.stand_anim = Some(c.u16()?),
                 14 => d.walk_anim = Some(c.u16()?),
                 17 => {
@@ -182,5 +183,45 @@ mod tests {
         let d = Npc::decode(0, &mut Cursor::new(&data)).unwrap();
         assert_eq!(d.unknown_opcodes, [200]);
         assert_eq!(d.combat_level, Some(3));
+    }
+
+    #[test]
+    fn references_keep_65535_and_morphs_drop_it() {
+        let data = Ops::default()
+            .op(1)
+            .u8(1)
+            .u16(65535)
+            .op(13)
+            .u16(65535)
+            .op(17)
+            .u16(65535)
+            .u16(65535)
+            .u16(65535)
+            .u16(65535)
+            .op(60)
+            .u8(1)
+            .u16(65535)
+            .op(102)
+            .u16(65535)
+            .op(106)
+            .u16(65535)
+            .u16(65535)
+            .u8(0)
+            .u16(65535)
+            .end();
+        let d = Npc::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.models, [65535]);
+        assert_eq!(d.chat_head_models, [65535]);
+        let anims = [
+            d.stand_anim,
+            d.walk_anim,
+            d.walk_back_anim,
+            d.walk_left_anim,
+            d.walk_right_anim,
+        ];
+        assert_eq!(anims, [Some(65535); 5]);
+        assert_eq!(d.head_icon, Some(65535));
+        let m = d.morph.unwrap();
+        assert_eq!((m.varbit, m.varp, m.children), (None, None, vec![None]));
     }
 }

@@ -143,7 +143,21 @@ Some `u16` references use 65535 to mean "no value". The reader turns 65535 into 
 - each frame's secondary frame id in `seq` opcode 1;
 - the varbit, the varp and every child of a [morph table](#morph-tables).
 
-Every other `u16` is kept as read, 65535 included. In particular, `seq` opcode 2 (the loop offset) is stored as read, which matches the original client.
+Those are the fields where the original client turns 65535 into "none" itself. Every other `u16` is kept as read, 65535 included, because the original client keeps it too. That covers every other reference to a record or sprite:
+
+| Type | References that keep 65535 |
+| --- | --- |
+| `npc` | body and chat-head models (1, 60), the stand and walk sequences (13, 14, 17), the head icon (102) |
+| `obj` | the inventory model (1), the worn models (23–26, 78, 79), the chat-head models (90–93), the noted counterpart and template (97, 98), the stack variants' obj ids (100–109) |
+| `spotanim` | the model (1) and the sequence (2) |
+| `idk` | the models (2) and chat-head models (60–64) |
+| `seq` | the off-hand and main-hand overrides (6, 7) |
+| `loc` | the models (1, 5), the minimap function (60) and the mapscene (68) |
+| `varbit` | the varp (1) |
+
+The original client reads these as plain numbers and looks 65535 up like any other id. No table in a 317 cache is that long, so the lookup finds nothing: a model, sequence or obj lookup fails, and a head icon past the end of the icon sprites isn't drawn. No field in this cache holds 65535, so none of this shows today; it decides what a cache built differently does. Following such a reference in the tools fails the same way as any id with no record: converting an NPC whose stand sequence is 65535 stops with an error naming the sequence.
+
+`seq` opcode 2, the loop offset, isn't a reference but is stored as read for the same reason.
 
 ## Entries present but unread
 

@@ -57,6 +57,7 @@ impl ConfigType for Obj {
         };
         d.unknown_opcodes = opcodes(Obj::KIND, id, c, |op, c| {
             match op {
+                // References keep 65535 as an id, as the original client does.
                 1 => d.inventory_model = c.u16()?,
                 2 => d.name = Some(c.string()?),
                 3 => d.examine = Some(c.string()?),
@@ -252,5 +253,35 @@ mod tests {
         assert_eq!((d.scale_x, d.scale_y, d.scale_z), (1, 2, 3));
         assert_eq!((d.ambient, d.contrast, d.team), (-128, 10, 4));
         assert!(d.unknown_opcodes.is_empty());
+    }
+
+    #[test]
+    fn references_keep_65535() {
+        let mut ops = Ops::default().op(1).u16(65535);
+        for op in [23, 25] {
+            ops = ops.op(op).u16(65535).u8(0);
+        }
+        for op in [24, 26, 78, 79, 90, 91, 92, 93, 97, 98] {
+            ops = ops.op(op).u16(65535);
+        }
+        let data = ops.op(100).u16(65535).u16(2).end();
+        let d = Obj::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!(d.inventory_model, 65535);
+        let refs = [
+            d.male_equip1,
+            d.male_equip2,
+            d.male_equip3,
+            d.female_equip1,
+            d.female_equip2,
+            d.female_equip3,
+            d.male_chat_head1,
+            d.male_chat_head2,
+            d.female_chat_head1,
+            d.female_chat_head2,
+            d.noted_id,
+            d.noted_template,
+        ];
+        assert_eq!(refs, [Some(65535); 12]);
+        assert_eq!(d.stack_variants[0].item, 65535);
     }
 }

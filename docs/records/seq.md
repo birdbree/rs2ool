@@ -32,6 +32,8 @@ Opcode 1 interleaves the three values per frame; it doesn't store three separate
 
 Any other opcode is logged at `warn`, recorded in `unknown_opcodes`, and skipped without reading anything, which is what the original client does. If an unknown opcode did carry data, everything after it would be misread. The client would misread it too, so at least you'd be in good company.
 
+The off-hand and main-hand overrides keep 65535 as read, as the original client does; only a frame's secondary frame turns 65535 into none. See [65535 as none](../cache/config.md#65535-as-none).
+
 ## Fields and defaults
 
 | Field | Default | Notes |

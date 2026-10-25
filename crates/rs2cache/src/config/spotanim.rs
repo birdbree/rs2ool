@@ -31,6 +31,7 @@ impl ConfigType for SpotAnim {
         let (mut from, mut to) = ([0u16; 6], [0u16; 6]);
         d.unknown_opcodes = opcodes(SpotAnim::KIND, id, c, |op, c| {
             match op {
+                // References keep 65535 as an id, as the original client does.
                 1 => d.model = Some(c.u16()?),
                 2 => d.sequence = Some(c.u16()?),
                 4 => d.scale_xy = c.u16()?,
@@ -87,5 +88,12 @@ mod tests {
         assert_eq!((d.scale_xy, d.scale_z, d.rotation), (64, 32, 90));
         assert_eq!((d.ambient, d.contrast), (30, 40));
         assert_eq!(d.recolours.len(), 1);
+    }
+
+    #[test]
+    fn references_keep_65535() {
+        let data = Ops::default().op(1).u16(65535).op(2).u16(65535).end();
+        let d = SpotAnim::decode(0, &mut Cursor::new(&data)).unwrap();
+        assert_eq!((d.model, d.sequence), (Some(65535), Some(65535)));
     }
 }

@@ -37,6 +37,8 @@ Opcodes 46–49 and 56–59 fall inside the original client's recolour opcode ra
 
 Don't read the scale names as axes. In cache coordinates y is vertical, and the tools apply `scale_xy` to x and z and `scale_z` to y.
 
+`model` and `sequence` keep 65535 as an id, as the original client does; see [65535 as none](../cache/config.md#65535-as-none).
+
 ## Defaults
 
 `scale_xy` and `scale_z` start at 128. `rotation`, `ambient` and `contrast` start at 0. `model` and `sequence` are none, and all twelve recolour slots are 0.
