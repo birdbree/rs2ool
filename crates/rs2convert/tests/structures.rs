@@ -1,7 +1,7 @@
 //! Structures found in the map: in region 50_50, a church, a smithy and a
-//! castle come out with their rooms, doors and furnishings, and read as
-//! what they are; the whole map gives the same structures every time, and
-//! its yards.
+//! castle come out with their rooms, doors and furnishings, read as what
+//! they are and are dressed in stone and wood; the whole map gives the
+//! same structures every time, and its yards.
 
 mod common;
 
@@ -11,6 +11,7 @@ use rs2cache::Records;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
+use rs2convert::material::{self, Material};
 use rs2convert::purpose::{self, Class};
 use rs2convert::structure::{self, Structure};
 
@@ -192,4 +193,55 @@ fn a_regions_buildings_read_as_what_they_are() {
     assert!(has(Class::House, None));
     assert!(has(Class::Shop, Some("general")));
     assert!(has(Class::Shop, Some("axes")));
+}
+
+#[test]
+fn a_regions_buildings_are_dressed_in_their_materials() {
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let (regions, defs) = load(&cache, |x, y| {
+        (49..=51).contains(&x) && (49..=51).contains(&y)
+    });
+    let floors = records
+        .ids(RecordType::Flo)
+        .unwrap()
+        .into_iter()
+        .filter_map(|id| match records.decode(RecordType::Flo, id) {
+            Ok(Record::Flo(d)) => Some((u16::try_from(id).ok()?, d)),
+            _ => None,
+        })
+        .collect();
+    let mut found = structure::find(&regions, &defs);
+    material::dress(&mut found, &records, &defs, &floors);
+    let inside: Vec<&Structure> = found
+        .iter()
+        .filter(|s| (s.origin.0 / 64, s.origin.1 / 64) == (50, 50))
+        .collect();
+    // Nearly every wall has a material.
+    let walls: Vec<_> = inside
+        .iter()
+        .flat_map(|s| &s.walls)
+        .filter(|w| w.kind == 0)
+        .collect();
+    let dressed = walls.iter().filter(|w| w.material.is_some()).count();
+    assert!(
+        dressed * 10 >= walls.len() * 9,
+        "{dressed} of {}",
+        walls.len()
+    );
+    // The church: stone walls, a wooden floor.
+    let church = inside
+        .iter()
+        .find(|s| purpose::of(s).class.what == Class::Church)
+        .unwrap();
+    let stone = church
+        .walls
+        .iter()
+        .filter(|w| w.material.is_some_and(|m| m.material == Material::Stone))
+        .count();
+    assert!(stone * 2 > church.walls.len());
+    assert_eq!(
+        church.rooms[0].floor.map(|f| f.material),
+        Some(Material::Wood)
+    );
 }

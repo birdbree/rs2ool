@@ -38,6 +38,7 @@ use rs2cache::types::map::{Location, Plane, Region};
 use serde::{Deserialize, Serialize};
 
 use crate::furnish::{self, Category};
+use crate::material::Dressing;
 
 /// Tiles along a region's side.
 pub const REGION_SIZE: u16 = 64;
@@ -105,6 +106,10 @@ pub struct Room {
     pub roofed: bool,
     /// Its tiles, sorted by x then y.
     pub tiles: Vec<RoomTile>,
+    /// What its floor is made of, once [`crate::material::dress`] has
+    /// looked: its commonest floor's material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor: Option<Dressing>,
 }
 
 /// One tile of a room.
@@ -167,6 +172,10 @@ pub struct Placed {
     /// The minimap icon its definition draws (opcode 60), if any: an index
     /// into the `mapfunction` sprites (see [`crate::furnish::ICONS`]).
     pub icon: Option<u16>,
+    /// What a wall, door or roof piece is made of, once
+    /// [`crate::material::dress`] has looked at its model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<Dressing>,
     /// The 317 location type, 0–22.
     pub kind: u8,
     /// Quarter turns, 0–3.
@@ -792,6 +801,7 @@ impl Building {
                 Room {
                     plane: *plane,
                     roofed: roofed[r],
+                    floor: None,
                     tiles: ts
                         .iter()
                         .map(|&(x, y)| {
@@ -818,6 +828,7 @@ impl Building {
                 .and_then(|d| d.name.as_deref())
                 .and_then(furnish::category),
             icon: defs.get(&w.loc.id).and_then(|d| d.minimap_function),
+            material: None,
             kind: w.loc.kind,
             rotation: w.loc.rotation,
             plane: w.loc.plane,

@@ -4,13 +4,13 @@
 
 The map stores ground tiles and placed objects, but it never says where a building is, what it's for, or which room is the kitchen. This page covers how whole structures are found in the map, with their rooms, doors, walls, roofs and everything inside, and how they're written out as blueprints. Read it before using structure data, to know what's found from cache facts and where the method stops.
 
-**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules, on [Structure purposes](structure-purposes.md). Learning those rules, grouping structures into complexes and a pack record for blueprints are the next stages ([Next](#next)).
+**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules, on [Structure purposes](structure-purposes.md). What its walls, roofs and floors are made of comes from their textures, names and colours ([Materials](#materials)). Learning those rules, grouping structures into complexes and a pack record for blueprints are the next stages ([Next](#next)).
 
 ## What a blueprint is for
 
 A blueprint is meant to be used in several ways: placed whole, used to lay out new towns, remixed with other materials and furnishings while keeping its structure, or reduced to rules per class of structure so new ones can be generated. That shapes what's kept:
 
-- **Structure apart from dressing.** Walls, doors and roofs are kept as tile edges and tiles, so the shape survives a change of materials. Each placed object keeps the id it was found with and its [furnishing category](structure-purposes.md#furnishing-categories) (a bed, a counter, storage), so one can be swapped for another; categories for wall and floor materials are still to come.
+- **Structure apart from dressing.** Walls, doors and roofs are kept as tile edges and tiles, so the shape survives a change of materials. Each placed object keeps the id it was found with and its [furnishing category](structure-purposes.md#furnishing-categories) (a bed, a counter, storage), so one can be swapped for another, and walls, roofs and floors say what they're [made of](#materials).
 - **Rooms and how they connect.** Each room is a set of tiles, and each door says which rooms it joins, so the room graph is there for both remixing and generating.
 - **Relative positions.** Everything is placed relative to the structure's south-west corner.
 
@@ -90,6 +90,100 @@ An opening is an edge where a roofed room meets the outside with no wall: an ope
 
 A cut-off corner is a diagonal wall with a corner post beside it, and the roofed tiles there have no straight wall on their outer edges. Tiles with a corner post or a diagonal wall therefore have no openings.
 
+## Materials
+
+What a structure is made of is the other half of its dressing, so a building can be rebuilt in other materials: stone walls in wood, a wooden floor in marble. [`material::dress`](../../crates/rs2convert/src/material.rs) fills it in after the structures are found, since it needs the models: `rs2ool cache structures` does that before writing.
+
+- **Walls, doors and roof pieces** are made of the model their definition draws for their placement type. When textured faces cover at least half its area, it's made of the texture covering the most; otherwise it's `plain`, with the area-weighted colour of its faces.
+- **A room's floor** is made of its commonest floor (each tile's overlay, else its underlay): the floor's texture if it has one, else what its name says, else `plain`, with its colour. An overlay of the colour the original client draws as nothing is `invisible`.
+
+Each is a `material`, with the `texture` it's drawn with or, when plain, its `colour` (`0xRRGGBB`).
+
+### Textures
+
+What each of the 50 textures is made of was read off the textures by eye, then checked against the names of the floors that use them: every textured floor's name agrees with its texture's reading (water, marble, lava, wooden floors, stone tiles, pebbles), and three first readings were corrected that way. Textures that show a thing rather than a surface (a painting, a bookshelf) are `picture`; those that are no material (a cobweb, stars, plain blue) have none.
+
+| Texture | Shows | Material |
+| --- | --- | --- |
+| 0 | dark wooden planks with a handle | wood |
+| 1 | rippling blue water | water |
+| 2 | grey stone bricks laid upright | stone |
+| 3 | brown floorboards | wood |
+| 4 | an ornate panel | wood |
+| 5 | dark wood | wood |
+| 6 | red roof tiles | roof tiles |
+| 7 | dark slats | wood |
+| 8 | green leaves | foliage |
+| 9 | the rings of a cut log | wood |
+| 10 | plain blue | — |
+| 11 | rough grey-brown stone | stone |
+| 12 | a dark lattice | metal |
+| 13 | a landscape painting | picture |
+| 14 | a portrait | picture |
+| 15 | marble | marble |
+| 16 | wooden planks | wood |
+| 17 | falling drops of water | water |
+| 18 | straw | thatch |
+| 19 | dark shingles | roof tiles |
+| 20 | a bookshelf | picture |
+| 21 | brown thatch | thatch |
+| 22 | reddish planks | wood |
+| 23 | mossy stone bricks laid upright | stone |
+| 24 | rippling blue water | water |
+| 25 | green water | water |
+| 26 | a cobweb | — |
+| 27 | brown shingles | roof tiles |
+| 28 | dark moss | foliage |
+| 29 | a fringe of grass | grass |
+| 30 | a fern | foliage |
+| 31 | lava | lava |
+| 32 | brown earth | mud |
+| 33 | autumn leaves | foliage |
+| 34 | stars | — |
+| 35 | sandstone blocks | sandstone |
+| 36 | a carved wooden panel | wood |
+| 37 | metal mesh | metal |
+| 38 | sand | sand |
+| 39 | a portrait | picture |
+| 40 | lava | lava |
+| 41 | leaves | foliage |
+| 42 | plain blue | — |
+| 43 | grey stone slabs | stone |
+| 44 | grey stone bricks | stone |
+| 45 | a wooden panel | wood |
+| 46 | cobblestones | cobbles |
+| 47 | pale stone bricks laid upright | stone |
+| 48 | sandstone carved with glyphs | sandstone |
+| 49 | parchment with writing | plaster |
+
+### Floor names
+
+A floor without a texture is made of what its name says. Floor names run words together ("woodenfloor"), so these words match anywhere in the name, ignoring case, tried in order:
+
+| Material | Words |
+| --- | --- |
+| invisible | invisible |
+| water | water, swamp |
+| lava | lava |
+| marble | marble |
+| brick | brick |
+| carpet | carpet, rug |
+| wood | wood, plank |
+| thatch | thatch, straw |
+| roof tiles | roof |
+| mud | mud, dirt, earth |
+| sand | sand, desert |
+| snow | snow, ice |
+| grass | grass |
+| cobbles | road, cobble, path |
+| stone | stone, rock, cliff, mountain, tile, slate, granite |
+
+### What they're made of
+
+Of 60,486 straight and corner walls in structures, 59,252 have a material: 39,830 plain, 16,985 stone, 946 wood, 944 sandstone, 503 metal and a few plaster and cobbles. Plain walls are the colour-only walls many towns are built of; their colour is kept. By its commonest wall material, a structure is plain (482), stone (315), sandstone (28), wood (15), metal (9) or plaster (3), and 83 have no straight walls. Roof pieces are plain (20,522), stone (17,228; many roof pieces are gable walls), roof tiles (1,846), wood (1,569), thatch (1,386) and plaster (85).
+
+Rooms' floors are plain (632), wood (485), mud (456), stone (253), invisible (202), sand (157), cobbles (132), roof tiles (88; the floors of roof terraces), marble (46), sandstone (42), water (34), grass (19) and snow (1); 57 rooms have no floor at all. In region `50_50`, the castle, the shops, the house and the church all have stone walls; the church's floor is wood and most of the castle's rooms are paved with cobbles.
+
 ## The blueprint
 
 [`structure::find`](../../crates/rs2convert/src/structure.rs) takes decoded regions and the definitions placed in them and returns the structures, sorted by origin (x, then y) and lowest plane. Every list in a structure is sorted, so the result doesn't depend on the order the regions come in. Positions are in tiles relative to the origin, x east and y north; heights are in client units (240 to a plane).
@@ -99,7 +193,7 @@ A cut-off corner is a diagonal wall with a corner post beside it, and the roofed
 | `origin` | the south-west corner of the box around its rooms, in world tiles (a region's tiles start at `region x · 64`, `region y · 64`) |
 | `size` | that box in tiles, east and north |
 | `planes` | the planes it has rooms on, lowest first |
-| `rooms` | each room's plane, whether it's `roofed` (false for a [yard](#yards)), and its tiles; a tile has its position, its overlay and underlay floor (0 for none, else the `flo` id + 1, as the map stores them) and its south-west corner's height above the structure's lowest corner |
+| `rooms` | each room's plane, whether it's `roofed` (false for a [yard](#yards)), what its `floor` is made of ([Materials](#materials)), and its tiles; a tile has its position, its overlay and underlay floor (0 for none, else the `flo` id + 1, as the map stores them) and its south-west corner's height above the structure's lowest corner |
 | `doors` | each door's placement, whether the map places it open, and the rooms either side of its edge (west then east, or south then north; none for outside) |
 | `openings` | each opening's room, plane, tile and side (0 west, 1 north, 2 east, 3 south) |
 | `walls` | walls, corner posts and diagonal walls, doors not included |
@@ -107,7 +201,7 @@ A cut-off corner is a diagonal wall with a corner post beside it, and the roofed
 | `objects` | furnishings, floor decorations and wall decorations, each with its room (none for an outside wall decoration) |
 | `clipped` | whether a room reaches the edge of the regions searched, so the structure may go on past them |
 
-Each placement has the definition id, its name where it has one, its [furnishing category](structure-purposes.md#furnishing-categories), its [minimap icon](structure-purposes.md#minimap-icons) if its definition draws one, the placement type, the rotation, the plane, its position (negative just outside the origin: a roof's overhang, a post at an outside corner) and its room. The command adds each structure's `purpose` beside these fields; see [Structure purposes](structure-purposes.md#in-the-output).
+Each placement has the definition id, its name where it has one, its [furnishing category](structure-purposes.md#furnishing-categories), its [minimap icon](structure-purposes.md#minimap-icons) if its definition draws one, for walls, doors and roof pieces what it's made of (its `material`, [Materials](#materials)), the placement type, the rotation, the plane, its position (negative just outside the origin: a roof's overhang, a post at an outside corner) and its room. The command adds each structure's `purpose` beside these fields; see [Structure purposes](structure-purposes.md#in-the-output).
 
 ## What it finds
 
@@ -151,11 +245,12 @@ The contents already say a lot: a castle block, a general shop, a smithy, a hous
 - **Diagonal walls don't split rooms.** A tile with a diagonal wall belongs wholly to the room it's roofed with, and a yard's diagonal wall doesn't close it.
 - **Large roofed areas.** Some caves and underground areas are roofed throughout, so whole regions of them come out as single structures with many openings. Most lie far north of the surface (tile y above 6400), but not all.
 - **What the cache doesn't hold.** NPCs and items on the ground are placed by the server, not the map, so shopkeepers, bankers and a shop's stock can't be seen. Parts of a building that lie in an underground region (a cellar reached by a ladder) aren't joined to it.
+- **Plain materials.** Most walls are colour only, so they're `plain` with a colour, not stone or plaster; and a wall's model may mix materials, of which only the main one is kept.
 - **Region edges.** With `--region`, the region and its eight neighbours are searched; a structure that goes on past them is marked `clipped`. With `--all`, only structures at the edge of the map are.
 
 ## Next
 
-1. **Complexes and materials.** Grouping neighbouring structures into complexes (a castle's blocks, a farm's barns), and categories for wall and floor materials. Furnishing categories, minimap icons and rules for what a structure and its rooms are for are done: see [Structure purposes](structure-purposes.md).
+1. **Complexes.** Grouping neighbouring structures into complexes (a castle's blocks, a farm's barns). Neither linking structures by runs of walls (fences and garden walls link unrelated buildings) nor by nearness alone (a shop stands three tiles from a castle tower) is enough by itself. Furnishing categories, minimap icons, rules for what a structure and its rooms are for, and materials are done: see [Structure purposes](structure-purposes.md) and [Materials](#materials).
 2. **Labels and learned trees.** Cutaway plans and object lists labelled the same way as [sequence roles](inference.md#learning-roles-from-labels), trees learned on the labels, and a profile per class: rooms, floors, room purposes, how rooms connect and which furnishings go where.
 3. **A pack record** for blueprints and class profiles.
 
