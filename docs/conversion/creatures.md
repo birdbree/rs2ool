@@ -41,9 +41,9 @@ For each sequence, `creature::sequences` resolves every frame through that map a
 
 - Entries with no body part are skipped.
 - The entry's models are merged and recoloured. Kit parts aren't scaled.
-- The entry is recorded as a kit part: `idk` (its id), `slot = body_part % 7`, `body_type = body_part / 7`, `hide_mask` (always 0) and `selectable`.
+- The entry is recorded as a kit part: `idk` (its id), `slot = body_part % 7`, `body_type = body_part / 7`, `hide_mask` and `selectable`. `hide_mask` is always 0, because kit parts hide nothing; see [Record ids](../pack/record-ids.md#manifest-extras).
 
-The **default body** takes, for each body part 0–6 (the first body type), the first selectable entry by id. Those parts are merged in body-part order into one mesh named `player`, with no scale, and given the stance sequences.
+There are two **default bodies**. The male one takes, for each body part 0–6, the first selectable entry by id; the female one does the same for body parts 7–13. Each body's parts are merged in body-part order into one mesh, named `player` and `player_female`, with no scale, and given the stance sequences. Each is rigged, converted and validated on its own. A kit with no selectable female parts gets only the male body.
 
 The cache doesn't record which sequences a player stands, turns, walks and runs with. The converter uses a fixed list, `pipeline::PLAYER_SEQUENCES`: 808, 823, 819, 820, 821, 822, 824. In order, those are stand, turn on the spot, walk, a half turn, a quarter turn each way, and run.
 
@@ -51,11 +51,11 @@ The cache doesn't record which sequences a player stands, turns, walks and runs 
 
 | Record | NPC run | Player-kit run |
 | --- | --- | --- |
-| merged model | `models` `0x10000000 \| npc id` | `models` `0x30000000` |
+| merged model | `models` `0x10000000 \| npc id` | `models` `0x30000000` (male), `0x30000001` (female) |
 | kit parts | none | `models` `0x20000000 \| idk id`, one per part |
-| rig | `rigs` `npc id` | `rigs` `0xFFFF` |
-| clips (with `--with-anims`) | `anims` `npc id << 16 \| seq id` | `anims` `0xFFFF << 16 \| seq id` |
-| reports | `npc_<id>/validation.json` | `player/validation.json` |
+| rig | `rigs` `npc id` | `rigs` `0xFFFF` (male), `0xFFFE` (female) |
+| clips (with `--with-anims`) | `anims` `npc id << 16 \| seq id` | `anims` `0xFFFF << 16 \| seq id` and `0xFFFE << 16 \| seq id` |
+| reports | `npc_<id>/validation.json` | `player/validation.json`, `player_female/validation.json` |
 
 The player-kit run also puts a `kit_parts` table in the models pack's manifest `extra`. It's keyed by each part's model record id as a decimal string:
 

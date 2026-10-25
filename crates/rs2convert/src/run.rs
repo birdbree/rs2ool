@@ -171,16 +171,27 @@ pub fn player_kit(
 ) -> Result<Outcome, ConvertError> {
     let (palette, _) = palette(records)?;
     let index = records.cache().frame_index()?;
-    let (parts, body) = pipeline::player_kit(records, &index)?;
-    let out = pipeline::convert(body, &palette, pids::PLAYER_RIG, with_anims, overrides)?;
+    let kit = pipeline::player_kit(records, &index)?;
+    let parts = kit.parts;
     let (mut models, mut rigs, mut clips) = pipeline::writers(crc);
-    out.write(
-        pids::PLAYER_MODEL,
-        pids::PLAYER_RIG,
-        &mut models,
-        &mut rigs,
-        &mut clips,
-    )?;
+    let mut creatures = Vec::new();
+    // Each default body with its model and rig ids and its report key.
+    let bodies = [
+        Some((kit.male, pids::PLAYER_MODEL, pids::PLAYER_RIG, "player")),
+        kit.female.map(|f| {
+            (
+                f,
+                pids::PLAYER_FEMALE_MODEL,
+                pids::PLAYER_FEMALE_RIG,
+                "player_female",
+            )
+        }),
+    ];
+    for (body, model_id, rig_id, key) in bodies.into_iter().flatten() {
+        let out = pipeline::convert(body, &palette, rig_id, with_anims, overrides)?;
+        out.write(model_id, rig_id, &mut models, &mut rigs, &mut clips)?;
+        creatures.push((key.to_owned(), out));
+    }
     let mut meta = BTreeMap::new();
     for (part, m) in &parts {
         models.insert(
@@ -197,14 +208,18 @@ pub fn player_kit(
     if with_anims {
         packs.push(clips);
     }
+    let bodies: Vec<String> = creatures
+        .iter()
+        .map(|(key, c)| format!("{key} rig {} bones", c.rig.bones.len()))
+        .collect();
     let log = vec![format!(
-        "player kit: {} parts; body rig {} bones",
+        "player kit: {} parts; {}",
         parts.len(),
-        out.rig.bones.len()
+        bodies.join(", ")
     )];
     Ok(Outcome {
         packs,
-        creatures: vec![("player".into(), out)],
+        creatures,
         log,
         ..Default::default()
     })

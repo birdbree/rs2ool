@@ -32,7 +32,7 @@ Every pack records the source cache's CRC (the CRC32 of the stored versionlist a
 | `textures` | the 50 textures | `textures` (one atlas), `materials` (one material per texture) |
 | `models (--id N \| --all)` | cache models | `models` |
 | `npc --id N` | an NPC's merged model and inferred rig | `models`, `rigs`, plus `anims` with `--with-anims`; `npc_<N>/validation.json`, `validation_summary.json` |
-| `player-kit` | every identity-kit part, and the default body rigged with the player stance sequences | `models` (parts and body), `rigs`, plus `anims` with `--with-anims`; `player/validation.json`, `validation_summary.json` |
+| `player-kit` | every identity-kit part, and the default male and female bodies rigged with the player stance sequences | `models` (parts and bodies), `rigs`, plus `anims` with `--with-anims`; `player/validation.json`, `player_female/validation.json`, `validation_summary.json` |
 | `sprites` | media and title sprites, and the fonts | `sprites` |
 | `floors` | floor types | `materials` (floor materials), `strings` |
 | `objects (--id N \| --all)` | location definitions | `models`, `objects`, `kits` (wall-class definitions), `strings`; an empty pack is skipped |
@@ -72,7 +72,7 @@ The merged model goes in as model record `0x10000000 | N`, the rig as rig `N`, a
 rs2ool pack player-kit --with-anims -o packs/
 ```
 
-Takes `--with-anims` and `--override` like `npc`. Each identity-kit part is model `0x20000000 | idk`; the default body is model `0x30000000` with rig `0xFFFF`. The models pack's manifest lists each part's identity-kit id, body part, body type and whether it's selectable under `kit_parts`.
+Takes `--with-anims` and `--override` like `npc`. Each identity-kit part is model `0x20000000 | idk`; the default male body is model `0x30000000` with rig `0xFFFF`, and the default female body model `0x30000001` with rig `0xFFFE`. `--override` applies to both bodies. The models pack's manifest lists each part's identity-kit id, body part, body type and whether it's selectable under `kit_parts`.
 
 ### sprites
 
@@ -123,7 +123,7 @@ rs2ool pack objects --all -o packs/
 
 ## validation.json
 
-`npc` writes `DIR/npc_<N>/validation.json`, and `player-kit` writes `DIR/player/validation.json`. They're written with or without `--with-anims`; without it, `clips` is empty.
+`npc` writes `DIR/npc_<N>/validation.json`, and `player-kit` writes `DIR/player/validation.json` and `DIR/player_female/validation.json`. They're written with or without `--with-anims`; without it, `clips` is empty.
 
 ```json
 {

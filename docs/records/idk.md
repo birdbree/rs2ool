@@ -65,8 +65,8 @@ body_type = body_part / 7     0 = male, 1 = female
 
 - A definition with no `body_part` is skipped.
 - Each remaining part's models are merged (vertex welding) and recoloured, and written as model record `0x2000_0000 | idk`.
-- Each part's metadata (`idk`, `slot`, `body_type`, `hide_mask` (always 0), `selectable`) goes in the models pack manifest under `kit_parts`, keyed by the model record id.
-- The default body takes, for each male slot 0–6, the first selectable part in id order. Those parts are merged into one model, rigged with the player stance sequences, and written as a creature.
+- Each part's metadata (`idk`, `slot`, `body_type`, `hide_mask`, `selectable`) goes in the models pack manifest under `kit_parts`, keyed by the model record id. `hide_mask` is always 0: a kit part never hides another, as [Record ids](../pack/record-ids.md#manifest-extras) explains.
+- The default male body takes, for each body part 0–6, the first selectable part in id order, and the default female body does the same for 7–13. Each body's parts are merged into one model, rigged with the player stance sequences, and written as a creature.
 
 The explorer's kit view offers, for a slot and body type, every selectable part with that `slot` and `body_type`, and starts from the first of each. See [Creature conversion](../conversion/creatures.md) for the rig and clips, and [Models pack records](../pack/models.md) for the model records and manifest.
 
