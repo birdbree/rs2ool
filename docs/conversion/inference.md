@@ -102,6 +102,38 @@ What's left is a real limit of motion alone: falling backward or to the knees an
 
 The labels aren't in the repository, since they describe the game's content. `crates/rs2convert/tests/infer_labels.rs` reads them from the JSON file named by `RS2_SEQUENCE_LABELS` (`[{"npc": 1, "seq": 2820, "class": "death", "note": "…"}, …]`), reports the table above and checks the death rule still beats the original. Without the file it skips.
 
+### Learning roles from labels
+
+The rules above were tuned by hand. `rs2ool cache classify` learns roles from sequences labelled by eye instead, and measures how the two compare. Its labels are [captions](../tools/captions.md) reviewed in the explorer, plus any from the local labels file. Each label's class becomes a role:
+
+| Classes | Role |
+| --- | --- |
+| `idle` | idle |
+| `walk`, `attack`, `block`, `gesture`, `work`, `jump` (and `action` from the labels file) | action: all of them move and come back |
+| `death` | death |
+| `fall over`, `descend` | down |
+| `fall away` | drop |
+| `vanish` | vanish |
+| `land`, `other` | other: a landing starts in the air |
+
+Each labelled sequence is posed on its NPC and measured, as above. [`rs2convert::classify`](../../crates/rs2convert/src/classify.rs) grows a decision tree on the ten measures: binary splits chosen greedily on weighted Gini impurity, at most 4 deep, with at least one label in every leaf. The tree is small enough to read, and the command prints it. It's scored leave-one-out: each sequence's role comes from a tree grown on every label but that one, so it's never marked on something it learned from.
+
+On 54 labelled sequences (38 reviewed captions and 16 from the labels file), the rules got 34 right (63%) and the tree 39 (72%). Two cautions:
+
+- The depth and leaf size were picked by trying several on these same labels, which flatters the tree a little.
+- Five sequences out of 54 is a hint, not proof.
+
+Where they differ:
+
+- **The rules** call anything that ends low a death: 17 sequences, of which 6 are, among them sitting or lying down, landings, falls and some gestures. They do catch all 6 deaths and all 3 vanishes.
+- **The tree** puts most of those false deaths where they belong, as actions, other or downs. But with so few examples it finds only 3 of the 6 deaths and none of the 4 drops or 3 vanishes.
+
+So the tree is better on the common cases and worse on the rare ones. More reviewed deaths, drops and vanishes are what would help it most.
+
+Unreviewed captions' own classes can be added as weak labels (`--weak W`, each counting `W`). With the 2B captioning model they don't help: its classes are mostly wrong.
+
+`--save` writes the tree to `role-tree.json` in the data directory. When it's there, the explorer's sequence picker uses it to group an NPC's candidates, marking each group "learned". Conversion always uses the rules, so packs don't depend on a local file. The tree is only ever learned locally; none is shipped. Shipping one would make sense once it beats the rules clearly on a few hundred labels.
+
 ### Every candidate, grouped by role
 
 There's no cap on the candidates. `npc_candidates` loads every one onto the NPC's model, gives each a role, leaves out any that won't pose, and `sort_by_role` groups them: deaths, then actions, then idles, then others.

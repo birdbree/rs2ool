@@ -113,6 +113,17 @@ rs2ool cache caption --npc 1 --enable --model <a vision model> --limit 5
 
 Each caption prints as `npc 1 seq 2820: [death] Collapses forward and lies flat` and is kept in your data directory, outside the repository. `--check` lists the server's models. Captioning is off until it's turned on in the settings or with `--enable`. See [Captions](captions.md).
 
+### `classify`
+
+Learn roles from the captions you've reviewed and see how they compare with the hand-tuned rules, then keep the tree for the explorer's sequence picker:
+
+```
+rs2ool cache classify --verbose
+rs2ool cache classify --save
+```
+
+It prints each side's score, a confusion table for each and the tree itself. See [Captions](captions.md#learning-roles-from-reviews).
+
 ### `explorer`
 
 Open the GUI on the cache. `--select` picks a record at startup (`TYPE:ID`, or `kit` for the player kit), `--compare` shows its converted version beside it, `--classic` starts in the classic renderer, and `--pack` opens packs too:

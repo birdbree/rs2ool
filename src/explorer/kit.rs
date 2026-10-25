@@ -163,6 +163,7 @@ impl KitBase {
             model,
             inferred: Vec::new(),
             rig,
+            learned: false,
         })
     }
 }

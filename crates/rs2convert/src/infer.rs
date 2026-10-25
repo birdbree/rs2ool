@@ -76,7 +76,10 @@ pub struct Candidate {
 }
 
 /// What a sequence looks like it does to a model, from its motion alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum Role {
     /// Barely moves: standing about.
     Idle,
@@ -273,6 +276,12 @@ impl Motion {
 /// Fills in each candidate's role by posing creature `c` through it.
 /// Candidates whose sequence `c` doesn't have, or won't pose, keep `None`.
 pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
+    with_roles_by(c, candidates, &Motion::role);
+}
+
+/// [`with_roles`], with `judge` deciding each role from the motion instead
+/// of the hand-tuned rules: a learned [`crate::classify::Tree`], say.
+pub fn with_roles_by(c: &Creature, candidates: &mut [Candidate], judge: &dyn Fn(&Motion) -> Role) {
     let at: BTreeMap<u32, usize> = c
         .sequences
         .iter()
@@ -281,7 +290,7 @@ pub fn with_roles(c: &Creature, candidates: &mut [Candidate]) {
         .collect();
     for cand in candidates {
         cand.motion = at.get(&cand.seq).and_then(|&s| Motion::measure(c, s));
-        cand.role = cand.motion.map(|m| m.role());
+        cand.role = cand.motion.as_ref().map(judge);
     }
 }
 
@@ -302,6 +311,20 @@ pub fn npc_candidates(
     id: u32,
     named: Creature,
 ) -> (Creature, Vec<Candidate>) {
+    npc_candidates_by(seqs, records, frames, id, named, &Motion::role)
+}
+
+/// [`npc_candidates`], with `judge` deciding each role from the motion
+/// (see [`with_roles_by`]). Which candidates there are doesn't depend on
+/// it, only their roles and order.
+pub fn npc_candidates_by(
+    seqs: &SequenceIndex,
+    records: &Records,
+    frames: &FrameIndex,
+    id: u32,
+    named: Creature,
+    judge: &dyn Fn(&Motion) -> Role,
+) -> (Creature, Vec<Candidate>) {
     let names: Vec<u32> = named.sequences.iter().map(|s| s.def.id).collect();
     let labels: BTreeSet<u8> = named
         .model
@@ -321,7 +344,7 @@ pub fn npc_candidates(
     let Ok(mut c) = crate::creature::npc(records, frames, id, &extra) else {
         return (named, Vec::new());
     };
-    with_roles(&c, &mut best);
+    with_roles_by(&c, &mut best, judge);
     // A candidate that didn't load or won't pose on this model can't
     // play, so it's left out.
     best.retain(|b| b.role.is_some());

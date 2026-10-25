@@ -149,6 +149,17 @@ rs2ool cache caption --npc 1 --enable --model <a vision model>
 
 It's off until you turn it on, and nothing is sent anywhere on a dry run. Setup, settings, flags, the images and where captions go are on [Captions](captions.md).
 
+## classify
+
+Learns sequence roles from reviewed captions (and a labels file, if given), and compares them with the hand-tuned rules:
+
+```text
+rs2ool cache classify --verbose
+rs2ool cache classify --save
+```
+
+The flags and the report are on [Captions](captions.md#learning-roles-from-reviews), and the method is in [Inference](../conversion/inference.md#learning-roles-from-labels).
+
 ## explorer
 
 `rs2ool cache explorer` opens the GUI on the cache. Its startup options are on [Explorer](explorer.md#command-line-startup).

@@ -82,6 +82,9 @@ pub enum Renderable {
         /// for showing its bones before converting; `None` when it can't
         /// be rigged (no vertex labels).
         rig: Option<Arc<InferredRig>>,
+        /// Whether the inferred sequences' roles come from a learned role
+        /// tree rather than the hand-tuned rules.
+        learned: bool,
     },
     /// A converted creature: its model, rig and clips (by clip id).
     PackCreature {
@@ -140,22 +143,48 @@ fn sequence_index(
 
 /// NPC `id`'s creature with every inferred sequence added after the named
 /// ones, grouped by role, and those candidates (see
-/// [`rs2convert::infer::npc_candidates`]). Falls back to `named` (the creature
-/// with only its named sequences) when there are none or they won't load.
+/// [`rs2convert::infer::npc_candidates`]), and whether a learned role tree
+/// gave the roles. Falls back to `named` (the creature with only its named
+/// sequences) when there are none or they won't load.
 fn with_inferred(
     source: &Source,
     records: &Records,
     index: &FrameIndex,
     id: u32,
     named: Creature,
-) -> (Creature, Vec<Candidate>) {
+) -> (Creature, Vec<Candidate>, bool) {
     let Source::Cache { path, .. } = source else {
-        return (named, Vec::new());
+        return (named, Vec::new(), false);
     };
     let Some(seqs) = sequence_index(path, records, index) else {
-        return (named, Vec::new());
+        return (named, Vec::new(), false);
     };
-    rs2convert::infer::npc_candidates(&seqs, records, index, id, named)
+    match role_tree() {
+        Some(t) => {
+            let (c, inferred) =
+                rs2convert::infer::npc_candidates_by(&seqs, records, index, id, named, &|m| {
+                    t.role(m)
+                });
+            (c, inferred, true)
+        }
+        None => {
+            let (c, inferred) = rs2convert::infer::npc_candidates(&seqs, records, index, id, named);
+            (c, inferred, false)
+        }
+    }
+}
+
+/// The role tree `rs2ool cache classify --save` learned, if there is one.
+/// Read on every NPC load, so a newly saved tree shows on the next.
+fn role_tree() -> Option<rs2convert::classify::Tree> {
+    let bytes = std::fs::read(crate::settings::role_tree_path()?).ok()?;
+    match serde_json::from_slice(&bytes) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            tracing::warn!("role tree: {e}");
+            None
+        }
+    }
 }
 
 /// The renderable a selection resolves to, if it has one.
@@ -197,7 +226,8 @@ pub fn load_renderable(
                             .ok()
                             .filter(|c| !c.sequences.is_empty())
                     {
-                        let (c, inferred) = with_inferred(source, records, &index, d.id, c);
+                        let (c, inferred, learned) =
+                            with_inferred(source, records, &index, d.id, c);
                         let model = c.rest_model();
                         let rig = rig::infer(&c, None).ok().map(Arc::new);
                         return Ok(Some(Renderable::Creature {
@@ -205,6 +235,7 @@ pub fn load_renderable(
                             model,
                             inferred,
                             rig,
+                            learned,
                         }));
                     }
                 }
