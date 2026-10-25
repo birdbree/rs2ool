@@ -11,6 +11,7 @@
 //! negated too.
 
 use bevy::asset::RenderAssetUsages;
+use bevy::color::{LinearRgba, Srgba};
 use bevy::mesh::{Mesh, PrimitiveTopology};
 use contentpack::palette::{hsl_to_rgb, split};
 use contentpack::records::model::PackModel;
@@ -113,11 +114,45 @@ fn cross(a: [i32; 3], b: [i32; 3]) -> [i32; 3] {
 /// [`model_parts`] to draw textures. `labels` colours each vertex by its
 /// label instead of the face colour.
 pub fn mesh_from_model(m: &Model, vertices: &[[i32; 3]], shading: Shading, labels: bool) -> Mesh {
+    model_faces_mesh(m, vertices, shading, labels, |_| true)
+}
+
+/// [`mesh_from_model`] split into parts by face priority, untextured.
+pub fn model_priority_parts(
+    m: &Model,
+    vertices: &[[i32; 3]],
+    shading: Shading,
+    labels: bool,
+) -> Vec<Part> {
+    let pr = m.face_priorities.as_deref();
+    priorities(pr, m.faces.len())
+        .into_iter()
+        .map(|priority| Part {
+            texture: None,
+            priority,
+            mesh: model_faces_mesh(m, vertices, shading, labels, |i| {
+                face_priority(pr, i) == priority
+            }),
+        })
+        .collect()
+}
+
+/// [`mesh_from_model`] with only the faces `keep` picks.
+fn model_faces_mesh(
+    m: &Model,
+    vertices: &[[i32; 3]],
+    shading: Shading,
+    labels: bool,
+    keep: impl Fn(usize) -> bool,
+) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
     let mut normals = Vec::with_capacity(n);
     let mut colors = Vec::with_capacity(n);
     for (i, f) in m.faces.iter().enumerate() {
+        if !keep(i) {
+            continue;
+        }
         let p = f.map(|v| vertices[usize::from(v)]);
         // The original client lights with the cache-space cross product.
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
@@ -187,11 +222,45 @@ pub fn mesh_from_pack_model(
     shading: Shading,
     tags: Option<&[u8]>,
 ) -> Mesh {
+    pack_faces_mesh(m, palette, shading, tags, |_| true)
+}
+
+/// [`mesh_from_pack_model`] split into parts by face priority.
+pub fn pack_model_parts(
+    m: &PackModel,
+    palette: Option<&[[u8; 3]]>,
+    shading: Shading,
+    tags: Option<&[u8]>,
+) -> Vec<Part> {
+    let pr = m.priorities.as_deref();
+    priorities(pr, m.faces.len())
+        .into_iter()
+        .map(|priority| Part {
+            texture: None,
+            priority,
+            mesh: pack_faces_mesh(m, palette, shading, tags, |i| {
+                face_priority(pr, i) == priority
+            }),
+        })
+        .collect()
+}
+
+/// [`mesh_from_pack_model`] with only the faces `keep` picks.
+fn pack_faces_mesh(
+    m: &PackModel,
+    palette: Option<&[[u8; 3]]>,
+    shading: Shading,
+    tags: Option<&[u8]>,
+    keep: impl Fn(usize) -> bool,
+) -> Mesh {
     let n = m.faces.len() * 3;
     let mut pos = Vec::with_capacity(n);
     let mut normals = Vec::with_capacity(n);
     let mut colors = Vec::with_capacity(n);
     for (i, f) in m.faces.iter().enumerate() {
+        if !keep(i) {
+            continue;
+        }
         // Pack space is the explorer's world space (y and z negated).
         let p = f.map(|v| m.vertices[usize::from(v)].map(f32::from));
         let nrm = flat_normal(p);
@@ -296,8 +365,18 @@ fn flat_normal(p: [[f32; 3]; 3]) -> [f32; 3] {
     }
 }
 
-/// A triangle list from per-corner positions, normals and colours.
+/// A triangle list from per-corner positions, normals and colours. The
+/// colours are sRGB, as the original client's are; vertex colours are
+/// linear, so they're converted here (a texture shade too, which then
+/// darkens the sRGB texel as the original client does).
 fn build(pos: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> Mesh {
+    let colors: Vec<[f32; 4]> = colors
+        .into_iter()
+        .map(|[r, g, b, a]| {
+            let l = LinearRgba::from(Srgba::new(r, g, b, a));
+            [l.red, l.green, l.blue, l.alpha]
+        })
+        .collect();
     Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -325,12 +404,33 @@ pub fn bounds(mesh: &Mesh) -> Option<([f32; 3], [f32; 3])> {
     }))
 }
 
-/// One part of a model: the faces drawn with one texture (or none).
+/// One part of a model: the faces drawn with one texture (or none) at
+/// one priority.
 pub struct Part {
     /// Texture id, 0–49; `None` for untextured faces.
     pub texture: Option<u16>,
+    /// The faces' draw-order priority, 0–[`MAX_PRIORITY`]: the classic
+    /// renderer draws a model's higher priorities over its lower ones.
+    pub priority: u8,
     /// The part's faces, with UVs.
     pub mesh: Mesh,
+}
+
+/// The highest face priority the classic renderer draws in order; higher
+/// ones count as this.
+pub const MAX_PRIORITY: u8 = 11;
+
+/// Face `i`'s priority (0 without per-face priorities), at most
+/// [`MAX_PRIORITY`].
+fn face_priority(priorities: Option<&[u8]>, i: usize) -> u8 {
+    priorities
+        .and_then(|p| p.get(i))
+        .map_or(0, |&p| p.min(MAX_PRIORITY))
+}
+
+/// The priorities that `faces` faces use, lowest first.
+fn priorities(priorities: Option<&[u8]>, faces: usize) -> std::collections::BTreeSet<u8> {
+    (0..faces).map(|i| face_priority(priorities, i)).collect()
 }
 
 /// The original client's shade for a textured face as a brightness
@@ -373,15 +473,15 @@ pub fn texture_uvs(corners: [[i32; 3]; 3], p: [i32; 3], m: [i32; 3], n: [i32; 3]
     })
 }
 
-/// A model posed at `vertices`, split into parts by texture, with UVs on
-/// textured parts. The untextured part (if any) comes first, then
-/// textures by id.
+/// A model posed at `vertices`, split into parts by texture and priority,
+/// with UVs on textured parts. The untextured parts (if any) come first,
+/// then textures by id, each lowest priority first.
 ///
 /// A face counts as textured when its type says so, its P/M/N triangle
 /// exists and its texture id is under 50; otherwise it's drawn in its
 /// colour.
 pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Part> {
-    let mut groups: std::collections::BTreeMap<Option<u16>, Buffers> = Default::default();
+    let mut groups: std::collections::BTreeMap<(Option<u16>, u8), Buffers> = Default::default();
     for (i, f) in m.faces.iter().enumerate() {
         let p = f.map(|v| vertices[usize::from(v)]);
         let normal = cross(sub(p[1], p[0]), sub(p[2], p[0]));
@@ -426,7 +526,8 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
                 (None, c, [[0.0; 2]; 3], alpha)
             }
         };
-        let g = groups.entry(key).or_default();
+        let priority = face_priority(m.face_priorities.as_deref(), i);
+        let g = groups.entry((key, priority)).or_default();
         for (corner, q) in p.iter().enumerate() {
             g.pos.push(world(*q));
             g.normals.push(nrm);
@@ -436,8 +537,9 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
     }
     groups
         .into_iter()
-        .map(|(texture, g)| Part {
+        .map(|((texture, priority), g)| Part {
             texture,
+            priority,
             mesh: build(g.pos, g.normals, g.colors)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs),
         })
@@ -445,13 +547,13 @@ pub fn model_parts(m: &Model, vertices: &[[i32; 3]], shading: Shading) -> Vec<Pa
 }
 
 /// A model that's already lit (map ground from
-/// [`rs2classic::terrain::ground`], say) at `vertices` in cache space, split
-/// into parts by texture like [`model_parts`]: gouraud and flat faces in
-/// their lit colours, textured faces with UVs from their P/M/N triangle
-/// and their shades as brightness. Drawn unlit, it looks the way the
-/// classic renderer draws it.
+/// [`rs2classic::terrain::ground`], say) at `vertices` in cache space,
+/// split into parts by texture and priority like [`model_parts`]: gouraud
+/// and flat faces in their lit colours, textured faces with UVs from their
+/// P/M/N triangle and their shades as brightness. Drawn unlit, it looks
+/// the way the classic renderer draws it.
 pub fn lit_model_parts(m: &rs2classic::LitModel, vertices: &[[i32; 3]]) -> Vec<Part> {
-    let mut groups: std::collections::BTreeMap<Option<u16>, Buffers> = Default::default();
+    let mut groups: std::collections::BTreeMap<(Option<u16>, u8), Buffers> = Default::default();
     for (i, f) in m.faces.iter().enumerate() {
         let p = f.map(|v| vertices[usize::from(v)]);
         let nrm = flat_normal(p.map(world));
@@ -474,7 +576,8 @@ pub fn lit_model_parts(m: &rs2classic::LitModel, vertices: &[[i32; 3]]) -> Vec<P
             (1, _) => (None, [rgb(hsl_to_rgb(c[0] as u16)); 3], [[0.0; 2]; 3]),
             _ => (None, c.map(|h| rgb(hsl_to_rgb(h as u16))), [[0.0; 2]; 3]),
         };
-        let g = groups.entry(key).or_default();
+        let priority = face_priority(m.priorities.as_deref(), i);
+        let g = groups.entry((key, priority)).or_default();
         for (corner, q) in p.iter().enumerate() {
             let col = colours[corner];
             g.pos.push(world(*q));
@@ -485,8 +588,9 @@ pub fn lit_model_parts(m: &rs2classic::LitModel, vertices: &[[i32; 3]]) -> Vec<P
     }
     groups
         .into_iter()
-        .map(|(texture, g)| Part {
+        .map(|((texture, priority), g)| Part {
             texture,
+            priority,
             mesh: build(g.pos, g.normals, g.colors)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs),
         })
@@ -610,6 +714,34 @@ mod tests {
             "textured faces ignore face alpha"
         );
         assert!(parts[1].mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some());
+    }
+
+    #[test]
+    fn parts_split_faces_by_priority() {
+        let m = Model {
+            face_priorities: Some(vec![1, 0, 1, 30]),
+            faces: vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
+            ..tetrahedron()
+        };
+        let keys = |parts: Vec<Part>| -> Vec<(u8, usize)> {
+            parts
+                .iter()
+                .map(|p| (p.priority, p.mesh.count_vertices()))
+                .collect()
+        };
+        // Lowest first; past the last drawn priority counts as the last.
+        let want = [(0, 3), (1, 6), (MAX_PRIORITY, 3)];
+        assert_eq!(keys(model_parts(&m, &m.vertices, Shading::Raw)), want);
+        assert_eq!(
+            keys(model_priority_parts(&m, &m.vertices, Shading::Raw, true)),
+            want
+        );
+        // Without per-face priorities it's one part.
+        let one = tetrahedron();
+        assert_eq!(
+            keys(model_parts(&one, &one.vertices, Shading::Raw)),
+            [(0, 12)]
+        );
     }
 
     #[test]

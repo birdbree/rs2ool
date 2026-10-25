@@ -225,6 +225,8 @@ pub struct ShownPart {
     pub entity: Entity,
     /// Texture id, 0–49; `None` for untextured faces.
     pub texture: Option<u16>,
+    /// The faces' priority (see [`mesh::Part::priority`]).
+    pub priority: u8,
     /// The mesh with the 317 lighting baked in ([`LightingMode::Client`]).
     pub client: Handle<Mesh>,
     /// The mesh with raw colours ([`LightingMode::Real`]).
@@ -647,6 +649,7 @@ impl ShowContext<'_, '_, '_> {
                 // Filled in once the entity's spawned, just below.
                 entity: Entity::PLACEHOLDER,
                 texture: c.texture,
+                priority: c.priority,
                 client: self.meshes.add(c.mesh),
                 real: self.meshes.add(r.mesh),
                 blend,
@@ -657,6 +660,7 @@ impl ShowContext<'_, '_, '_> {
                 .spawn((
                     Mesh3d(mesh),
                     MeshMaterial3d(mat),
+                    DrawOrder::of(0, DrawLayer::Object, part.priority, Transform::IDENTITY),
                     Transform::IDENTITY,
                     layer.clone(),
                     ChildOf(parent),
@@ -703,9 +707,10 @@ pub enum Pose<'a> {
 /// alpha. A pose that doesn't fit the renderable (wrong kind, or a vertex
 /// count that doesn't match) draws it at rest.
 ///
-/// Coloured by [`VertexColours::Labels`], a cache model comes back as one
-/// untextured part. Pack models are always one part. Only converted
-/// creatures can be coloured by bone. 2D renderables give nothing.
+/// Coloured by [`VertexColours::Labels`], a cache model comes back as
+/// untextured parts, one per priority. Pack models are always untextured,
+/// one part per priority. Only converted creatures can be coloured by
+/// bone. 2D renderables give nothing.
 pub fn posed_parts(
     r: &Renderable,
     colours: VertexColours,
@@ -746,11 +751,7 @@ pub fn posed_parts(
             let m = by_bone.as_ref().unwrap_or(m);
             let parts = |shading| {
                 if colours == VertexColours::Labels || by_bone.is_some() {
-                    let mesh = mesh::mesh_from_model(m, verts, shading, true);
-                    vec![mesh::Part {
-                        texture: None,
-                        mesh,
-                    }]
+                    mesh::model_priority_parts(m, verts, shading, true)
                 } else {
                     mesh::model_parts(m, verts, shading)
                 }
@@ -803,12 +804,7 @@ pub fn posed_parts(
                 ),
                 _ => None,
             };
-            let part = |shading| {
-                vec![mesh::Part {
-                    texture: None,
-                    mesh: mesh::mesh_from_pack_model(model, palette, shading, tags.as_deref()),
-                }]
-            };
+            let part = |shading| mesh::pack_model_parts(model, palette, shading, tags.as_deref());
             // Pack alpha 255 is opaque.
             let blend = model
                 .alphas
@@ -862,6 +858,86 @@ fn switch_lighting(
             let (mesh, material) = handles(&shown, part, *mode, &textures);
             m.0 = mesh;
             mat.0 = material;
+        }
+    }
+}
+
+/// Where a part comes in the classic renderer's drawing order. The
+/// classic renderer paints rather than testing depth: plane by plane from
+/// the lowest; on a plane each tile's ground, then its ground decoration,
+/// then the rest; and within a model, its higher face priorities over its
+/// lower ones. Faces that lie in the same plane (a crate's frame over its
+/// planks, the top of a wall under the floor above it) come out in that
+/// order there, but fight in a depth buffer.
+///
+/// The viewport settles them the same way: each place further on
+/// in the order draws its part [`ORDER_STEP`] of its distance nearer the
+/// camera, by scaling it about the eye, which leaves every pixel where it
+/// was. A hardware depth bias can't do this on a float depth buffer: its
+/// unit depends on each triangle's own depth, so a large triangle can get
+/// twice the bias of a small one beside it and come out on top.
+///
+/// `base` is the part's transform before that; parts with a parent need
+/// one with no transform of its own.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct DrawOrder {
+    /// The place in the order, from 0.
+    pub place: u16,
+    /// The part's own transform.
+    pub base: Transform,
+}
+
+/// What a part of a region is, for its place in the drawing order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawLayer {
+    /// The plane's ground.
+    Ground,
+    /// A ground decoration (location kind 22), drawn over the ground.
+    Decoration,
+    /// Any other location, or a model on its own.
+    Object,
+}
+
+/// How much nearer the camera each place in the drawing order draws a
+/// part, as a share of its distance. Faces in the same plane differ by
+/// rounding, about a millionth of their distance; at the furthest place
+/// (plane 3, an object, priority 11) a part comes about 0.14% nearer: ten
+/// units seen from across a whole region, a fraction of one up close.
+pub const ORDER_STEP: f32 = 1e-5;
+
+impl DrawOrder {
+    /// A part on `plane`, in `layer`, with face `priority`, at `base`.
+    pub fn of(plane: u8, layer: DrawLayer, priority: u8, base: Transform) -> Self {
+        let layers = 3;
+        let priorities = u16::from(mesh::MAX_PRIORITY) + 1;
+        let place = (u16::from(plane.min(3)) * layers + layer as u16) * priorities
+            + u16::from(priority.min(mesh::MAX_PRIORITY));
+        Self { place, base }
+    }
+
+    /// The transform that draws the part at its place, seen from `eye`.
+    pub fn transform(&self, eye: Vec3) -> Transform {
+        let scale = 1.0 - f32::from(self.place) * ORDER_STEP;
+        // Scale about the eye: every point slides along its own view ray.
+        Transform {
+            translation: eye + (self.base.translation - eye) * scale,
+            rotation: self.base.rotation,
+            scale: self.base.scale * scale,
+        }
+    }
+}
+
+/// Draws every [`DrawOrder`] part at its place: whenever the camera moves,
+/// and when a part arrives or changes.
+fn apply_draw_order(
+    cam: Query<Ref<Transform>, (With<OrbitCamera>, Without<DrawOrder>)>,
+    mut parts: Query<(Ref<DrawOrder>, &mut Transform)>,
+) {
+    let Some(cam) = cam.iter().next() else { return };
+    let moved = cam.is_changed();
+    for (order, mut t) in &mut parts {
+        if moved || order.is_changed() {
+            *t = order.transform(cam.translation);
         }
     }
 }
@@ -1014,6 +1090,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Compare>()
         .add_systems(Startup, setup)
         .add_systems(
+            PostUpdate,
+            apply_draw_order.before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(
             Update,
             (
                 follow_rect,
@@ -1053,5 +1133,41 @@ mod tests {
             "over the bottom panel"
         );
         assert!(!in_viewport(None, &rect));
+    }
+
+    #[test]
+    fn draw_order_follows_the_classic_painting() {
+        let at = |plane, layer, priority| DrawOrder::of(plane, layer, priority, default()).place;
+        use DrawLayer::{Decoration, Ground, Object};
+        // Within a model, higher priorities go over lower ones.
+        assert!(at(0, Object, 1) > at(0, Object, 0));
+        // On a plane: the ground, then its decorations, then the rest.
+        assert!(at(0, Decoration, 0) > at(0, Ground, 11));
+        assert!(at(0, Object, 0) > at(0, Decoration, 11));
+        // Any part of a plane over everything on the one below.
+        assert!(at(2, Ground, 0) > at(1, Object, 11));
+        // Priorities past the last drawn count as the last.
+        assert_eq!(at(0, Object, 200), at(0, Object, mesh::MAX_PRIORITY));
+    }
+
+    #[test]
+    fn draw_order_moves_parts_along_their_view_rays() {
+        let eye = Vec3::new(300.0, 900.0, -200.0);
+        let base =
+            Transform::from_xyz(1000.0, 0.0, -3000.0).with_rotation(Quat::from_rotation_y(1.0));
+        let order = DrawOrder::of(2, DrawLayer::Object, 5, base);
+        let t = order.transform(eye);
+        let corner = Vec3::new(64.0, -240.0, 64.0);
+        let (before, after) = (base.transform_point(corner), t.transform_point(corner));
+        // Same direction from the eye, so the same pixel; nearer by the
+        // place's share of the distance.
+        let (d0, d1) = (before - eye, after - eye);
+        assert!(d0.normalize().dot(d1.normalize()) > 1.0 - 1e-6);
+        let share = 1.0 - d1.length() / d0.length();
+        let want = f32::from(order.place) * ORDER_STEP;
+        assert!((share - want).abs() < want * 0.01, "{share} against {want}");
+        // The first place stays put.
+        let first = DrawOrder::of(0, DrawLayer::Ground, 0, base);
+        assert_eq!(first.transform(eye), base);
     }
 }

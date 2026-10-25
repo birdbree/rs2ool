@@ -307,11 +307,13 @@ use rs2cache::Records;
 use rs2cache::types::model::Model;
 use rs2cache::types::record::{Record, RecordType};
 
-use crate::explorer::mesh::{self, NPC_LIGHTING, Shading};
+use crate::explorer::mesh;
 use crate::explorer::selection::{Loaded, LoadedData, Sel, Selected};
 use crate::explorer::sources::{Source, Sources};
 use crate::explorer::ui::{Nav, ViewportRect};
-use crate::explorer::viewport3d::{LightingMode, Limits, OrbitCamera, TextureMaterials};
+use crate::explorer::viewport3d::{
+    DrawLayer, DrawOrder, LightingMode, Limits, OrbitCamera, TextureMaterials,
+};
 
 /// Everything a region scene needs, computed on the task pool.
 pub struct Built {
@@ -326,6 +328,9 @@ pub struct Built {
     pub defs: BTreeMap<u16, LocDef>,
     /// The model each `(location id, type)` draws, where it draws one.
     pub models: BTreeMap<(u16, u8), Model>,
+    /// Each of those lit with the object lighting, as both renderers draw
+    /// them.
+    pub lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>>,
     /// The same scene prepared for the classic renderer.
     pub classic: Arc<ClassicScene>,
 }
@@ -369,21 +374,12 @@ fn quarter_turns(v: [i32; 3], steps: u8) -> [i32; 3] {
     [x, y, z]
 }
 
-/// Prepares a built region for the classic renderer: each plane's ground
-/// as it is, and objects lit with the object lighting.
-pub fn classic_scene(
-    region: &Region,
-    ground: &[Option<Ground>],
-    defs: &BTreeMap<u16, LocDef>,
+/// Lights each distinct location model once with the object lighting, as
+/// the original client lights scenery; placements share it.
+pub fn light_models(
     models: &BTreeMap<(u16, u8), Model>,
-) -> ClassicScene {
-    let terrain = ground
-        .iter()
-        .enumerate()
-        .filter_map(|(p, g)| Some((p as u8, g.clone()?)))
-        .collect();
-    // Light each distinct model once; placements share it.
-    let lit: BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> = models
+) -> BTreeMap<(u16, u8), Arc<rs2classic::LitModel>> {
+    models
         .iter()
         .map(|(k, m)| {
             (
@@ -391,6 +387,22 @@ pub fn classic_scene(
                 Arc::new(rs2classic::light(m, &rs2classic::light::OBJECT)),
             )
         })
+        .collect()
+}
+
+/// Prepares a built region for the classic renderer: each plane's ground
+/// as it is, and the objects with their lit models ([`light_models`]).
+pub fn classic_scene(
+    region: &Region,
+    ground: &[Option<Ground>],
+    defs: &BTreeMap<u16, LocDef>,
+    models: &BTreeMap<(u16, u8), Model>,
+    lit: &BTreeMap<(u16, u8), Arc<rs2classic::LitModel>>,
+) -> ClassicScene {
+    let terrain = ground
+        .iter()
+        .enumerate()
+        .filter_map(|(p, g)| Some((p as u8, g.clone()?)))
         .collect();
     let mut objects = Vec::new();
     for l in &region.locations {
@@ -468,7 +480,8 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
         &floors,
         &shadows(&region, &around, &casters),
     );
-    let classic = Arc::new(classic_scene(&region, &ground, &defs, &models));
+    let lit = light_models(&models);
+    let classic = Arc::new(classic_scene(&region, &ground, &defs, &models, &lit));
     Ok(Built {
         classic,
         region,
@@ -476,6 +489,7 @@ pub fn build(records: &Records, region: Region) -> Result<Built, String> {
         ground,
         defs,
         models,
+        lit,
     })
 }
 
@@ -501,6 +515,13 @@ pub struct RegionScene {
     pub error: Option<String>,
     /// The region prepared for the classic renderer.
     pub classic: Option<Arc<ClassicScene>>,
+}
+
+impl RegionScene {
+    /// Whether a region is still being built.
+    pub fn is_loading(&self) -> bool {
+        self.pending.is_some()
+    }
 }
 
 impl Default for RegionScene {
@@ -552,8 +573,9 @@ fn start(
     scene.pending = Some((id, task));
 }
 
-/// One part of a location's model: its texture (if any) and mesh.
-type TexturedMesh = (Option<u16>, Handle<Mesh>);
+/// One part of a location's model: its texture (if any), priority and
+/// mesh.
+type TexturedMesh = (Option<u16>, u8, Handle<Mesh>);
 
 /// A region location part drawn with a texture; its material is the
 /// texture's once the textures load.
@@ -609,6 +631,12 @@ fn spawn(
             let mut e = commands.spawn((
                 Mesh3d(meshes.add(part.mesh)),
                 MeshMaterial3d(material),
+                DrawOrder::of(
+                    plane as u8,
+                    DrawLayer::Ground,
+                    part.priority,
+                    Transform::IDENTITY,
+                ),
                 Transform::IDENTITY,
                 RegionPart { plane: plane as u8 },
             ));
@@ -619,15 +647,17 @@ fn spawn(
         }
     }
     // Meshes per distinct model, shared by every placement of it. Regions
-    // always use the 317 lighting.
+    // always use the 317 lighting: the object lighting the classic
+    // renderer draws them with, smooth faces and all.
     let handles: BTreeMap<(u16, u8), Vec<TexturedMesh>> = built
-        .models
+        .lit
         .iter()
-        .map(|(k, m)| {
-            let parts = mesh::model_parts(m, &m.vertices, Shading::Client(NPC_LIGHTING));
+        .filter_map(|(k, lit)| Some((k, lit, built.models.get(k)?)))
+        .map(|(k, lit, m)| {
+            let parts = mesh::lit_model_parts(lit, &m.vertices);
             let parts = parts
                 .into_iter()
-                .map(|p| (p.texture, meshes.add(p.mesh)))
+                .map(|p| (p.texture, p.priority, meshes.add(p.mesh)))
                 .collect();
             (*k, parts)
         })
@@ -639,13 +669,20 @@ fn spawn(
         let (pos, rot) = placement(&built.region, l, built.defs.get(&l.id));
         let t =
             Transform::from_translation(Vec3::from(pos)).with_rotation(Quat::from_rotation_y(-rot));
-        for (texture, h) in parts {
+        // Ground decorations lie on the ground, and go over it.
+        let layer = if l.kind == 22 {
+            DrawLayer::Decoration
+        } else {
+            DrawLayer::Object
+        };
+        for (texture, priority, h) in parts {
             let material = texture
                 .and_then(|id| textures.get(id, LightingMode::Client))
                 .unwrap_or_else(|| unlit.clone());
             let mut e = commands.spawn((
                 Mesh3d(h.clone()),
                 MeshMaterial3d(material),
+                DrawOrder::of(l.plane, layer, *priority, t),
                 t,
                 RegionPart { plane: l.plane },
             ));

@@ -163,6 +163,7 @@ fn lighting_switch_reuses_meshes() {
     let mut part = |texture| ShownPart {
         entity: Entity::PLACEHOLDER,
         texture,
+        priority: 0,
         client: meshes.add(empty()),
         real: meshes.add(empty()),
         blend: false,
