@@ -53,6 +53,12 @@ Rooms join into one structure when:
 
 Two buildings that share a wall without a door stay apart.
 
+### Across region boundaries
+
+Everything works in world tiles, not region tiles: edges, rooms, footprints and roofs all look across region boundaries, and a wall placed in one region walls the edge it shares with the next. So a building that straddles a boundary comes out whole, as long as both regions are searched. On this cache, 25 of the 852 structures cross a region boundary, and each comes out the same from `--region` as from `--all`.
+
+A structure belongs to the region its south-west corner is in, so it's reported once. `--region` searches the region and its eight neighbours, which covers any building that starts in the region and is under 64 tiles across; one that reaches the edge of what was searched is marked `clipped`.
+
 ## What belongs to a structure
 
 | What | How it's placed | Belongs when |

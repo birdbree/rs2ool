@@ -890,6 +890,54 @@ mod tests {
     }
 
     #[test]
+    fn a_house_across_a_region_boundary_comes_out_whole() {
+        // Tiles 62–65 east: the west half in region 0_0, the east half in
+        // region 1_0, each half's walls placed in its own region, and the
+        // door in the eastern one.
+        let mut west = region();
+        let mut east = Region {
+            id: 1 << 8,
+            x: 1,
+            ..region()
+        };
+        for y in 10..=12u8 {
+            for x in [62u8, 63] {
+                west.planes[0].flags[usize::from(x) * 64 + usize::from(y)] |= ROOFED;
+            }
+            for x in [0u8, 1] {
+                east.planes[0].flags[usize::from(x) * 64 + usize::from(y)] |= ROOFED;
+            }
+            put(&mut west, WALL, 0, 62, y, 0, 0);
+            put(&mut east, WALL, 0, 1, y, 0, 2);
+        }
+        for x in [62u8, 63] {
+            put(&mut west, WALL, 0, x, 12, 0, 1);
+            put(&mut west, WALL, 0, x, 10, 0, 3);
+        }
+        put(&mut east, WALL, 0, 0, 12, 0, 1);
+        put(&mut east, DOOR, 0, 0, 10, 0, 3);
+        put(&mut east, WALL, 0, 1, 12, 0, 1);
+        put(&mut east, WALL, 0, 1, 10, 0, 3);
+        put(&mut east, BED, 0, 1, 11, 10, 0);
+        let both = find(&[west.clone(), east.clone()], &defs());
+        assert_eq!(both.len(), 1);
+        let s = &both[0];
+        assert_eq!((s.origin, s.size, s.rooms.len()), ((62, 10), (4, 3), 1));
+        assert_eq!(s.doors.len(), 1);
+        assert_eq!(
+            (s.doors[0].placed.x, s.doors[0].rooms),
+            (2, [None, Some(0)])
+        );
+        assert_eq!(s.objects[0].x, 3);
+        assert_eq!(s.walls.len(), 13);
+        assert!(!s.clipped);
+        // Alone, the western half is cut off at the boundary.
+        let alone = find(&[west], &defs());
+        assert_eq!((alone.len(), alone[0].size), (1, (2, 3)));
+        assert!(alone[0].clipped);
+    }
+
+    #[test]
     fn walls_lie_on_the_edges_the_original_client_blocks() {
         // Straight walls: west, north, east, south.
         assert_eq!(
