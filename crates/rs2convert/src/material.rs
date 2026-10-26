@@ -69,6 +69,34 @@ pub enum Material {
     Plain,
 }
 
+impl Material {
+    /// Every material, in declaration order, which is also the order of
+    /// their codes in a `structures` pack.
+    pub const ALL: [Material; 21] = [
+        Material::Wood,
+        Material::Stone,
+        Material::Brick,
+        Material::Marble,
+        Material::Sandstone,
+        Material::Cobbles,
+        Material::Plaster,
+        Material::Thatch,
+        Material::RoofTiles,
+        Material::Metal,
+        Material::Foliage,
+        Material::Grass,
+        Material::Mud,
+        Material::Sand,
+        Material::Snow,
+        Material::Carpet,
+        Material::Water,
+        Material::Lava,
+        Material::Picture,
+        Material::Invisible,
+        Material::Plain,
+    ];
+}
+
 /// What something is made of, with its texture or, for plain materials,
 /// its colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

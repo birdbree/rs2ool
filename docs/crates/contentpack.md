@@ -62,8 +62,9 @@ Each module under `records` has a Rust type and a pair of functions. `encode` re
 | `records::object` | `ObjectRecord`, `State`, `Transition`, `KitRecord`, `NONE`, and flag constants | objects, kits |
 | `records::item` | `ItemRecord`, `Icon`, `Wear`, `NONE`, `NO_ITEM`, and the flag, slot and wear-flag constants | items |
 | `records::strings` | `encode(&[String])`, `decode` | strings |
+| `records::structure` | `Blueprint`, `Site`, `Profile`, `StructureRecord` (decodes any of the three by magic), `Piece`, `Dressing`, `Spread`, `blueprint_id`, `site_id`, `profile_id` | structures |
 
-The model, rig and anim records start with a 4-byte magic and a version byte, `records::VERSION` (2); their decoders reject any other version. `PackModel::encode` checks its arrays before writing: one material slot and palette index per face, optional per-face arrays sized to the face count, labels sized to the vertex count, and every face index in range.
+The model, rig and anim records start with a 4-byte magic and a version byte, `records::VERSION` (2); their decoders reject any other version. Structures records have their own magics and `structure::VERSION` (1). `PackModel::encode` checks its arrays before writing: one material slot and palette index per face, optional per-face arrays sized to the face count, labels sized to the vertex count, and every face index in range.
 
 `RecordError` covers truncation (`Truncated`, with offset and bytes needed), a bad magic, an unsupported version, an invalid record, and trailing bytes.
 

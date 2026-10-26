@@ -228,6 +228,14 @@ World objects into models, objects, wall kits and strings:
 rs2ool pack objects --all -o packs/
 ```
 
+### `structures`
+
+Every structure in the map into blueprints, sites and class profiles:
+
+```
+rs2ool pack structures -o packs/
+```
+
 ### `items`
 
 Items into items records, their inventory and wear models, and strings, each with the slot inferred from its wear models:

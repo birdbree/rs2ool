@@ -202,6 +202,7 @@ pub fn describe_pack_record(kind: contentpack::Kind, id: u32, bytes: &[u8]) -> S
         Kind::Kits => object::KitRecord::decode(bytes).map(|k| format!("{k:#?}")),
         Kind::Strings => strings::decode(bytes)
             .map(|s| format!("{} strings: {:?}", s.len(), &s[..s.len().min(20)])),
+        Kind::Structures => structure::StructureRecord::decode(bytes).map(|r| format!("{r:#?}")),
         _ => Ok(format!("{} bytes", bytes.len())),
     };
     r.unwrap_or_else(|e| format!("cannot decode: {e}"))

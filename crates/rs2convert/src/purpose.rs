@@ -89,6 +89,41 @@ pub enum Class {
     Unknown,
 }
 
+impl Class {
+    /// Every class, in declaration order, which is also the order of
+    /// their codes in a `structures` pack.
+    pub const ALL: [Class; 28] = [
+        Class::House,
+        Class::Shack,
+        Class::Tavern,
+        Class::Smithy,
+        Class::Shop,
+        Class::Bank,
+        Class::Church,
+        Class::Castle,
+        Class::Hall,
+        Class::MagicTower,
+        Class::Library,
+        Class::Workshop,
+        Class::Mill,
+        Class::Ship,
+        Class::Prison,
+        Class::Crypt,
+        Class::Ruin,
+        Class::Farm,
+        Class::Garden,
+        Class::TownHall,
+        Class::Cave,
+        Class::Tower,
+        Class::Enclosure,
+        Class::Stall,
+        Class::Barracks,
+        Class::Storehouse,
+        Class::Other,
+        Class::Unknown,
+    ];
+}
+
 /// What a room is likely to be for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -152,6 +187,42 @@ pub enum Use {
     Other,
     /// Something in it, but nothing that says what for.
     Unknown,
+}
+
+impl Use {
+    /// Every use, in declaration order, which is also the order of
+    /// their codes in a `structures` pack.
+    pub const ALL: [Use; 29] = [
+        Use::Bedroom,
+        Use::Kitchen,
+        Use::Dining,
+        Use::Bar,
+        Use::BankHall,
+        Use::ShopFloor,
+        Use::Forge,
+        Use::Workshop,
+        Use::Chapel,
+        Use::Library,
+        Use::ThroneRoom,
+        Use::Storeroom,
+        Use::Bathroom,
+        Use::Armoury,
+        Use::Cell,
+        Use::Stairwell,
+        Use::Hall,
+        Use::Courtyard,
+        Use::Terrace,
+        Use::Garden,
+        Use::Pen,
+        Use::Empty,
+        Use::LivingRoom,
+        Use::Study,
+        Use::Office,
+        Use::Corridor,
+        Use::Cave,
+        Use::Other,
+        Use::Unknown,
+    ];
 }
 
 /// One guess, with its score and the evidence for it.

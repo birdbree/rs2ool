@@ -36,6 +36,7 @@ The explorer's convert action ([`explorer/actions.rs`](../../src/explorer/action
 | --- | --- |
 | [`tests/c_determinism.rs`](../../tests/c_determinism.rs) | runs `rs2ool pack npc --id 1 --with-anims`, `pack materials` and `pack textures` twice each into fresh directories, and compares the sorted lists of pack paths. The names are hashes of the whole file, so equal lists mean byte-identical packs. |
 | [`tests/d8_actions.rs`](../../tests/d8_actions.rs) | converts one NPC through the explorer's action and through the `rs2ool` binary, then requires the same pack paths, identical pack bytes and the same set of output files |
+| `a_regions_structures_pack_into_blueprints_sites_and_profiles` in [`rs2convert/tests/structures.rs`](../../crates/rs2convert/tests/structures.rs) | packs one area's structures twice, classing and grouping them with the built-in trees each time, and requires identical baked bytes |
 | `baking_is_deterministic_and_order_independent` in [`contentpack/src/pack.rs`](../../crates/contentpack/src/pack.rs) | the same records and extras, inserted in a different order, bake to the same bytes and name |
 | `kmeans_is_deterministic_and_separates_clusters` in [`contentpack/src/palette.rs`](../../crates/contentpack/src/palette.rs) | two k-means runs on the same points return identical centres |
 

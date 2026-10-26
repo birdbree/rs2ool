@@ -48,6 +48,8 @@
 //!   labelled structures.
 //! - [`profile`]: what the structures of each class are like across the
 //!   map, for generating new ones.
+//! - [`blueprint`]: structures, their sites and class profiles as a
+//!   `structures` pack.
 //! - [`material`]: what a structure's walls, roofs and floors are made of.
 //! - [`tree`]: a small decision tree over plain feature vectors, for any
 //!   label, with cross-validation.
@@ -75,6 +77,7 @@
 
 #![warn(missing_docs)]
 
+pub mod blueprint;
 pub mod classify;
 pub mod clip;
 pub mod creature;

@@ -97,6 +97,9 @@ pub enum Cmd {
         #[command(flatten)]
         out: Out,
     },
+    /// Convert every structure in the map into a blueprint, with a site
+    /// for each group that belongs together and a profile for each class.
+    Structures(Out),
     /// Convert models into a models pack.
     Models {
         #[command(flatten)]
@@ -220,6 +223,7 @@ pub fn run(cache: Option<PathBuf>, cmd: Cmd) -> ExitCode {
                 Cmd::Items { ids, out } => ctx.and_then(|c| c.items(&ids, &out.dir)),
                 Cmd::Spotanims { ids, out } => ctx.and_then(|c| c.spotanims(&ids, &out.dir)),
                 Cmd::Floors(o) => ctx.and_then(|c| c.floors(&o.dir)),
+                Cmd::Structures(o) => ctx.and_then(|c| c.structures(&o.dir)),
                 Cmd::PlayerKit {
                     anims,
                     #[cfg(feature = "caption")]

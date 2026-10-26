@@ -4,7 +4,7 @@
 
 [Structures](structures.md) finds buildings as blueprints, and [Structure purposes](structure-purposes.md) says what each one and each of its rooms is for. A profile sums up all the structures of one class: how big they are, which rooms they have, how those rooms connect, what they're made of, which furnishings go in which rooms, and what they stand with. It's what a generator needs to build a new tavern or smithy that keeps to the rules the map's own follow. Read this page to use the profiles or to know what their figures rest on.
 
-**Status:** implemented in [`rs2convert::profile`](../../crates/rs2convert/src/profile.rs) and written by [`rs2ool cache structures -o DIR --profiles`](../tools/cache-commands.md#structures), one JSON file per class. Profiles are built from the [learned](structure-purposes.md#learned-from-labels) classes, room uses and sites, so they're as good as those guesses: about two in three classes and room uses are right held out. Carrying profiles and blueprints in a pack record is the [next stage](structures.md#next).
+**Status:** implemented in [`rs2convert::profile`](../../crates/rs2convert/src/profile.rs) and written by [`rs2ool cache structures -o DIR --profiles`](../tools/cache-commands.md#structures), one JSON file per class. Profiles are built from the [learned](structure-purposes.md#learned-from-labels) classes, room uses and sites, so they're as good as those guesses: about two in three classes and room uses are right held out. `rs2ool pack structures` carries them, with the blueprints and sites, in a [`structures` pack](../pack/structures.md#profile).
 
 ## What a profile holds
 

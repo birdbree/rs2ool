@@ -41,7 +41,7 @@ This wiki covers the tools and also the formats themselves. If you're here to un
 
 - [Packs](pack/README.md): what a pack is and the kinds it can hold.
   - [Container](pack/container.md) and [record ids](pack/record-ids.md).
-  - Records: [models](pack/models.md), [materials](pack/materials.md), [textures](pack/textures.md), [sprites](pack/sprites.md), [objects](pack/objects.md), [kits](pack/kits.md), [strings](pack/strings.md), [rigs](pack/rigs.md), [anims](pack/anims.md).
+  - Records: [models](pack/models.md), [materials](pack/materials.md), [textures](pack/textures.md), [sprites](pack/sprites.md), [objects](pack/objects.md), [kits](pack/kits.md), [strings](pack/strings.md), [rigs](pack/rigs.md), [anims](pack/anims.md), [structures](pack/structures.md).
 - [Conversion](conversion/README.md): how cache records become pack records.
   - [Palette](conversion/palette.md), [models](conversion/models.md), [creatures](conversion/creatures.md), [rig inference](conversion/rig-inference.md), [clips](conversion/clips.md), [validation](conversion/validation.md), [objects](conversion/objects.md), [floors](conversion/floors.md), [textures and sprites](conversion/textures-and-sprites.md), [determinism](conversion/determinism.md), [inference](conversion/inference.md), [structures](conversion/structures.md), [structure purposes](conversion/structure-purposes.md), [structure profiles](conversion/structure-profiles.md).
 

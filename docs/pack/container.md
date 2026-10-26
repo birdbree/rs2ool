@@ -71,7 +71,7 @@ Opening a pack checks, in order:
 
 1. The magic is `RS2P`.
 2. The version is 1.
-3. The kind number is one of the 11 kinds.
+3. The kind number is one of the 12 kinds.
 4. The codec byte is 0 or 1.
 5. The manifest and the index fit in the file, and the manifest parses as JSON with the fields above.
 

@@ -276,6 +276,31 @@ pub fn objects(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, 
     })
 }
 
+/// Structures: every structure in the map as a blueprint, with a site for
+/// each group that belongs together and a profile for each class, classed
+/// and grouped by the built-in trees. Regions that won't load are skipped
+/// and named in the log.
+pub fn structures(records: &Records, crc: u32) -> Result<Outcome, ConvertError> {
+    let found = crate::blueprint::read(records, &|_, _| true)?;
+    let trees = crate::learn::Trees::built_in();
+    let w = crate::blueprint::pack(&found.structures, &trees, crc)?;
+    let mut log: Vec<String> = found
+        .failed
+        .iter()
+        .map(|e| format!("region skipped: {e}"))
+        .collect();
+    log.push(format!(
+        "{} records from {} structures",
+        w.len(),
+        found.structures.len()
+    ));
+    Ok(Outcome {
+        packs: vec![w],
+        log,
+        ..Default::default()
+    })
+}
+
 /// One item definition, or every item definition: its `items` record,
 /// its inventory and wear models, and the string table.
 pub fn items(records: &Records, crc: u32, id: Option<u32>) -> Result<Outcome, ConvertError> {

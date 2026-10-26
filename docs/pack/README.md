@@ -29,6 +29,7 @@ The kind number is stored in the container header; the kind name is used in the 
 | 9 | `anims` | [Anims](anims.md): one animation clip per record |
 | 10 | `fluids` | Reserved: no record layout implemented |
 | 11 | `strings` | [Strings](strings.md): string tables |
+| 12 | `structures` | [Structures](structures.md): blueprints, sites and class profiles |
 
 Kind 10 (`fluids`) is a valid kind number: the container reader accepts it and a loose directory can name it. No record encoder or decoder exists for it, and no `rs2ool pack` command writes it.
 
@@ -39,7 +40,7 @@ Which ids each kind uses, and the reserved ids within them, are on [Record ids](
 - Types are `u8`, `i8`, `u16`, `i16` and `u32`, all little-endian. There are no varints and no padding.
 - A record holds nothing but its own fields: no length prefix, since the container's index gives the length.
 - Every decoder rejects a record with bytes left over after its last field, and a record that ends early.
-- Three kinds start with a 4-byte magic and a version byte: models (`RMDL`), rigs (`RRIG`) and anims (`RANM`). The version is 2 for all three, and the decoder rejects any other value. The other kinds have no header.
+- Three kinds start with a 4-byte magic and a version byte: models (`RMDL`), rigs (`RRIG`) and anims (`RANM`). The version is 2 for all three, and the decoder rejects any other value. Each `structures` record starts with its own magic (`RBLU`, `RSIT` or `RPRF`) and version 1. The other kinds have no header.
 - Optional references use `0xFFFFFFFF` (`u32::MAX`) for "none", and 8-bit bone and parent fields use 255.
 
 Decoding errors are one enum shared by every record kind:

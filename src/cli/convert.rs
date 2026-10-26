@@ -204,6 +204,15 @@ impl<'c> Ctx<'c> {
         )
     }
 
+    /// `pack structures`: every structure as a blueprint, with its sites
+    /// and class profiles.
+    pub fn structures(&self, dir: &Path) -> anyhow::Result<()> {
+        finish(
+            run::structures(&self.records, self.crc).map_err(Into::into),
+            dir,
+        )
+    }
+
     /// `pack objects`: one location, or all of them when `ids.id` is
     /// `None`.
     pub fn objects(&self, ids: &Ids, dir: &Path) -> anyhow::Result<()> {
