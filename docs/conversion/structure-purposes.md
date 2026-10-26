@@ -278,3 +278,4 @@ By the built-in forests (which learned from these same structures, so this shows
 - [Structures](structures.md): how structures and rooms are found.
 - [Inference](inference.md): the same approach for sequence roles, rules first, then learned trees.
 - [Structures](structures.md#plans-and-sheets): the plans and sheets the labels were made from.
+- [Structure profiles](structure-profiles.md): what the structures of each class are like, from these guesses.

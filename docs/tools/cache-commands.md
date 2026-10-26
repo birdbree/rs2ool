@@ -222,6 +222,7 @@ rs2ool cache structures --all -o out/
 | `--all` | search the whole map at once |
 | `-o DIR` | write `DIR/structures/RX_RY.json` for each region with structures, instead of listing them |
 | `--plans` | with `-o`, also draw each structure's floor plan and write its text sheet, as `DIR/plans/RX_RY/X_Y_P.png` and `.md` ([Plans and sheets](../conversion/structures.md#plans-and-sheets)) |
+| `--profiles` | with `-o`, also write a profile of each class, from what the learned forests make of the structures written, as `DIR/profiles/CLASS.json` ([Structure profiles](../conversion/structure-profiles.md)) |
 | `--learn LABELS` | learn what structures and rooms are for, and which belong to one site, from a labels file, and print the held-out scores against the rules, instead of listing structures ([Learned from labels](../conversion/structure-purposes.md#learned-from-labels)) |
 | `--save FILE` | with `--learn`, save the learned forests |
 | `--trees FILE` | use saved forests instead of the built-in ones |

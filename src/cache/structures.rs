@@ -11,7 +11,8 @@
 //! Each structure also gets what the learned trees ([`rs2convert::learn`])
 //! make of it: its class, its rooms' uses and its site. With `--learn`, the
 //! command learns those trees from a labels file instead, and reports how
-//! they do.
+//! they do. With `--profiles`, it also writes a profile of each class
+//! ([`rs2convert::profile`]) from what the trees make of the structures.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -25,6 +26,7 @@ use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
 use rs2convert::learn::{self, Label, Trees};
 use rs2convert::material;
+use rs2convert::profile;
 use rs2convert::purpose::{self, Class, Purpose, Use};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
 use serde::{Deserialize, Serialize};
@@ -44,6 +46,9 @@ pub struct StructuresArgs {
     /// Also write a floor plan and a text sheet for each structure under
     /// `out`, in `plans/<rx>_<ry>/` (see [`crate::cache::plans`]).
     pub plans: bool,
+    /// Also write a profile of each class under `out`, as
+    /// `profiles/<class>.json`.
+    pub profiles: bool,
     /// Learn the trees from this labels file and report how they do,
     /// instead of listing or writing structures.
     pub learn: Option<PathBuf>,
@@ -160,6 +165,12 @@ pub fn run(
     if a.plans && a.out.is_none() {
         return Err(select::usage("--plans needs -o DIR"));
     }
+    if a.profiles {
+        let Some(dir) = &a.out else {
+            return Err(select::usage("--profiles needs -o DIR"));
+        };
+        write_profiles(dir, &found, &learned, &by_region, out)?;
+    }
     let purposes: Vec<Purpose> = found.iter().map(purpose::of).collect();
     match &a.out {
         Some(dir) if a.plans => {
@@ -222,6 +233,8 @@ struct Made {
     class: Class,
     rooms: Vec<Use>,
     site: Option<String>,
+    /// Its site's first structure, as an index; its own when it's alone.
+    root: usize,
 }
 
 fn learned(trees: &Trees, found: &[Structure]) -> Vec<Made> {
@@ -239,6 +252,7 @@ fn learned(trees: &Trees, found: &[Structure]) -> Vec<Made> {
                 class,
                 rooms,
                 site: (members[&site] > 1).then(|| structure::id(&found[site])),
+                root: site,
             }
         })
         .collect()
@@ -394,6 +408,45 @@ fn write_json(
         out,
         "{n} structures in {} regions, written to {}",
         by_region.len(),
+        dir.display()
+    )?;
+    Ok(())
+}
+
+/// Writes `DIR/profiles/<class>.json` for each class among the structures
+/// `by_region` keeps.
+fn write_profiles(
+    dir: &std::path::Path,
+    found: &[Structure],
+    learned: &[Made],
+    by_region: &BTreeMap<(u8, u8), Vec<&Structure>>,
+    out: &mut impl Write,
+) -> Result<()> {
+    let kept: Vec<usize> = by_region
+        .values()
+        .flatten()
+        .map(|s| index_of(found, s))
+        .collect();
+    let structures: Vec<Structure> = kept.iter().map(|&i| found[i].clone()).collect();
+    let guesses: Vec<(Class, Vec<Use>)> = kept
+        .iter()
+        .map(|&i| (learned[i].class, learned[i].rooms.clone()))
+        .collect();
+    let sites: Vec<usize> = kept.iter().map(|&i| learned[i].root).collect();
+    let profiles = profile::profiles(&structures, &guesses, &sites);
+    let dir = dir.join("profiles");
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    for p in &profiles {
+        let path = dir.join(format!("{}.json", name(&p.class)));
+        let json = serde_json::to_string_pretty(p)?;
+        std::fs::write(&path, json + "\n")
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    writeln!(
+        out,
+        "{} class profiles from {} structures, written to {}",
+        profiles.len(),
+        structures.len(),
         dir.display()
     )?;
     Ok(())

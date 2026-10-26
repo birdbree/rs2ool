@@ -46,6 +46,8 @@
 //!   evidence.
 //! - [`learn`]: learning structure classes, room uses and sites from
 //!   labelled structures.
+//! - [`profile`]: what the structures of each class are like across the
+//!   map, for generating new ones.
 //! - [`material`]: what a structure's walls, roofs and floors are made of.
 //! - [`tree`]: a small decision tree over plain feature vectors, for any
 //!   label, with cross-validation.
@@ -89,6 +91,7 @@ pub mod object;
 pub mod palette;
 pub mod pipeline;
 pub mod preview;
+pub mod profile;
 pub mod purpose;
 pub mod rig;
 pub mod run;
