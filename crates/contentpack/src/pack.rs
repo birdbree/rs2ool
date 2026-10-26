@@ -73,11 +73,14 @@ pub enum Kind {
     Fluids = 10,
     /// String tables, see [`crate::records::strings`].
     Strings = 11,
+    /// Blueprints, sites and class profiles, see
+    /// [`crate::records::structure`].
+    Structures = 12,
 }
 
 impl Kind {
     /// Every kind, in number order.
-    pub const ALL: [Kind; 11] = [
+    pub const ALL: [Kind; 12] = [
         Kind::Models,
         Kind::Materials,
         Kind::Textures,
@@ -89,6 +92,7 @@ impl Kind {
         Kind::Anims,
         Kind::Fluids,
         Kind::Strings,
+        Kind::Structures,
     ];
 
     /// The lowercase name used in manifests and directory names.
@@ -105,6 +109,7 @@ impl Kind {
             Kind::Anims => "anims",
             Kind::Fluids => "fluids",
             Kind::Strings => "strings",
+            Kind::Structures => "structures",
         }
     }
 

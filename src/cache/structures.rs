@@ -19,13 +19,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use rs2cache::types::config::FloDef;
-use rs2cache::types::config::LocDef;
-use rs2cache::types::map::Region;
-use rs2cache::types::record::{Record, RecordType};
 use rs2cache::{Cache, Records};
+use rs2convert::blueprint;
 use rs2convert::learn::{self, Label, Trees};
-use rs2convert::material;
 use rs2convert::profile;
 use rs2convert::purpose::{self, Class, Purpose, Use};
 use rs2convert::structure::{self, REGION_SIZE, Structure};
@@ -123,20 +119,12 @@ pub fn run(
     {
         return Err(select::usage(format!("there's no region {x}_{y}")));
     }
-    let mut regions = Vec::new();
-    let mut failed = 0;
-    for e in index.iter().filter(|e| wanted.contains(&(e.x(), e.y()))) {
-        match cache.region_for(e) {
-            Ok(r) => regions.push(r),
-            Err(err) => {
-                eprintln!("warning: {err}");
-                failed += 1;
-            }
-        }
+    let read = blueprint::read(records, &|x, y| wanted.contains(&(x, y)))?;
+    for err in &read.failed {
+        eprintln!("warning: {err}");
     }
-    let defs = definitions(records, &regions);
-    let mut found = structure::find(&regions, &defs);
-    material::dress(&mut found, records, &defs, &floors(records));
+    let failed = read.failed.len();
+    let found = read.structures;
     if let Some(path) = &a.learn {
         learn_from(&found, path, a.save.as_deref(), out)?;
         return Ok(if failed > 0 {
@@ -352,20 +340,6 @@ fn learn_from(
     Ok(())
 }
 
-/// The definition of every location placed in `regions` that decodes.
-fn definitions(records: &Records, regions: &[Region]) -> BTreeMap<u16, LocDef> {
-    let ids: BTreeSet<u16> = regions
-        .iter()
-        .flat_map(|r| r.locations.iter().map(|l| l.id))
-        .collect();
-    ids.into_iter()
-        .filter_map(|id| match records.decode(RecordType::Loc, id.into()) {
-            Ok(Record::Loc(d)) => Some((id, d)),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Writes `structures/RX_RY.json` under `dir` for each region, and says
 /// so on `out`.
 fn write_json(
@@ -450,17 +424,6 @@ fn write_profiles(
         dir.display()
     )?;
     Ok(())
-}
-
-/// Every floor definition that decodes, by id.
-fn floors(records: &Records) -> BTreeMap<u16, FloDef> {
-    let ids = records.ids(RecordType::Flo).unwrap_or_default();
-    ids.into_iter()
-        .filter_map(|id| match records.decode(RecordType::Flo, id) {
-            Ok(Record::Flo(d)) => Some((u16::try_from(id).ok()?, d)),
-            _ => None,
-        })
-        .collect()
 }
 
 /// The region a structure's origin is in.

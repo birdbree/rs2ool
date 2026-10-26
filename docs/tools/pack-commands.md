@@ -37,8 +37,9 @@ Every pack records the source cache's CRC (the CRC32 of the stored versionlist a
 | `floors` | floor types | `materials` (floor materials), `strings` |
 | `objects (--id N \| --all)` | location definitions | `models`, `objects`, `kits` (wall-class definitions), `strings`; an empty pack is skipped |
 | `items (--id N \| --all)` | item definitions, with each item's slot inferred from its wear models | `models` (inventory and wear models), `items`, `strings`; an empty pack is skipped |
+| `structures` | every structure in the map, classed and grouped into sites by the built-in learned trees | `structures` (blueprints, sites and class profiles) |
 
-Every command except `textures` and `sprites` first builds the palette from every model colour, so even a one-model run reads all models. The palette comes out the same every time, so colour indices agree across separate runs.
+Every command except `textures`, `sprites` and `structures` first builds the palette from every model colour, so even a one-model run reads all models. The palette comes out the same every time, so colour indices agree across separate runs.
 
 ### models
 
@@ -106,6 +107,14 @@ rs2ool pack spotanims --all -o packs/
 ```
 
 Converts spot animations like creatures: each one's model (`0x70000000 | id`), and with a sequence its rig (`0x8000 | id`) and a validated clip, plus `spotanim_<id>/validation.json`. The models pack's manifest lists each one under `spotanims`, with the turn and lighting no record holds. Like `npc`, the command exits 3 if any clip is over the validation threshold. See [Spot animations](../conversion/creatures.md#spot-animations).
+
+### structures
+
+```text
+rs2ool pack structures -o packs/
+```
+
+Finds every structure in the map, as [`cache structures --all`](cache-commands.md#structures) does, classes each one and its rooms with the built-in learned trees, and groups neighbours into sites. Each structure becomes a blueprint (record `plane << 28 | x << 14 | y`, from its origin), each site of two or more a site record (`0x40000000 | first blueprint`), and each class a profile (`0x80000000 | class`). The manifest lists the names of the class, use, category and material codes under `names`. See [Structures](../pack/structures.md).
 
 ## palette.json and palette.png
 

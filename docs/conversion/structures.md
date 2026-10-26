@@ -4,7 +4,7 @@
 
 The map stores ground tiles and placed objects, but it never says where a building is, what it's for, or which room is the kitchen. This page covers how whole structures are found in the map, with their rooms, doors, walls, roofs and everything inside, and how they're written out as blueprints. Read it before using structure data, to know what's found from cache facts and where the method stops.
 
-**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules and by forests learned from labelled structures, which also group structures into sites, on [Structure purposes](structure-purposes.md). What its walls, roofs and floors are made of comes from their textures, names and colours ([Materials](#materials)). What the structures of each class are like, taken together, is on [Structure profiles](structure-profiles.md). A pack record for blueprints and profiles is the next stage ([Next](#next)).
+**Status:** segmentation is implemented in [`rs2convert::structure`](../../crates/rs2convert/src/structure.rs) and run by [`rs2ool cache structures`](../tools/cache-commands.md#structures), which writes JSON. What each structure and room is likely for is guessed by hand-written rules and by forests learned from labelled structures, which also group structures into sites, on [Structure purposes](structure-purposes.md). What its walls, roofs and floors are made of comes from their textures, names and colours ([Materials](#materials)). What the structures of each class are like, taken together, is on [Structure profiles](structure-profiles.md). `rs2ool pack structures` writes them all as blueprints, with their sites and class profiles, in a `structures` pack ([Structures](../pack/structures.md)).
 
 ## What a blueprint is for
 
@@ -297,7 +297,7 @@ The contents already say a lot: a castle block, a general shop, a smithy, a hous
 
 ## Next
 
-Segmentation, furnishing categories, minimap icons, materials, rules, labels and learned forests are done, sites group structures into complexes ([Structure purposes](structure-purposes.md)), and each class has a profile ([Structure profiles](structure-profiles.md)). What's left is **a pack record** for blueprints and class profiles, laid out with the client project.
+Segmentation, furnishing categories, minimap icons, materials, rules, labels, learned forests, sites, class profiles and the `structures` pack record are all done. What's next belongs to the client: placing blueprints, remixing them with other materials and objects, and generating new structures from the profiles.
 
 ## See also
 

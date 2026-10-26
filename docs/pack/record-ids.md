@@ -68,6 +68,16 @@ Material ids are `u16`. A model face names its material through a `u8` slot, so 
 
 `s` is an `rs2cache` sprite id: the position of the sprite's entry in the list of media-archive sprite entries followed by title-archive sprite entries, fonts left out (see [Sprite](../records/sprite.md)). `f` is the font id, 0–3, in the order `p11_full`, `p12_full`, `b12_full`, `q8_full` ([Font](../records/font.md)). The sub-index `i` is the sprite's position in its sheet and is also stored in the record. See [Sprites](sprites.md).
 
+## structures
+
+| Id | Record |
+| --- | --- |
+| `plane << 28 \| x << 14 \| y` | The blueprint of the structure whose origin is world tile `(x, y)` and whose lowest plane is `plane` |
+| `0x40000000 \| b` | The site whose first member, by id, is blueprint `b` |
+| `0x80000000 \| class` | The profile of class code `class` |
+
+See [Structures](structures.md).
+
 ## objects, items, kits and strings
 
 | Kind | Id | Record |

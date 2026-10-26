@@ -8,10 +8,13 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use contentpack::PackReader;
+use contentpack::records::structure::{self as rec, StructureRecord};
 use rs2cache::Records;
 use rs2cache::types::config::LocDef;
 use rs2cache::types::map::Region;
 use rs2cache::types::record::{Record, RecordType};
+use rs2convert::blueprint;
 use rs2convert::learn::Trees;
 use rs2convert::material::{self, Material};
 use rs2convert::profile::{self, Via};
@@ -315,4 +318,51 @@ fn a_regions_profiles_cover_its_structures() {
         serde_json::to_string(&profiles).unwrap(),
         serde_json::to_string(&again).unwrap()
     );
+}
+
+#[test]
+fn a_regions_structures_pack_into_blueprints_sites_and_profiles() {
+    let Some(cache) = common::cache() else { return };
+    let records = Records::new(&cache);
+    let region = |x: u8, y: u8| (49..=51).contains(&x) && (49..=51).contains(&y);
+    let found = blueprint::read(&records, &region).unwrap().structures;
+    let trees = Trees::built_in();
+    let w = blueprint::pack(&found, &trees, 0).unwrap();
+    // The same bytes every time.
+    assert_eq!(w.bake(), blueprint::pack(&found, &trees, 0).unwrap().bake());
+    let reader = PackReader::from_bytes(&w.bake().1).unwrap();
+    let mut blueprints = BTreeMap::new();
+    let mut sites = Vec::new();
+    let mut profiles = 0;
+    for id in reader.ids() {
+        match StructureRecord::decode(&reader.get(id).unwrap().unwrap()).unwrap() {
+            StructureRecord::Blueprint(b) => {
+                blueprints.insert(id, b);
+            }
+            StructureRecord::Site(s) => sites.push((id, s)),
+            StructureRecord::Profile(_) => profiles += 1,
+        }
+    }
+    assert_eq!(blueprints.len(), found.len());
+    assert!(profiles > 0);
+    // Every tile is inside its box, counted south from the north edge.
+    for b in blueprints.values() {
+        let tiles = b.rooms.iter().flat_map(|r| &r.tiles);
+        assert!(tiles.clone().all(|t| t.x < b.width && t.z < b.depth));
+    }
+    // The castle's keep: its north-west tile on the ground floor is at
+    // z 0, and both blocks name the one site, which lists them.
+    let keep = rec::blueprint_id(0, 3203, 3206).unwrap();
+    let tower = rec::blueprint_id(0, 3227, 3212).unwrap();
+    let site = blueprints[&keep].site;
+    assert_ne!(site, rec::NONE);
+    assert_eq!(blueprints[&tower].site, site);
+    let (_, s) = sites.iter().find(|(id, _)| *id == site).unwrap();
+    let members: Vec<u32> = s.members.iter().map(|m| m.blueprint).collect();
+    assert_eq!(members, vec![keep, tower]);
+    // The tower block's north edge is 6 tiles south of the keep's.
+    let t = s.members.iter().find(|m| m.blueprint == tower).unwrap();
+    let k = s.members.iter().find(|m| m.blueprint == keep).unwrap();
+    assert_eq!((k.x, k.z), (0, 0));
+    assert_eq!((t.x, t.z), (24, 6));
 }

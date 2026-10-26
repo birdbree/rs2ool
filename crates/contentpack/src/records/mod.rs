@@ -7,7 +7,8 @@
 //! bytes left over ([`RecordError::Trailing`]).
 //!
 //! Models, rigs and anims start with a 4-byte magic and a version byte
-//! ([`VERSION`]); the other kinds have no header at all. Optional `u32`
+//! ([`VERSION`]), and so does each `structures` record, with its own
+//! version ([`structure::VERSION`]); the other kinds have no header at all. Optional `u32`
 //! references use `0xFFFFFFFF` for "none", and 8-bit bone and parent fields
 //! use 255.
 //!
@@ -22,6 +23,7 @@
 //! | [`rig`] | `rigs` | Bone hierarchies |
 //! | [`anim`] | `anims` | Animation clips |
 //! | [`strings`] | `strings` | String tables |
+//! | [`structure`] | `structures` | Blueprints, sites and class profiles |
 //!
 //! Pack space is the cache's coordinates with y and z both negated. That's
 //! half a turn about x, so nothing's mirrored and y points up.
@@ -34,6 +36,7 @@ pub mod object;
 pub mod rig;
 pub mod sprite;
 pub mod strings;
+pub mod structure;
 pub mod texture;
 
 use thiserror::Error;

@@ -90,6 +90,8 @@ The words this wiki uses, in one place. Most have a fuller page; follow the link
 
 **Site.** Neighbouring structures that belong together, such as a castle's blocks or a farm's barns, as the learned forests group them. See [Learned from labels](conversion/structure-purposes.md#forests).
 
+**Blueprint.** A structure as a `structures` pack record: its rooms and tiles, doors, openings, walls, roofs and objects, placed from its north-west corner, each piece with its object id, category and material. See [Structures](pack/structures.md).
+
 **Profile.** What the structures of one class are like across the map: their sizes, rooms by use, how the rooms connect, materials and furnishings. See [Structure profiles](conversion/structure-profiles.md).
 
 **Opening.** An edge where a roofed room meets the outside with no wall: an open doorway, an archway, a stall's open front.
